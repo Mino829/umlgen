@@ -14,6 +14,7 @@ import (
 	"github.com/Mino829/umlgen/internal/focus"
 	"github.com/Mino829/umlgen/internal/gitdiff"
 	"github.com/Mino829/umlgen/internal/java"
+	"github.com/Mino829/umlgen/internal/javacache"
 	"github.com/Mino829/umlgen/internal/model"
 	"github.com/Mino829/umlgen/internal/plantuml"
 	"github.com/Mino829/umlgen/internal/relations"
@@ -53,7 +54,7 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 	commandAt := -1
 	for i, arg := range args {
 		switch arg {
-		case "class", "diff", "init", "version", "help":
+		case "class", "diff", "init", "cache", "version", "help":
 			commandAt = i
 		}
 		if commandAt >= 0 {
@@ -88,6 +89,9 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		case "init":
 			fmt.Fprintln(stdout, "Usage:\n  umlgen init\n\nCreate a .umlgen.yaml configuration file.")
 			return exitOK, nil
+		case "cache":
+			printCacheHelp(stdout)
+			return exitOK, nil
 		case "version":
 			fmt.Fprintln(stdout, "Usage:\n  umlgen version")
 			return exitOK, nil
@@ -102,6 +106,8 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return exitOK, nil
 	case "init":
 		return runInit(rest, common, stdout)
+	case "cache":
+		return runCache(rest, common, stdout)
 	case "class":
 		return runClass(rest, common, stdout, stderr)
 	case "diff":
@@ -164,6 +170,24 @@ func runInit(args []string, common commonOptions, stdout io.Writer) (int, error)
 	return exitOK, nil
 }
 
+func runCache(args []string, common commonOptions, stdout io.Writer) (int, error) {
+	if has(args, "-h") || has(args, "--help") {
+		printCacheHelp(stdout)
+		return exitOK, nil
+	}
+	if len(args) != 1 || args[0] != "clean" {
+		return exitArgs, errors.New("cache requires the clean subcommand")
+	}
+	path, err := javacache.Clean()
+	if err != nil {
+		return exitError, err
+	}
+	if !common.quiet {
+		fmt.Fprintf(stdout, "Cleared cache: %s\n", path)
+	}
+	return exitOK, nil
+}
+
 type classOptions struct {
 	commonOptions
 	output, format, include, title       string
@@ -174,6 +198,7 @@ type classOptions struct {
 	excludes                             stringList
 	hideFields, hideMethods, hidePrivate bool
 	noRelations, showRelationLabels      bool
+	noCache                              bool
 	outputSet, formatSet, excludesSet    bool
 	hideFieldsSet, hideMethodsSet        bool
 	depthSet                             bool
@@ -223,6 +248,7 @@ func runClassMode(
 	fs.BoolVar(&o.hidePrivate, "hide-private", false, "")
 	fs.BoolVar(&o.noRelations, "no-relations", false, "")
 	fs.BoolVar(&o.showRelationLabels, "show-relation-labels", false, "")
+	fs.BoolVar(&o.noCache, "no-cache", false, "")
 	fs.StringVar(&o.title, "title", "", "")
 	fs.StringVar(&o.configPath, "config", o.configPath, "")
 	fs.BoolVar(&o.verbose, "verbose", o.verbose, "")
@@ -354,13 +380,45 @@ func runClassMode(
 		}
 	}
 
+	var parseCache *javacache.Cache
+	if o.noCache {
+		if o.verbose {
+			fmt.Fprintln(stdout, "Cache: disabled")
+		}
+	} else {
+		cacheSettings := cfg
+		cacheSettings.Output.File = ""
+		cacheSettings.Output.Format = ""
+		parseCache, err = javacache.Open(Version, cacheSettings)
+		if err != nil {
+			fmt.Fprintf(stderr, "Warning: cache disabled: %v\n", err)
+			parseCache = nil
+		}
+	}
+
 	var types []model.Type
 	warnings := 0
+	cacheHits, cacheMisses := 0, 0
 	for _, file := range files {
 		if o.verbose {
 			fmt.Fprintf(stdout, "Parsing: %s\n", file)
 		}
-		found, parseErr := java.ParseFile(file)
+		var found []model.Type
+		var parseErr error
+		if parseCache == nil {
+			found, parseErr = java.ParseFile(file)
+		} else {
+			result, resultErr := parseCache.ParseFile(file)
+			found, parseErr = result.Types, resultErr
+			if result.Hit {
+				cacheHits++
+			} else {
+				cacheMisses++
+			}
+			if result.CacheError != nil {
+				fmt.Fprintf(stderr, "Warning: cache entry was refreshed for %s: %v\n", file, result.CacheError)
+			}
+		}
 		if parseErr != nil {
 			warnings++
 			fmt.Fprintf(stderr, "Warning: failed to parse %s: %v\n", file, parseErr)
@@ -374,6 +432,9 @@ func runClassMode(
 				}
 			}
 		}
+	}
+	if o.verbose && parseCache != nil {
+		fmt.Fprintf(stdout, "Cache hits: %d, misses: %d\n", cacheHits, cacheMisses)
 	}
 	if diffSelection != nil {
 		for _, deleted := range diffSelection.Deleted {
@@ -597,6 +658,7 @@ Usage:
 
 Available Commands:
   class       Generate a class diagram
+  cache       Manage the local parse cache
   diff        Generate a diagram for Git changes
   init        Create a configuration file
   version     Print version information
@@ -607,6 +669,16 @@ Flags:
   -h, --help            help for umlgen
   -q, --quiet           suppress normal output
   -v, --verbose         enable verbose output
+`)
+}
+
+func printCacheHelp(w io.Writer) {
+	fmt.Fprint(w, `Manage the local Java parse cache.
+
+Usage:
+  umlgen cache clean
+
+The clean subcommand removes all cached Java parse results for umlgen.
 `)
 }
 
@@ -645,6 +717,7 @@ Flags:
       --show-relation-labels
                             label field, parameter, and return relations
       --no-relations        hide relationships
+      --no-cache            parse source without reading or writing the cache
   -o, --output string       output file path
       --title string        diagram title
       --config string       configuration file path

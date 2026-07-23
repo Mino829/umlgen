@@ -7,7 +7,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Mino829/umlgen/internal/javacache"
 )
+
+func TestMain(m *testing.M) {
+	cacheDir, err := os.MkdirTemp("", "umlgen-cli-test-cache-")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("UMLGEN_CACHE_DIR", cacheDir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(cacheDir)
+	os.Exit(code)
+}
 
 func TestClassAcceptsOptionsAfterTarget(t *testing.T) {
 	dir := t.TempDir()
@@ -272,4 +287,69 @@ func TestSyntaxErrorsWarnOrFailConsistently(t *testing.T) {
 			t.Fatalf("stderr = %s", stderr.String())
 		}
 	})
+}
+
+func TestParseCacheHitsAndInvalidates(t *testing.T) {
+	t.Setenv("UMLGEN_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	root := t.TempDir()
+	writeJava(t, root, "Type.java", "package sample; public class First {}")
+	out := filepath.Join(root, "diagram.puml")
+
+	run := func(extra ...string) (string, string) {
+		t.Helper()
+		args := []string{"class", root, "--verbose", "--output", out}
+		args = append(args, extra...)
+		var stdout, stderr bytes.Buffer
+		code, err := Run(args, &stdout, &stderr)
+		if err != nil || code != exitOK {
+			t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+		}
+		return stdout.String(), stderr.String()
+	}
+
+	stdout, stderr := run()
+	if stderr != "" || !strings.Contains(stdout, "Cache hits: 0, misses: 1") {
+		t.Fatalf("first stdout=%s stderr=%s", stdout, stderr)
+	}
+	stdout, stderr = run()
+	if stderr != "" || !strings.Contains(stdout, "Cache hits: 1, misses: 0") {
+		t.Fatalf("second stdout=%s stderr=%s", stdout, stderr)
+	}
+
+	writeJava(t, root, "Type.java", "package sample; public class Second {}")
+	stdout, stderr = run()
+	if stderr != "" || !strings.Contains(stdout, "Cache hits: 0, misses: 1") {
+		t.Fatalf("changed stdout=%s stderr=%s", stdout, stderr)
+	}
+	stdout, stderr = run("--hide-methods")
+	if stderr != "" || !strings.Contains(stdout, "Cache hits: 0, misses: 1") {
+		t.Fatalf("settings stdout=%s stderr=%s", stdout, stderr)
+	}
+	stdout, stderr = run("--no-cache")
+	if stderr != "" || !strings.Contains(stdout, "Cache: disabled") {
+		t.Fatalf("disabled stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestCacheCleanCommand(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	t.Setenv("UMLGEN_CACHE_DIR", root)
+	if _, err := javacache.Open(Version, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "java", "entry.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{"cache", "clean"}, &stdout, &stderr)
+	if err != nil || code != exitOK {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Cleared cache:") {
+		t.Fatalf("stdout = %s", stdout.String())
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("cache still exists: %v", err)
+	}
 }
