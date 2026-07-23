@@ -102,6 +102,30 @@ umlgen class ./src --focus UserService --direction in
 関係は双方向に探索されるため、依存先だけでなく、その型に依存している型も含まれます。
 `--direction`を指定すると、`in`、`out`、`both`から探索方向を選べます。
 
+## 解析キャッシュ
+
+Javaファイルの解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。
+
+詳細ログではヒット数を確認できます。
+
+```bash
+umlgen class ./src --verbose
+```
+
+一時的にキャッシュを使わない場合：
+
+```bash
+umlgen class ./src --no-cache
+```
+
+すべてのumlgenキャッシュを削除する場合：
+
+```bash
+umlgen cache clean
+```
+
+キャッシュにはソース本文やソースファイルのパスを保存せず、型・メンバー・関係解析に必要な宣言情報だけを保存します。ネットワーク通信は行いません。破損したエントリーは破棄して自動的に再解析します。
+
 ## 関係の種類と多重度
 
 関係線を継承、実装、フィールド、引数、戻り値から選択できます。
@@ -206,11 +230,14 @@ umlgen class ./src --format svg
 
 ```bash
 make test
+make bench
 make vet
 make build
 ```
 
 Tree-sitterを使用するため、ビルドにはCGoとCコンパイラが必要です。リリース用バイナリは各OSのGitHub Actionsランナー上でネイティブビルドされます。
+
+ベンチマークの構成と参考結果は[`docs/performance.md`](docs/performance.md)に記録しています。
 
 タグをpushすると、macOS（Apple Silicon／Intel）、Linux amd64、Windows amd64向けのアーカイブとSHA-256チェックサムがGitHub Releasesへ自動公開されます。
 
