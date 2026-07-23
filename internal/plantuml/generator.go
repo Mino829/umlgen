@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/umlgen/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/model"
 )
 
 type Options struct {
@@ -47,7 +47,8 @@ func Generate(project model.Project, opts Options) string {
 			fmt.Fprintf(&b, "package %q {\n", t.Package)
 			lastPackage = t.Package
 		}
-		fmt.Fprintf(&b, "  %s %q as %s {\n", t.Kind, t.Name, aliases[t.QualifiedName()])
+		declaration, stereotype := typeDeclaration(t.Kind)
+		fmt.Fprintf(&b, "  %s %q as %s%s {\n", declaration, t.Name, aliases[t.QualifiedName()], stereotype)
 		if opts.ShowFields {
 			for _, f := range t.Fields {
 				if visible(f.Visibility, opts) {
@@ -88,6 +89,13 @@ func Generate(project model.Project, opts Options) string {
 	}
 	b.WriteString("\n@enduml\n")
 	return b.String()
+}
+
+func typeDeclaration(kind model.TypeKind) (string, string) {
+	if kind == model.Record {
+		return "class", " <<record>>"
+	}
+	return string(kind), ""
 }
 
 func aliasesFor(types []model.Type) (map[string]string, map[string]string) {
@@ -168,7 +176,7 @@ func relations(types []model.Type, aliases, lookup map[string]string, opts Optio
 }
 
 func resolve(name, pkg string, lookup map[string]string) string {
-	name = strings.TrimSpace(name)
+	name = baseReference(name)
 	if alias := lookup[name]; alias != "" {
 		return alias
 	}
@@ -179,6 +187,15 @@ func resolve(name, pkg string, lookup map[string]string) string {
 		return lookup[name[i+1:]]
 	}
 	return ""
+}
+
+func baseReference(name string) string {
+	name = strings.TrimSpace(name)
+	if generic := strings.IndexByte(name, '<'); generic >= 0 {
+		name = name[:generic]
+	}
+	name = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(name), "[]"), "...")
+	return name
 }
 
 func typeReferences(s string) []string {

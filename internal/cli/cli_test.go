@@ -49,3 +49,44 @@ func TestVerboseQuietConflict(t *testing.T) {
 		t.Fatalf("code=%d err=%v", code, err)
 	}
 }
+
+func TestFocusAndDepth(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"Controller.java": `package sample; class Controller { Service service; }`,
+		"Service.java":    `package sample; class Service { Repository repository; }`,
+		"Repository.java": `package sample; class Repository { User find(){ return null; } }`,
+		"User.java":       `package sample; class User {}`,
+		"Other.java":      `package sample; class Other {}`,
+	}
+	for name, source := range files {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(dir, "focus.puml")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{"class", src, "--focus", "Service", "--depth", "1", "-o", out}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{`"Controller"`, `"Service"`, `"Repository"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %s:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{`"User"`, `"Other"`} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("unexpected %s:\n%s", unwanted, text)
+		}
+	}
+}

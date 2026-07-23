@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            asset: umlgen-linux-amd64
+            archive: tar.gz
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+            asset: umlgen-darwin-arm64
+            archive: tar.gz
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            asset: umlgen-darwin-amd64
+            archive: tar.gz
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            asset: umlgen-windows-amd64
+            archive: zip
+            extension: .exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Test
+        run: go test ./...
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+          ASSET: ${{ matrix.asset }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          mkdir -p dist
+          VERSION="${GITHUB_REF_NAME#v}"
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X github.com/Mino829/umlgen/internal/cli.Version=${VERSION}" \
+            -o "dist/${ASSET}${EXTENSION}" \
+            ./cmd/umlgen
+      - name: Package Unix binary
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+        run: tar -C dist -czf "dist/${ASSET}.tar.gz" "${ASSET}"
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ASSET: ${{ matrix.asset }}
+        run: Compress-Archive -Path "dist/$env:ASSET.exe" -DestinationPath "dist/$env:ASSET.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes

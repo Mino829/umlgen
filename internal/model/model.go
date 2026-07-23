@@ -14,6 +14,8 @@ type TypeKind string
 const (
 	Class     TypeKind = "class"
 	Interface TypeKind = "interface"
+	Enum      TypeKind = "enum"
+	Record    TypeKind = "record"
 )
 
 type Project struct {
