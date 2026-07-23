@@ -1,0 +1,45 @@
+@startuml
+
+package "com.acme.app" {
+  interface "Command" as T_com_acme_app_Command {
+  }
+  class "CreateUserCommand" as T_com_acme_app_CreateUserCommand {
+  }
+  class "UserService" as T_com_acme_app_UserService {
+  }
+}
+
+package "com.acme.sales" {
+  class "Order" as T_com_acme_sales_Order {
+  }
+  class "Order.LineItem" as T_com_acme_sales_Order_LineItem <<record>> {
+  }
+  class "User" as T_com_acme_sales_User {
+  }
+}
+
+package "com.acme.shared" {
+  interface "DomainType" as T_com_acme_shared_DomainType {
+  }
+  interface "Identifiable" as T_com_acme_shared_Identifiable {
+  }
+}
+
+package "com.acme.support" {
+  class "User" as T_com_acme_support_User {
+  }
+}
+
+  T_com_acme_app_Command <|.. T_com_acme_app_CreateUserCommand
+  T_com_acme_app_UserService --> "*" T_com_acme_sales_Order_LineItem : field lineItems
+  T_com_acme_app_UserService --> "1" T_com_acme_sales_User : field salesUser
+  T_com_acme_app_UserService --> "1" T_com_acme_support_User : field owner
+  T_com_acme_app_UserService ..> "*" T_com_acme_sales_Order_LineItem : parameter UserService(lineItems)
+  T_com_acme_app_UserService ..> "*" T_com_acme_sales_User : returns findAll
+  T_com_acme_app_UserService ..> "0..1" T_com_acme_sales_User : returns findSalesUser
+  T_com_acme_app_UserService ..> "1" T_com_acme_sales_User : parameter UserService(salesUser)
+  T_com_acme_app_UserService ..> "1" T_com_acme_support_User : parameter UserService(owner)
+  T_com_acme_sales_Order_LineItem --> "1" T_com_acme_sales_User : field product
+  T_com_acme_shared_Identifiable <|.. T_com_acme_sales_User
+
+@enduml

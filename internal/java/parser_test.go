@@ -3,9 +3,11 @@ package java
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/scanner"
 )
 
 func TestParseFile(t *testing.T) {
@@ -134,4 +136,80 @@ public class Outer {
 	if types[1].QualifiedName() != "app.Outer.Inner" || types[1].DisplayName() != "Outer.Inner" {
 		t.Fatalf("nested type = %#v", types[1])
 	}
+}
+
+func TestParseCompatibilityFixture(t *testing.T) {
+	root := compatibilityFixturePath(t, "project")
+	files, err := scanner.JavaFiles([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 8 {
+		t.Fatalf("files = %d, want 8", len(files))
+	}
+
+	byName := map[string]model.Type{}
+	for _, file := range files {
+		types, parseErr := ParseFile(file)
+		if parseErr != nil {
+			t.Fatalf("ParseFile(%s): %v", file, parseErr)
+		}
+		for _, parsed := range types {
+			byName[parsed.QualifiedName()] = parsed
+		}
+	}
+	if len(byName) != 9 {
+		t.Fatalf("types = %d, want 9: %#v", len(byName), byName)
+	}
+
+	if command := byName["com.acme.app.Command"]; command.Kind != model.Interface ||
+		command.Visibility != model.Public {
+		t.Fatalf("sealed interface = %#v", command)
+	}
+	if annotation := byName["com.acme.shared.DomainType"]; annotation.Kind != model.Interface {
+		t.Fatalf("annotation = %#v", annotation)
+	}
+	identifiable := byName["com.acme.shared.Identifiable"]
+	if len(identifiable.Methods) != 1 || identifiable.Methods[0].ReturnType != "T" {
+		t.Fatalf("generic interface = %#v", identifiable)
+	}
+	salesUser := byName["com.acme.sales.User"]
+	if salesUser.Visibility != model.Public || len(salesUser.Implements) != 1 ||
+		salesUser.Implements[0] != "Identifiable<String>" {
+		t.Fatalf("annotated class = %#v", salesUser)
+	}
+	lineItem := byName["com.acme.sales.Order.LineItem"]
+	if lineItem.Kind != model.Record || len(lineItem.Fields) != 2 ||
+		lineItem.Fields[0].Name != "product" || lineItem.Fields[0].Type != "User" {
+		t.Fatalf("nested record = %#v", lineItem)
+	}
+	service := byName["com.acme.app.UserService"]
+	if len(service.Imports) != 4 || !service.Imports[0].Wildcard ||
+		service.Imports[0].Name != "com.acme.sales" || service.Imports[1].Name != "com.acme.support.User" {
+		t.Fatalf("imports = %#v", service.Imports)
+	}
+	if len(service.Fields) != 4 || service.Fields[2].Type != "List<Order.LineItem>" ||
+		service.Fields[3].Type != "ExternalAuditClient" {
+		t.Fatalf("service fields = %#v", service.Fields)
+	}
+}
+
+func TestParseCompatibilityFixtureReportsSyntaxLine(t *testing.T) {
+	_, err := ParseFile(compatibilityFixturePath(t, "broken", "Broken.java"))
+	if err == nil || !strings.Contains(err.Error(), "Java syntax error at line 4") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func compatibilityFixturePath(t *testing.T, parts ...string) string {
+	t.Helper()
+	all := append([]string{"..", "..", "testdata", "java", "compatibility"}, parts...)
+	path, err := filepath.Abs(filepath.Join(all...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

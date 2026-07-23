@@ -191,3 +191,85 @@ func TestFocusAndDepth(t *testing.T) {
 		}
 	}
 }
+
+func TestCompatibilityFixtureGoldenDiagram(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "java", "compatibility")
+	out := filepath.Join(t.TempDir(), "class-diagram.puml")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{
+		"class", filepath.Join(root, "project"),
+		"--hide-fields", "--hide-methods", "--show-relation-labels",
+		"--output", out,
+	}, &stdout, &stderr)
+	if err != nil || code != exitOK {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Found 8 Java files") ||
+		!strings.Contains(stdout.String(), "Detected 6 classes and 3 interfaces") {
+		t.Fatalf("stdout = %s", stdout.String())
+	}
+
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(root, "expected", "class-diagram.puml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText := strings.ReplaceAll(string(want), "\r\n", "\n")
+	if string(got) != wantText {
+		t.Fatalf("diagram does not match golden file\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestSyntaxErrorsWarnOrFailConsistently(t *testing.T) {
+	broken, err := os.ReadFile(filepath.Join(
+		"..", "..", "testdata", "java", "compatibility", "broken", "Broken.java",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("continues when another file is valid", func(t *testing.T) {
+		root := t.TempDir()
+		writeJava(t, root, "Valid.java", "package sample; public class Valid {}")
+		writeJava(t, root, "Broken.java", string(broken))
+		out := filepath.Join(root, "diagram.puml")
+		var stdout, stderr bytes.Buffer
+		code, runErr := Run([]string{"class", root, "--output", out}, &stdout, &stderr)
+		if runErr != nil || code != exitOK {
+			t.Fatalf("code=%d err=%v stderr=%s", code, runErr, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "Warning: failed to parse") ||
+			!strings.Contains(stderr.String(), "Java syntax error at line 4") {
+			t.Fatalf("stderr = %s", stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "1 warning(s)") {
+			t.Fatalf("stdout = %s", stdout.String())
+		}
+		data, readErr := os.ReadFile(out)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !strings.Contains(string(data), `class "Valid"`) {
+			t.Fatalf("valid type was not generated:\n%s", data)
+		}
+	})
+
+	t.Run("fails when every file is invalid", func(t *testing.T) {
+		root := t.TempDir()
+		writeJava(t, root, "Broken.java", string(broken))
+		var stdout, stderr bytes.Buffer
+		code, runErr := Run([]string{"class", root}, &stdout, &stderr)
+		if code != exitParse || runErr == nil || runErr.Error() != "failed to parse all Java files" {
+			t.Fatalf("code=%d err=%v stderr=%s", code, runErr, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "Java syntax error at line 4") {
+			t.Fatalf("stderr = %s", stderr.String())
+		}
+	})
+}

@@ -232,4 +232,20 @@ git push origin v0.2.0
 
 ## 現在の解析範囲
 
-Javaの宣言構文はTree-sitterの構文木から取得します。明示的import、ワイルドカードimport、同一パッケージ、入れ子型を使ってプロジェクト内の型を解決します。リフレクション、Lombokが生成するメンバー、メソッド内部の呼び出し、Spring固有の高度な依存注入推論は対象外です。
+Javaの宣言構文はTree-sitterの構文木から取得します。明示的import、ワイルドカードimport、同一パッケージ、入れ子型を使ってプロジェクト内の型を解決します。
+
+sealed class／interfaceは通常のclass／interfaceとして、annotation宣言はinterfaceとして図へ出力します。record、generic型、wildcard型に含まれるプロジェクト内の型も、解決できる範囲で関係へ反映します。
+
+構文エラーのあるファイルは警告してスキップし、解析できるファイルから図を生成します。すべてのJavaファイルを解析できなかった場合は終了コード3で終了します。
+
+現在、次の要素は意味解析の対象外です。
+
+- sealed型の`permits`関係
+- annotationの用途や意味
+- generic型パラメーターと境界の完全な型解析
+- プロジェクト外の未解決型
+- リフレクション、Lombokが生成するメンバー
+- メソッド内部の呼び出し
+- Spring固有の高度な依存注入推論
+
+互換性は、Maven／Gradleで一般的な`src/main/java`構成を模した複数モジュールfixtureと、生成PlantUMLのgolden testで継続的に確認します。
