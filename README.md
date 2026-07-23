@@ -8,6 +8,12 @@ umlgen class ./src/main/java
 
 ソースコードが外部へ送信されることはありません。
 
+> **Javaプロジェクトへ導入したい方へ**
+>
+> GitHub Actionsへの導入、対象パッケージの調整、PR差分図の動作確認をまとめて行う
+> [導入サポート](docs/onboarding-support.md)を3,000円から受け付けています。
+> まずは公開情報だけで[導入相談を作成](https://github.com/Mino829/umlgen/issues/new?template=onboarding.yml)できます。
+
 ## 主な機能
 
 - Tree-sitter JavaによるAST解析
@@ -182,6 +188,8 @@ jobs:
 ```
 
 導入方法、入力、Fork Pull Requestのセキュリティ上の注意は[`docs/github-actions.md`](docs/github-actions.md)を参照してください。
+
+自分のリポジトリに合わせた設定を依頼したい場合は、[導入サポート](docs/onboarding-support.md)を利用できます。
 
 ## 設定ファイル
 
