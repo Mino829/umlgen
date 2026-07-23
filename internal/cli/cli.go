@@ -402,11 +402,7 @@ func runClassMode(
 				changed = append(changed, types[i].QualifiedName())
 				continue
 			}
-			source, pathErr := filepath.Abs(types[i].Source)
-			if pathErr != nil {
-				source = filepath.Clean(types[i].Source)
-			}
-			if change, ok := diffSelection.Current[filepath.Clean(source)]; ok {
+			if change, ok := diffSelection.ChangeFor(types[i].Source); ok {
 				types[i].Change = change
 				changed = append(changed, types[i].QualifiedName())
 			}

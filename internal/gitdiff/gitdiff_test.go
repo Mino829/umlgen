@@ -41,14 +41,17 @@ func TestAnalyzeAddedModifiedAndDeletedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Current[filepath.Join(root, "Keep.java")] != model.Modified {
+	if result.Current["Keep.java"] != model.Modified {
 		t.Fatalf("modified = %#v", result.Current)
 	}
-	if result.Current[filepath.Join(root, "Added.java")] != model.Added {
+	if result.Current["Added.java"] != model.Added {
 		t.Fatalf("added = %#v", result.Current)
 	}
-	if result.Current[filepath.Join(root, "Untracked.java")] != model.Added {
+	if result.Current["Untracked.java"] != model.Added {
 		t.Fatalf("untracked = %#v", result.Current)
+	}
+	if change, ok := result.ChangeFor(filepath.Join(root, "Keep.java")); !ok || change != model.Modified {
+		t.Fatalf("ChangeFor(Keep.java) = %q, %v", change, ok)
 	}
 	if len(result.Deleted) != 1 || string(result.Deleted[0].Content) != "class Delete {}" {
 		t.Fatalf("deleted = %#v", result.Deleted)

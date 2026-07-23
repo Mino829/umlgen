@@ -48,12 +48,12 @@ func Analyze(rangeSpec string) (Result, error) {
 		status := fields[0]
 		switch status[0] {
 		case 'A':
-			result.Current[absolute(root, fields[1])] = model.Added
+			result.Current[relative(fields[1])] = model.Added
 		case 'M', 'T':
-			result.Current[absolute(root, fields[1])] = model.Modified
+			result.Current[relative(fields[1])] = model.Modified
 		case 'R', 'C':
 			if len(fields) >= 3 {
-				result.Current[absolute(root, fields[2])] = model.Modified
+				result.Current[relative(fields[2])] = model.Modified
 			}
 		case 'D':
 			content, showErr := runGit(root, "show", base+":"+filepath.ToSlash(fields[1]))
@@ -71,13 +71,35 @@ func Analyze(rangeSpec string) (Result, error) {
 	}
 	for _, path := range strings.Split(strings.TrimSpace(string(untracked)), "\n") {
 		if path != "" {
-			result.Current[absolute(root, path)] = model.Added
+			result.Current[relative(path)] = model.Added
 		}
 	}
 	if len(result.Current) == 0 && len(result.Deleted) == 0 {
 		return Result{}, fmt.Errorf("no changed Java files found in Git diff: %s", rangeSpec)
 	}
 	return result, nil
+}
+
+func (r Result) ChangeFor(path string) (model.ChangeKind, bool) {
+	if change, ok := r.changeFor(r.Root, path); ok {
+		return change, true
+	}
+
+	root, rootErr := filepath.EvalSymlinks(r.Root)
+	source, sourceErr := filepath.EvalSymlinks(path)
+	if rootErr != nil || sourceErr != nil {
+		return "", false
+	}
+	return r.changeFor(root, source)
+}
+
+func (r Result) changeFor(root, path string) (model.ChangeKind, bool) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", false
+	}
+	change, ok := r.Current[relative(rel)]
+	return change, ok
 }
 
 func baseRevision(root, rangeSpec string) (string, error) {
@@ -92,6 +114,10 @@ func baseRevision(root, rangeSpec string) (string, error) {
 		return before, nil
 	}
 	return rangeSpec, nil
+}
+
+func relative(path string) string {
+	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
 }
 
 func absolute(root, path string) string {
