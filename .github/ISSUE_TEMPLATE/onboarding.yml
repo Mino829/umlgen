@@ -1,0 +1,83 @@
+name: umlgen導入相談
+description: JavaリポジトリへのGitHub Actions導入について相談する
+title: "[導入相談] "
+labels:
+  - onboarding
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        umlgenの導入サポートに関心を持っていただきありがとうございます。
+        このIssueは公開されます。private repositoryのコード、secret、社外秘情報は記載しないでください。
+
+  - type: dropdown
+    id: repository-visibility
+    attributes:
+      label: リポジトリの公開範囲
+      options:
+        - Public
+        - Private
+        - まだ決めていない
+    validations:
+      required: true
+
+  - type: input
+    id: public-repository
+    attributes:
+      label: 公開リポジトリURL
+      description: Publicの場合だけ入力してください。Privateの場合は空欄にしてください。
+      placeholder: https://github.com/example/project
+
+  - type: dropdown
+    id: build-tool
+    attributes:
+      label: 主なビルド構成
+      options:
+        - Maven
+        - Gradle
+        - MavenまたはGradleのマルチモジュール
+        - その他
+        - 不明
+    validations:
+      required: true
+
+  - type: textarea
+    id: source-layout
+    attributes:
+      label: 公開可能なソース構成
+      description: コード本文や社外秘の名称を避け、src/main/javaなどのパスだけを記載してください。
+      placeholder: |
+        app/src/main/java
+        domain/src/main/java
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: goals
+    attributes:
+      label: 実現したいこと
+      options:
+        - label: Pull Requestごとに差分クラス図を生成したい
+        - label: 現在のコード全体からクラス図を生成したい
+        - label: 大きな図を対象パッケージやクラスで絞り込みたい
+        - label: READMEへ利用方法を追加したい
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 現在困っていること
+      description: 公開できる範囲で、レビューやドキュメント上の課題を記載してください。
+      placeholder: PRで依存関係の変化を確認するのが難しい
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 確認
+      options:
+        - label: このIssueが公開されることを理解し、ソースコード、secret、社外秘情報を記載していません
+          required: true
+        - label: 相談は無料で、作業範囲と価格への合意後に有料作業が始まることを理解しました
+          required: true
