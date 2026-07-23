@@ -1,0 +1,165 @@
+name: Reusable umlgen PR diff
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: Repository-relative Java source path
+        required: false
+        default: .
+        type: string
+      depth:
+        description: Relationship depth around changed types
+        required: false
+        default: 1
+        type: number
+      direction:
+        description: Relation traversal direction (in, out, or both)
+        required: false
+        default: both
+        type: string
+      umlgen-version:
+        description: Released umlgen tag to download
+        required: false
+        default: v0.3.0
+        type: string
+      artifact-name:
+        description: Uploaded artifact name
+        required: false
+        default: umlgen-pr-diff
+        type: string
+      retention-days:
+        description: Artifact retention period
+        required: false
+        default: 14
+        type: number
+      base-sha:
+        description: Optional base commit override
+        required: false
+        default: ""
+        type: string
+      head-sha:
+        description: Optional head commit override
+        required: false
+        default: ""
+        type: string
+    outputs:
+      artifact-url:
+        description: URL of the uploaded diagram artifact
+        value: ${{ jobs.generate.outputs.artifact-url }}
+      no-java-changes:
+        description: Whether the selected source path had no changed Java files
+        value: ${{ jobs.generate.outputs.no-java-changes }}
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate PR class diagram
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact-url: ${{ steps.artifact.outputs.artifact-url }}
+      no-java-changes: ${{ steps.diagram.outputs.no-java-changes }}
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve revisions
+        id: revisions
+        shell: bash
+        env:
+          INPUT_BASE_SHA: ${{ inputs.base-sha }}
+          INPUT_HEAD_SHA: ${{ inputs.head-sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          BASE_SHA="${INPUT_BASE_SHA:-$EVENT_BASE_SHA}"
+          HEAD_SHA="${INPUT_HEAD_SHA:-$EVENT_HEAD_SHA}"
+          if [[ -z "$BASE_SHA" || -z "$HEAD_SHA" ]]; then
+            echo "::error::Base and head commits are unavailable. Call from pull_request or pass base-sha and head-sha."
+            exit 1
+          fi
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+          echo "base-sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head-sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify umlgen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UMLGEN_VERSION: ${{ inputs.umlgen-version }}
+        run: |
+          set -euo pipefail
+          INSTALL_DIR="$RUNNER_TEMP/umlgen"
+          mkdir -p "$INSTALL_DIR"
+          gh release download "$UMLGEN_VERSION" \
+            --repo Mino829/umlgen \
+            --pattern SHA256SUMS.txt \
+            --pattern umlgen-linux-amd64.tar.gz \
+            --dir "$INSTALL_DIR"
+          (
+            cd "$INSTALL_DIR"
+            grep '  umlgen-linux-amd64.tar.gz$' SHA256SUMS.txt | sha256sum -c -
+            tar -xzf umlgen-linux-amd64.tar.gz
+          )
+          chmod +x "$INSTALL_DIR/umlgen-linux-amd64"
+
+      - name: Install PlantUML
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends plantuml
+
+      - name: Generate diagram
+        id: diagram
+        shell: bash
+        env:
+          BASE_SHA: ${{ steps.revisions.outputs.base-sha }}
+          HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
+          SOURCE: ${{ inputs.source }}
+          DEPTH: ${{ inputs.depth }}
+          DIRECTION: ${{ inputs.direction }}
+        run: |
+          set -euo pipefail
+          OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
+          UMLGEN_BIN="$RUNNER_TEMP/umlgen/umlgen-linux-amd64"
+          mkdir -p "$OUTPUT_DIR"
+          if git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" |
+            grep -Eiq '\.java$'; then
+            "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
+              --depth "$DEPTH" \
+              --direction "$DIRECTION" \
+              --format svg \
+              --output "$OUTPUT_DIR/change-diagram.puml" \
+              --quiet
+            echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' \
+              '@startuml' \
+              'title Pull request class diagram' \
+              'note "No Java source changes in the selected path" as NoChanges' \
+              '@enduml' \
+              > "$OUTPUT_DIR/change-diagram.puml"
+            plantuml -tsvg "$OUTPUT_DIR/change-diagram.puml"
+            echo "no-java-changes=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::No changed Java files were found under $SOURCE."
+          fi
+
+      - name: Upload diagram
+        id: artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            ${{ runner.temp }}/umlgen-pr-diff/change-diagram.puml
+            ${{ runner.temp }}/umlgen-pr-diff/change-diagram.svg
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}

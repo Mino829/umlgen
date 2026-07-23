@@ -167,6 +167,22 @@ umlgen diff main...HEAD \
 
 差分図では追加を緑、変更を黄色、削除を赤で表示します。削除されたJavaファイルもGit履歴から読み込んで図に含めます。デフォルト出力先は`change-diagram.puml`です。
 
+### Pull Requestで自動生成
+
+公開している再利用可能GitHub Actionsワークフローを利用すると、Pull Requestごとに差分図の`.puml`とSVGをartifactへ保存できます。
+
+```yaml
+jobs:
+  umlgen-diff:
+    permissions:
+      contents: read
+    uses: Mino829/umlgen/.github/workflows/umlgen-pr-diff.yml@main
+    with:
+      source: src/main/java
+```
+
+導入方法、入力、Fork Pull Requestのセキュリティ上の注意は[`docs/github-actions.md`](docs/github-actions.md)を参照してください。
+
 ## 設定ファイル
 
 設定のひな型を生成します。
