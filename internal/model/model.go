@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 type Visibility string
 
 const (
@@ -22,23 +24,49 @@ type Project struct {
 	Types []Type
 }
 
+type ChangeKind string
+
+const (
+	Unchanged ChangeKind = ""
+	Added     ChangeKind = "added"
+	Modified  ChangeKind = "modified"
+	Deleted   ChangeKind = "deleted"
+)
+
+type Import struct {
+	Name     string
+	Wildcard bool
+	Static   bool
+}
+
 type Type struct {
 	Package    string
 	Name       string
+	Enclosing  []string
 	Kind       TypeKind
 	Visibility Visibility
+	Imports    []Import
 	Fields     []Field
 	Methods    []Method
 	Extends    []string
 	Implements []string
 	Source     string
+	Change     ChangeKind
 }
 
 func (t Type) QualifiedName() string {
-	if t.Package == "" {
-		return t.Name
+	parts := append([]string{}, t.Enclosing...)
+	parts = append(parts, t.Name)
+	if t.Package != "" {
+		parts = append([]string{t.Package}, parts...)
 	}
-	return t.Package + "." + t.Name
+	return strings.Join(parts, ".")
+}
+
+func (t Type) DisplayName() string {
+	parts := append([]string{}, t.Enclosing...)
+	parts = append(parts, t.Name)
+	return strings.Join(parts, ".")
 }
 
 type Field struct {

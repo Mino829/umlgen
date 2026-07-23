@@ -7,28 +7,30 @@ import (
 	"unicode"
 
 	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/relations"
 )
 
 type Options struct {
-	Title            string
-	ShowFields       bool
-	ShowMethods      bool
-	ShowPrivate      bool
-	ShowPublic       bool
-	ShowProtected    bool
-	ShowPackage      bool
-	ShowRelations    bool
-	Inheritance      bool
-	Implementation   bool
-	FieldDependency  bool
-	ParamDependency  bool
-	ReturnDependency bool
+	Title              string
+	ShowFields         bool
+	ShowMethods        bool
+	ShowPrivate        bool
+	ShowPublic         bool
+	ShowProtected      bool
+	ShowPackage        bool
+	ShowRelations      bool
+	Inheritance        bool
+	Implementation     bool
+	FieldDependency    bool
+	ParamDependency    bool
+	ReturnDependency   bool
+	ShowRelationLabels bool
 }
 
 func Generate(project model.Project, opts Options) string {
 	types := append([]model.Type(nil), project.Types...)
 	sort.Slice(types, func(i, j int) bool { return types[i].QualifiedName() < types[j].QualifiedName() })
-	aliases, lookup := aliasesFor(types)
+	aliases := aliasesFor(types)
 
 	var b strings.Builder
 	b.WriteString("@startuml\n")
@@ -48,7 +50,10 @@ func Generate(project model.Project, opts Options) string {
 			lastPackage = t.Package
 		}
 		declaration, stereotype := typeDeclaration(t.Kind)
-		fmt.Fprintf(&b, "  %s %q as %s%s {\n", declaration, t.Name, aliases[t.QualifiedName()], stereotype)
+		fmt.Fprintf(
+			&b, "  %s %q as %s%s%s {\n",
+			declaration, t.DisplayName(), aliases[t.QualifiedName()], stereotype, changeColor(t.Change),
+		)
 		if opts.ShowFields {
 			for _, f := range t.Fields {
 				if visible(f.Visibility, opts) {
@@ -78,7 +83,7 @@ func Generate(project model.Project, opts Options) string {
 		b.WriteString("}\n")
 	}
 	if opts.ShowRelations {
-		rels := relations(types, aliases, lookup, opts)
+		rels := relationLines(types, aliases, opts)
 		if len(rels) > 0 {
 			b.WriteByte('\n')
 			for _, rel := range rels {
@@ -91,6 +96,19 @@ func Generate(project model.Project, opts Options) string {
 	return b.String()
 }
 
+func changeColor(change model.ChangeKind) string {
+	switch change {
+	case model.Added:
+		return " #palegreen"
+	case model.Modified:
+		return " #lightyellow"
+	case model.Deleted:
+		return " #lightcoral"
+	default:
+		return ""
+	}
+}
+
 func typeDeclaration(kind model.TypeKind) (string, string) {
 	if kind == model.Record {
 		return "class", " <<record>>"
@@ -98,126 +116,73 @@ func typeDeclaration(kind model.TypeKind) (string, string) {
 	return string(kind), ""
 }
 
-func aliasesFor(types []model.Type) (map[string]string, map[string]string) {
+func aliasesFor(types []model.Type) map[string]string {
 	aliases := map[string]string{}
-	lookup := map[string]string{}
-	counts := map[string]int{}
-	for _, t := range types {
-		counts[t.Name]++
-	}
 	for _, t := range types {
 		alias := safeAlias(t.QualifiedName())
 		aliases[t.QualifiedName()] = alias
-		lookup[t.QualifiedName()] = alias
-		if counts[t.Name] == 1 {
-			lookup[t.Name] = alias
-		}
-		lookup[t.Package+"."+t.Name] = alias
 	}
-	return aliases, lookup
+	return aliases
 }
 
-func relations(types []model.Type, aliases, lookup map[string]string, opts Options) []string {
-	set := map[string]bool{}
-	add := func(from, arrow, rawTarget, pkg string) {
-		target := resolve(rawTarget, pkg, lookup)
-		if target == "" || target == from {
-			return
+func relationLines(types []model.Type, aliases map[string]string, opts Options) []string {
+	var result []string
+	for _, relation := range relations.Build(types) {
+		if !relationEnabled(relation.Kind, opts) {
+			continue
 		}
-		set[fmt.Sprintf("  %s %s %s", target, arrow, from)] = true
+		from, to := aliases[relation.From], aliases[relation.To]
+		if from == "" || to == "" {
+			continue
+		}
+		line := ""
+		switch relation.Kind {
+		case relations.Inheritance:
+			line = fmt.Sprintf("  %s <|-- %s", to, from)
+		case relations.Implementation:
+			line = fmt.Sprintf("  %s <|.. %s", to, from)
+		case relations.Field:
+			line = fmt.Sprintf("  %s --> %q %s", from, relation.Multiplicity, to)
+		case relations.Parameter, relations.Return:
+			line = fmt.Sprintf("  %s ..> %q %s", from, relation.Multiplicity, to)
+		}
+		if opts.ShowRelationLabels && relation.Label != "" {
+			line += " : " + relationLabel(relation)
+		}
+		result = append(result, line)
 	}
-	dependency := func(from, rawTarget, pkg string) {
-		target := resolve(rawTarget, pkg, lookup)
-		if target == "" || target == from {
-			return
-		}
-		set[fmt.Sprintf("  %s --> %s", from, target)] = true
-	}
-	for _, t := range types {
-		from := aliases[t.QualifiedName()]
-		if opts.Inheritance {
-			for _, parent := range t.Extends {
-				add(from, "<|--", parent, t.Package)
-			}
-		}
-		if opts.Implementation {
-			for _, parent := range t.Implements {
-				add(from, "<|..", parent, t.Package)
-			}
-		}
-		if opts.FieldDependency {
-			for _, f := range t.Fields {
-				for _, ref := range typeReferences(f.Type) {
-					dependency(from, ref, t.Package)
-				}
-			}
-		}
-		for _, m := range t.Methods {
-			if opts.ParamDependency {
-				for _, p := range m.Parameters {
-					for _, ref := range typeReferences(p.Type) {
-						dependency(from, ref, t.Package)
-					}
-				}
-			}
-			if opts.ReturnDependency && !m.Constructor {
-				for _, ref := range typeReferences(m.ReturnType) {
-					dependency(from, ref, t.Package)
-				}
-			}
-		}
-	}
-	var out []string
-	for rel := range set {
-		out = append(out, rel)
-	}
-	sort.Strings(out)
-	return out
+	sort.Strings(result)
+	return result
 }
 
-func resolve(name, pkg string, lookup map[string]string) string {
-	name = baseReference(name)
-	if alias := lookup[name]; alias != "" {
-		return alias
+func relationEnabled(kind relations.Kind, opts Options) bool {
+	switch kind {
+	case relations.Inheritance:
+		return opts.Inheritance
+	case relations.Implementation:
+		return opts.Implementation
+	case relations.Field:
+		return opts.FieldDependency
+	case relations.Parameter:
+		return opts.ParamDependency
+	case relations.Return:
+		return opts.ReturnDependency
+	default:
+		return false
 	}
-	if alias := lookup[pkg+"."+name]; alias != "" {
-		return alias
-	}
-	if i := strings.LastIndex(name, "."); i >= 0 {
-		return lookup[name[i+1:]]
-	}
-	return ""
 }
 
-func baseReference(name string) string {
-	name = strings.TrimSpace(name)
-	if generic := strings.IndexByte(name, '<'); generic >= 0 {
-		name = name[:generic]
+func relationLabel(relation relations.Relation) string {
+	switch relation.Kind {
+	case relations.Field:
+		return "field " + relation.Label
+	case relations.Parameter:
+		return "parameter " + relation.Label
+	case relations.Return:
+		return "returns " + relation.Label
+	default:
+		return relation.Label
 	}
-	name = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(name), "[]"), "...")
-	return name
-}
-
-func typeReferences(s string) []string {
-	var refs []string
-	runes := []rune(s)
-	for i := 0; i < len(runes); {
-		r := runes[i]
-		if unicode.IsLetter(r) || r == '_' || r == '$' {
-			start := i
-			for i < len(runes) {
-				r = runes[i]
-				if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '$' || r == '.') {
-					break
-				}
-				i++
-			}
-			refs = append(refs, string(runes[start:i]))
-		} else {
-			i++
-		}
-	}
-	return refs
 }
 
 func visible(v model.Visibility, opts Options) bool {

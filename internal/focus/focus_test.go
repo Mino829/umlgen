@@ -15,14 +15,14 @@ func TestApplyByDepth(t *testing.T) {
 		{Package: "sample", Name: "User"},
 		{Package: "sample", Name: "Unrelated"},
 	}
-	got, err := Apply(types, "Service", 1)
+	got, err := Apply(types, "Service", 1, Both)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if names(got) != "Controller,Service,Repository" {
 		t.Fatalf("depth 1 = %s", names(got))
 	}
-	got, err = Apply(types, "sample.Service", 2)
+	got, err = Apply(types, "sample.Service", 2, Both)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,9 +33,31 @@ func TestApplyByDepth(t *testing.T) {
 
 func TestApplyReportsAmbiguousSimpleName(t *testing.T) {
 	types := []model.Type{{Package: "one", Name: "User"}, {Package: "two", Name: "User"}}
-	_, err := Apply(types, "User", 1)
+	_, err := Apply(types, "User", 1, Both)
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestApplyDirection(t *testing.T) {
+	types := []model.Type{
+		{Package: "sample", Name: "Controller", Fields: []model.Field{{Type: "Service"}}},
+		{Package: "sample", Name: "Service", Fields: []model.Field{{Type: "Repository"}}},
+		{Package: "sample", Name: "Repository"},
+	}
+	incoming, err := Apply(types, "Service", 1, Incoming)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names(incoming) != "Controller,Service" {
+		t.Fatalf("incoming = %s", names(incoming))
+	}
+	outgoing, err := Apply(types, "Service", 1, Outgoing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names(outgoing) != "Service,Repository" {
+		t.Fatalf("outgoing = %s", names(outgoing))
 	}
 }
 

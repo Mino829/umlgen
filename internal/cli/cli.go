@@ -12,13 +12,15 @@ import (
 
 	"github.com/Mino829/umlgen/internal/config"
 	"github.com/Mino829/umlgen/internal/focus"
+	"github.com/Mino829/umlgen/internal/gitdiff"
 	"github.com/Mino829/umlgen/internal/java"
 	"github.com/Mino829/umlgen/internal/model"
 	"github.com/Mino829/umlgen/internal/plantuml"
+	"github.com/Mino829/umlgen/internal/relations"
 	"github.com/Mino829/umlgen/internal/scanner"
 )
 
-var Version = "0.2.0-dev"
+var Version = "0.3.0-dev"
 
 const (
 	exitOK     = 0
@@ -51,7 +53,7 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 	commandAt := -1
 	for i, arg := range args {
 		switch arg {
-		case "class", "init", "version", "help":
+		case "class", "diff", "init", "version", "help":
 			commandAt = i
 		}
 		if commandAt >= 0 {
@@ -80,6 +82,9 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		case "class":
 			printClassHelp(stdout)
 			return exitOK, nil
+		case "diff":
+			printDiffHelp(stdout)
+			return exitOK, nil
 		case "init":
 			fmt.Fprintln(stdout, "Usage:\n  umlgen init\n\nCreate a .umlgen.yaml configuration file.")
 			return exitOK, nil
@@ -99,6 +104,8 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return runInit(rest, common, stdout)
 	case "class":
 		return runClass(rest, common, stdout, stderr)
+	case "diff":
+		return runDiff(rest, common, stdout, stderr)
 	default:
 		return exitError, errors.New("unreachable command")
 	}
@@ -161,16 +168,42 @@ type classOptions struct {
 	commonOptions
 	output, format, include, title       string
 	focus                                string
+	direction                            string
+	relationKinds                        string
 	depth                                int
 	excludes                             stringList
 	hideFields, hideMethods, hidePrivate bool
-	noRelations                          bool
+	noRelations, showRelationLabels      bool
 	outputSet, formatSet, excludesSet    bool
 	hideFieldsSet, hideMethodsSet        bool
 	depthSet                             bool
 }
 
 func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
+	return runClassMode(args, inherited, stdout, stderr, nil)
+}
+
+func runDiff(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
+	if has(args, "-h") || has(args, "--help") {
+		printDiffHelp(stdout)
+		return exitOK, nil
+	}
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return exitArgs, errors.New("diff requires a Git revision or range")
+	}
+	selection, err := gitdiff.Analyze(args[0])
+	if err != nil {
+		return exitError, err
+	}
+	return runClassMode(args[1:], inherited, stdout, stderr, &selection)
+}
+
+func runClassMode(
+	args []string,
+	inherited commonOptions,
+	stdout, stderr io.Writer,
+	diffSelection *gitdiff.Result,
+) (int, error) {
 	var o classOptions
 	o.commonOptions = inherited
 	fs := flag.NewFlagSet("class", flag.ContinueOnError)
@@ -181,12 +214,15 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 	fs.StringVar(&o.format, "f", "", "")
 	fs.StringVar(&o.include, "include", "", "")
 	fs.StringVar(&o.focus, "focus", "", "")
+	fs.StringVar(&o.direction, "direction", "both", "")
 	fs.IntVar(&o.depth, "depth", 1, "")
+	fs.StringVar(&o.relationKinds, "relations", "", "")
 	fs.Var(&o.excludes, "exclude", "")
 	fs.BoolVar(&o.hideFields, "hide-fields", false, "")
 	fs.BoolVar(&o.hideMethods, "hide-methods", false, "")
 	fs.BoolVar(&o.hidePrivate, "hide-private", false, "")
 	fs.BoolVar(&o.noRelations, "no-relations", false, "")
+	fs.BoolVar(&o.showRelationLabels, "show-relation-labels", false, "")
 	fs.StringVar(&o.title, "title", "", "")
 	fs.StringVar(&o.configPath, "config", o.configPath, "")
 	fs.BoolVar(&o.verbose, "verbose", o.verbose, "")
@@ -229,8 +265,21 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 	if o.depth < 0 {
 		return exitArgs, errors.New("--depth must be zero or greater")
 	}
-	if o.depthSet && o.focus == "" {
+	if o.depthSet && o.focus == "" && diffSelection == nil {
 		return exitArgs, errors.New("--depth requires --focus")
+	}
+	direction, err := focus.ParseDirection(o.direction)
+	if err != nil {
+		return exitArgs, err
+	}
+	if o.direction != "both" && o.focus == "" && diffSelection == nil {
+		return exitArgs, errors.New("--direction requires --focus")
+	}
+	if diffSelection != nil && o.focus != "" {
+		return exitArgs, errors.New("--focus cannot be combined with the diff command")
+	}
+	if o.noRelations && o.relationKinds != "" {
+		return exitArgs, errors.New("--relations and --no-relations cannot be used together")
 	}
 
 	cfg, loadedPath, err := config.Load(o.configPath, o.configPath != "")
@@ -240,6 +289,8 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 	config.ResolvePaths(&cfg, loadedPath)
 	if o.outputSet {
 		cfg.Output.File = o.output
+	} else if diffSelection != nil && cfg.Output.File == "class-diagram.puml" {
+		cfg.Output.File = "change-diagram.puml"
 	}
 	if o.formatSet {
 		cfg.Output.Format = strings.ToLower(o.format)
@@ -256,6 +307,17 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 	if o.hidePrivate {
 		cfg.Visibility.Private = false
 	}
+	if o.relationKinds != "" {
+		enabled, parseErr := parseRelationKinds(o.relationKinds)
+		if parseErr != nil {
+			return exitArgs, parseErr
+		}
+		cfg.Relations.Inheritance = enabled[relations.Inheritance]
+		cfg.Relations.Implementation = enabled[relations.Implementation]
+		cfg.Relations.FieldDependency = enabled[relations.Field]
+		cfg.Relations.ParameterDependency = enabled[relations.Parameter]
+		cfg.Relations.ReturnDependency = enabled[relations.Return]
+	}
 	if cfg.Output.Format != "plantuml" && cfg.Output.Format != "svg" {
 		return exitArgs, fmt.Errorf("unsupported format: %s\nSupported formats: plantuml, svg", cfg.Output.Format)
 	}
@@ -264,7 +326,11 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 		targets = []string{fs.Arg(0)}
 	}
 	if len(targets) == 0 {
-		targets = []string{"."}
+		if diffSelection != nil {
+			targets = []string{diffSelection.Root}
+		} else {
+			targets = []string{"."}
+		}
 	}
 	if o.verbose {
 		if loadedPath != "" {
@@ -279,7 +345,7 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 	if err != nil {
 		return exitError, err
 	}
-	if len(files) == 0 {
+	if len(files) == 0 && (diffSelection == nil || len(diffSelection.Deleted) == 0) {
 		return exitError, fmt.Errorf("no Java files found in: %s", strings.Join(targets, ", "))
 	}
 	if o.verbose {
@@ -309,12 +375,50 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 			}
 		}
 	}
+	if diffSelection != nil {
+		for _, deleted := range diffSelection.Deleted {
+			found, parseErr := java.ParseSource(deleted.Path, deleted.Content)
+			if parseErr != nil {
+				warnings++
+				fmt.Fprintf(stderr, "Warning: failed to parse deleted file %s: %v\n", deleted.Path, parseErr)
+				continue
+			}
+			for _, t := range found {
+				if includePackage(t.Package, o.include) && !excludePackage(t.Package, cfg.Exclude) {
+					t.Change = model.Deleted
+					types = append(types, t)
+				}
+			}
+		}
+	}
 	if len(types) == 0 && warnings == len(files) {
 		return exitParse, errors.New("failed to parse all Java files")
 	}
 	java.SortTypes(types)
-	if o.focus != "" {
-		types, err = focus.Apply(types, o.focus, o.depth)
+	if diffSelection != nil {
+		var changed []string
+		for i := range types {
+			if types[i].Change == model.Deleted {
+				changed = append(changed, types[i].QualifiedName())
+				continue
+			}
+			if change, ok := diffSelection.ChangeFor(types[i].Source); ok {
+				types[i].Change = change
+				changed = append(changed, types[i].QualifiedName())
+			}
+		}
+		if len(changed) == 0 {
+			return exitError, errors.New("changed Java files did not contain types in the selected target")
+		}
+		types, err = focus.ApplyMany(types, changed, o.depth, direction)
+		if err != nil {
+			return exitArgs, err
+		}
+		if o.verbose {
+			fmt.Fprintf(stdout, "Focused on %d changed types with depth %d (%d types)\n", len(changed), o.depth, len(types))
+		}
+	} else if o.focus != "" {
+		types, err = focus.Apply(types, o.focus, o.depth, direction)
 		if err != nil {
 			return exitArgs, err
 		}
@@ -336,6 +440,7 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 		ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
 		Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
 		ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
+		ShowRelationLabels: o.showRelationLabels,
 	})
 	if err := os.MkdirAll(filepath.Dir(pumlPath), 0o755); err != nil {
 		return exitOutput, fmt.Errorf("failed to create output directory: %s", filepath.Dir(pumlPath))
@@ -369,7 +474,7 @@ func normalizeClassArgs(args []string) ([]string, error) {
 	valueFlags := map[string]bool{
 		"--output": true, "-o": true, "--format": true, "-f": true,
 		"--include": true, "--exclude": true, "--title": true, "--config": true,
-		"--focus": true, "--depth": true,
+		"--focus": true, "--depth": true, "--direction": true, "--relations": true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -392,6 +497,38 @@ func normalizeClassArgs(args []string) ([]string, error) {
 		positional = append(positional, arg)
 	}
 	return append(flags, positional...), nil
+}
+
+func parseRelationKinds(value string) (map[relations.Kind]bool, error) {
+	all := []relations.Kind{
+		relations.Inheritance, relations.Implementation, relations.Field, relations.Parameter, relations.Return,
+	}
+	result := map[relations.Kind]bool{}
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "all" {
+			for _, kind := range all {
+				result[kind] = true
+			}
+			continue
+		}
+		kind := relations.Kind(item)
+		valid := false
+		for _, candidate := range all {
+			if kind == candidate {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return nil, fmt.Errorf(
+				"unsupported relation kind: %s\nSupported kinds: inheritance, implementation, field, parameter, return",
+				item,
+			)
+		}
+		result[kind] = true
+	}
+	return result, nil
 }
 
 func renderSVG(pumlPath string) (string, error) {
@@ -460,6 +597,7 @@ Usage:
 
 Available Commands:
   class       Generate a class diagram
+  diff        Generate a diagram for Git changes
   init        Create a configuration file
   version     Print version information
   help        Help about any command
@@ -469,6 +607,21 @@ Flags:
   -h, --help            help for umlgen
   -q, --quiet           suppress normal output
   -v, --verbose         enable verbose output
+`)
+}
+
+func printDiffHelp(w io.Writer) {
+	fmt.Fprint(w, `Generate a class diagram for changed Java types and their surroundings.
+
+Usage:
+  umlgen diff <revision-or-range> [target] [flags]
+
+Examples:
+  umlgen diff HEAD~1
+  umlgen diff main...HEAD --depth 2 --show-relation-labels
+
+Changed types are colored green (added), yellow (modified), or red (deleted).
+Class command flags such as --depth, --direction, --output, and --format are supported.
 `)
 }
 
@@ -487,6 +640,10 @@ Flags:
       --include string      include package prefix
       --focus string        include a type and its related types
       --depth int           relationship distance from --focus (default 1)
+      --direction string    relation direction: in, out, or both (default both)
+      --relations string    relation kinds to show (comma-separated)
+      --show-relation-labels
+                            label field, parameter, and return relations
       --no-relations        hide relationships
   -o, --output string       output file path
       --title string        diagram title

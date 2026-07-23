@@ -12,9 +12,12 @@ umlgen class ./src/main/java
 
 - Tree-sitter JavaによるAST解析
 - class、interface、enum、recordの抽出
+- importと入れ子型を考慮した型解決
 - フィールド、メソッド、コンストラクタの抽出
 - 継承、実装、フィールド型、引数型、戻り値型による関係の生成
+- コレクションとOptionalの多重度表示
 - 特定の型と周辺だけを表示するフォーカス機能
+- Git差分に含まれる型と周辺型の色分け
 - パッケージやパスによる絞り込み
 - PlantUMLおよびSVG出力
 - `.umlgen.yaml`によるプロジェクト設定
@@ -88,9 +91,57 @@ umlgen class ./src --focus UserService --depth 2
 
 # 同名クラスがある場合は完全修飾名を使用
 umlgen class ./src --focus com.example.user.UserService --depth 2
+
+# 依存先だけを表示
+umlgen class ./src --focus UserService --direction out
+
+# この型へ依存している型だけを表示
+umlgen class ./src --focus UserService --direction in
 ```
 
 関係は双方向に探索されるため、依存先だけでなく、その型に依存している型も含まれます。
+`--direction`を指定すると、`in`、`out`、`both`から探索方向を選べます。
+
+## 関係の種類と多重度
+
+関係線を継承、実装、フィールド、引数、戻り値から選択できます。
+
+```bash
+umlgen class ./src \
+  --relations inheritance,implementation,field \
+  --show-relation-labels
+```
+
+利用できる値：
+
+- `inheritance`
+- `implementation`
+- `field`
+- `parameter`
+- `return`
+- `all`
+
+`List<User>`や`User[]`は`*`、`Optional<User>`は`0..1`として関係線へ出力されます。
+
+## Git差分からクラス図を生成
+
+変更されたJava型と、その周辺の型だけを生成します。
+
+```bash
+# 直前の状態との差分
+umlgen diff HEAD~1
+
+# mainブランチとのPR差分
+umlgen diff main...HEAD --depth 2
+
+# 関係ラベル付きのSVG
+umlgen diff main...HEAD \
+  --show-relation-labels \
+  --format svg \
+  --output docs/change-diagram.puml
+```
+
+差分図では追加を緑、変更を黄色、削除を赤で表示します。削除されたJavaファイルもGit履歴から読み込んで図に含めます。デフォルト出力先は`change-diagram.puml`です。
 
 ## 設定ファイル
 
@@ -181,4 +232,4 @@ git push origin v0.2.0
 
 ## 現在の解析範囲
 
-Javaの宣言構文はTree-sitterの構文木から取得します。リフレクション、Lombokが生成するメンバー、メソッド内部の呼び出し、Spring固有の高度な依存注入推論は対象外です。
+Javaの宣言構文はTree-sitterの構文木から取得します。明示的import、ワイルドカードimport、同一パッケージ、入れ子型を使ってプロジェクト内の型を解決します。リフレクション、Lombokが生成するメンバー、メソッド内部の呼び出し、Spring固有の高度な依存注入推論は対象外です。
