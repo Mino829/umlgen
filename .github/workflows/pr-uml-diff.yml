@@ -1,0 +1,17 @@
+name: PR UML Diff
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  umlgen-diff:
+    name: Generate Java change diagram
+    permissions:
+      contents: read
+    uses: ./.github/workflows/umlgen-pr-diff.yml
+    with:
+      source: testdata/java/compatibility/project
+      artifact-name: umlgen-pr-diff
