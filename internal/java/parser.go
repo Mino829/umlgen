@@ -376,8 +376,8 @@ func syntaxError(root *sitter.Node, source []byte) error {
 		if node.IsError() || node.IsMissing() {
 			return node
 		}
-		for i := uint(0); i < node.NamedChildCount(); i++ {
-			if bad := find(node.NamedChild(i)); bad != nil {
+		for i := uint(0); i < node.ChildCount(); i++ {
+			if bad := find(node.Child(i)); bad != nil {
 				return bad
 			}
 		}
