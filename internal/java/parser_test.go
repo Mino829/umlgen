@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/umlgen/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/model"
 )
 
 func TestParseFile(t *testing.T) {
@@ -75,5 +75,33 @@ public interface Repository extends Parent {
 	}
 	if types[0].Methods[0].Visibility != model.Public {
 		t.Fatalf("interface method should be implicitly public: %#v", types[0].Methods[0])
+	}
+}
+
+func TestParseRecordAndEnum(t *testing.T) {
+	source := `package sample;
+public record UserId(long value) implements Comparable<UserId> {
+    public int compareTo(UserId other) { return 0; }
+}
+enum Status { ACTIVE, INACTIVE }`
+	path := filepath.Join(t.TempDir(), "Types.java")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	types, err := ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(types) != 2 {
+		t.Fatalf("got %d types: %#v", len(types), types)
+	}
+	if types[0].Kind != model.Record || len(types[0].Fields) != 1 || types[0].Fields[0].Type != "long" {
+		t.Fatalf("unexpected record: %#v", types[0])
+	}
+	if len(types[0].Implements) != 1 || types[0].Implements[0] != "Comparable<UserId>" {
+		t.Fatalf("unexpected record interfaces: %#v", types[0].Implements)
+	}
+	if types[1].Kind != model.Enum {
+		t.Fatalf("unexpected enum: %#v", types[1])
 	}
 }

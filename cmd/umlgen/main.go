@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/umlgen/umlgen/internal/cli"
+	"github.com/Mino829/umlgen/internal/cli"
 )
 
 func main() {

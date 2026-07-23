@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/umlgen/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/model"
 )
 
 func TestGenerate(t *testing.T) {
@@ -21,6 +21,7 @@ func TestGenerate(t *testing.T) {
 		},
 		{Package: "sample", Name: "UseCase", Kind: model.Interface},
 		{Package: "sample", Name: "User", Kind: model.Class},
+		{Package: "sample", Name: "UserId", Kind: model.Record},
 	}}
 	got := Generate(project, Options{
 		ShowFields: true, ShowMethods: true, ShowPrivate: true, ShowPublic: true,
@@ -33,6 +34,7 @@ func TestGenerate(t *testing.T) {
 		`T_sample_UseCase <|.. T_sample_Service`,
 		`T_sample_Service --> T_sample_Repository`,
 		`T_sample_Service --> T_sample_User`,
+		`class "UserId" as T_sample_UserId <<record>>`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output does not contain %q:\n%s", want, got)

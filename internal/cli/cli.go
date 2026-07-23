@@ -10,14 +10,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/umlgen/umlgen/internal/config"
-	"github.com/umlgen/umlgen/internal/java"
-	"github.com/umlgen/umlgen/internal/model"
-	"github.com/umlgen/umlgen/internal/plantuml"
-	"github.com/umlgen/umlgen/internal/scanner"
+	"github.com/Mino829/umlgen/internal/config"
+	"github.com/Mino829/umlgen/internal/focus"
+	"github.com/Mino829/umlgen/internal/java"
+	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/plantuml"
+	"github.com/Mino829/umlgen/internal/scanner"
 )
 
-const Version = "0.1.0"
+var Version = "0.2.0-dev"
 
 const (
 	exitOK     = 0
@@ -159,11 +160,14 @@ func runInit(args []string, common commonOptions, stdout io.Writer) (int, error)
 type classOptions struct {
 	commonOptions
 	output, format, include, title       string
+	focus                                string
+	depth                                int
 	excludes                             stringList
 	hideFields, hideMethods, hidePrivate bool
 	noRelations                          bool
 	outputSet, formatSet, excludesSet    bool
 	hideFieldsSet, hideMethodsSet        bool
+	depthSet                             bool
 }
 
 func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
@@ -176,6 +180,8 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 	fs.StringVar(&o.format, "format", "", "")
 	fs.StringVar(&o.format, "f", "", "")
 	fs.StringVar(&o.include, "include", "", "")
+	fs.StringVar(&o.focus, "focus", "", "")
+	fs.IntVar(&o.depth, "depth", 1, "")
 	fs.Var(&o.excludes, "exclude", "")
 	fs.BoolVar(&o.hideFields, "hide-fields", false, "")
 	fs.BoolVar(&o.hideMethods, "hide-methods", false, "")
@@ -213,10 +219,18 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 			o.hideFieldsSet = true
 		case "hide-methods":
 			o.hideMethodsSet = true
+		case "depth":
+			o.depthSet = true
 		}
 	})
 	if fs.NArg() > 1 {
 		return exitArgs, errors.New("class accepts at most one target")
+	}
+	if o.depth < 0 {
+		return exitArgs, errors.New("--depth must be zero or greater")
+	}
+	if o.depthSet && o.focus == "" {
+		return exitArgs, errors.New("--depth requires --focus")
 	}
 
 	cfg, loadedPath, err := config.Load(o.configPath, o.configPath != "")
@@ -299,6 +313,15 @@ func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) 
 		return exitParse, errors.New("failed to parse all Java files")
 	}
 	java.SortTypes(types)
+	if o.focus != "" {
+		types, err = focus.Apply(types, o.focus, o.depth)
+		if err != nil {
+			return exitArgs, err
+		}
+		if o.verbose {
+			fmt.Fprintf(stdout, "Focused on %s with depth %d (%d types)\n", o.focus, o.depth, len(types))
+		}
+	}
 	pumlPath := cfg.Output.File
 	if strings.EqualFold(filepath.Ext(pumlPath), ".svg") {
 		pumlPath = strings.TrimSuffix(pumlPath, filepath.Ext(pumlPath)) + ".puml"
@@ -346,6 +369,7 @@ func normalizeClassArgs(args []string) ([]string, error) {
 	valueFlags := map[string]bool{
 		"--output": true, "-o": true, "--format": true, "-f": true,
 		"--include": true, "--exclude": true, "--title": true, "--config": true,
+		"--focus": true, "--depth": true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -461,6 +485,8 @@ Flags:
       --hide-methods        hide class methods
       --hide-private        hide private members
       --include string      include package prefix
+      --focus string        include a type and its related types
+      --depth int           relationship distance from --focus (default 1)
       --no-relations        hide relationships
   -o, --output string       output file path
       --title string        diagram title

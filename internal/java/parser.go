@@ -3,438 +3,353 @@ package java
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-	"unicode"
 
-	"github.com/umlgen/umlgen/internal/model"
+	sitter "github.com/tree-sitter/go-tree-sitter"
+	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
+
+	"github.com/Mino829/umlgen/internal/model"
 )
 
-var modifiers = map[string]bool{
-	"public": true, "protected": true, "private": true, "static": true,
-	"final": true, "abstract": true, "synchronized": true, "native": true,
-	"transient": true, "volatile": true, "strictfp": true, "default": true,
-	"sealed": true, "non-sealed": true,
-}
-
-type ParseError struct {
-	Path string
-	Err  error
-}
-
-func (e ParseError) Error() string { return fmt.Sprintf("%s: %v", e.Path, e.Err) }
-
+// ParseFile parses Java source with the official Tree-sitter Java grammar and
+// converts declaration nodes into umlgen's language-neutral model.
 func ParseFile(path string) ([]model.Type, error) {
-	data, err := os.ReadFile(path)
+	source, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	tokens, err := lex(data)
-	if err != nil {
-		return nil, err
+
+	parser := sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(sitter.NewLanguage(tree_sitter_java.Language())); err != nil {
+		return nil, fmt.Errorf("initialize Java parser: %w", err)
 	}
-	pkg := parsePackage(tokens)
+	tree := parser.Parse(source, nil)
+	if tree == nil {
+		return nil, fmt.Errorf("Tree-sitter returned no syntax tree")
+	}
+	defer tree.Close()
+	root := tree.RootNode()
+	if root.HasError() {
+		return nil, syntaxError(root, source)
+	}
+
+	pkg := packageName(root, source)
 	var types []model.Type
-	depth := 0
-	for i := 0; i < len(tokens); i++ {
-		switch tokens[i].text {
-		case "{":
-			depth++
-		case "}":
-			depth--
-			if depth < 0 {
-				return nil, fmt.Errorf("unexpected } at line %d", tokens[i].line)
-			}
-		case "class", "interface":
-			if depth != 0 || i+1 >= len(tokens) {
-				continue
-			}
-			t, end, err := parseType(tokens, i, pkg, path)
-			if err != nil {
-				return nil, err
-			}
-			types = append(types, t)
-			i = end
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		child := root.NamedChild(i)
+		if !isTypeDeclaration(child.Kind()) {
+			continue
 		}
-	}
-	if depth != 0 {
-		return nil, fmt.Errorf("unbalanced braces")
+		t, err := parseType(child, source, pkg, path)
+		if err != nil {
+			return nil, err
+		}
+		types = append(types, t)
 	}
 	return types, nil
 }
 
-func parsePackage(ts []token) string {
-	for i := 0; i < len(ts); i++ {
-		if ts[i].text != "package" {
+func parseType(node *sitter.Node, source []byte, pkg, path string) (model.Type, error) {
+	nameNode := node.ChildByFieldName("name")
+	bodyNode := node.ChildByFieldName("body")
+	if nameNode == nil || bodyNode == nil {
+		return model.Type{}, fmt.Errorf("invalid %s declaration at line %d", node.Kind(), node.StartPosition().Row+1)
+	}
+
+	t := model.Type{
+		Package:    pkg,
+		Name:       nameNode.Utf8Text(source),
+		Kind:       kindFor(node.Kind()),
+		Visibility: declarationVisibility(node, source, model.Package),
+		Source:     path,
+	}
+	if superclass := node.ChildByFieldName("superclass"); superclass != nil {
+		t.Extends = append(t.Extends, superTypes(superclass, source, "extends")...)
+	}
+	if interfaces := node.ChildByFieldName("interfaces"); interfaces != nil {
+		t.Implements = append(t.Implements, superTypes(interfaces, source, "implements", "extends")...)
+	}
+	if t.Kind == model.Interface {
+		for i := uint(0); i < node.NamedChildCount(); i++ {
+			child := node.NamedChild(i)
+			if child.Kind() == "extends_interfaces" {
+				t.Extends = append(t.Extends, superTypes(child, source, "extends")...)
+			}
+		}
+	}
+
+	if t.Kind == model.Record {
+		for _, p := range parseParameters(node.ChildByFieldName("parameters"), source) {
+			t.Fields = append(t.Fields, model.Field{Name: p.Name, Type: p.Type, Visibility: model.Private})
+		}
+	}
+	parseBody(&t, bodyNode, source)
+	return t, nil
+}
+
+func parseBody(t *model.Type, body *sitter.Node, source []byte) {
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		child := body.NamedChild(i)
+		switch child.Kind() {
+		case "field_declaration", "constant_declaration":
+			parseFields(t, child, source)
+		case "method_declaration":
+			t.Methods = append(t.Methods, parseMethod(t, child, source, false))
+		case "constructor_declaration", "compact_constructor_declaration":
+			t.Methods = append(t.Methods, parseMethod(t, child, source, true))
+		case "enum_body_declarations":
+			parseBody(t, child, source)
+		}
+	}
+}
+
+func parseFields(t *model.Type, node *sitter.Node, source []byte) {
+	typeNode := node.ChildByFieldName("type")
+	if typeNode == nil {
+		return
+	}
+	fieldType := typeText(typeNode, source)
+	visibility := declarationVisibility(node, source, model.Package)
+	isStatic := hasModifier(node, source, "static")
+	if t.Kind == model.Interface {
+		visibility = model.Public
+		isStatic = true
+	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if child.Kind() != "variable_declarator" {
 			continue
 		}
-		var parts []string
-		for i++; i < len(ts) && ts[i].text != ";"; i++ {
-			parts = append(parts, ts[i].text)
+		name := child.ChildByFieldName("name")
+		if name == nil {
+			continue
 		}
-		return strings.Join(parts, "")
+		declaredType := fieldType
+		if dimensions := child.ChildByFieldName("dimensions"); dimensions != nil {
+			declaredType += typeText(dimensions, source)
+		}
+		t.Fields = append(t.Fields, model.Field{
+			Name:       name.Utf8Text(source),
+			Type:       declaredType,
+			Visibility: visibility,
+			Static:     isStatic,
+		})
+	}
+}
+
+func parseMethod(t *model.Type, node *sitter.Node, source []byte, constructor bool) model.Method {
+	nameNode := node.ChildByFieldName("name")
+	name := t.Name
+	if nameNode != nil {
+		name = nameNode.Utf8Text(source)
+	}
+	visibility := declarationVisibility(node, source, model.Package)
+	if t.Kind == model.Interface && visibility == model.Package {
+		visibility = model.Public
+	}
+	m := model.Method{
+		Name:        name,
+		Constructor: constructor,
+		Visibility:  visibility,
+		Static:      hasModifier(node, source, "static"),
+		Parameters:  parseParameters(node.ChildByFieldName("parameters"), source),
+	}
+	if !constructor {
+		if returnType := node.ChildByFieldName("type"); returnType != nil {
+			m.ReturnType = typeText(returnType, source)
+			if dimensions := node.ChildByFieldName("dimensions"); dimensions != nil {
+				m.ReturnType += typeText(dimensions, source)
+			}
+		}
+	}
+	return m
+}
+
+func parseParameters(parameters *sitter.Node, source []byte) []model.Parameter {
+	if parameters == nil {
+		return nil
+	}
+	var result []model.Parameter
+	for i := uint(0); i < parameters.NamedChildCount(); i++ {
+		param := parameters.NamedChild(i)
+		switch param.Kind() {
+		case "formal_parameter", "spread_parameter":
+		default:
+			continue
+		}
+		nameNode := param.ChildByFieldName("name")
+		typeNode := param.ChildByFieldName("type")
+		if nameNode == nil || typeNode == nil {
+			continue
+		}
+		paramType := typeText(typeNode, source)
+		if dimensions := param.ChildByFieldName("dimensions"); dimensions != nil {
+			paramType += typeText(dimensions, source)
+		}
+		if param.Kind() == "spread_parameter" && !strings.HasSuffix(paramType, "...") {
+			paramType += "..."
+		}
+		result = append(result, model.Parameter{
+			Name: nameNode.Utf8Text(source),
+			Type: paramType,
+		})
+	}
+	return result
+}
+
+func packageName(root *sitter.Node, source []byte) string {
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		child := root.NamedChild(i)
+		if child.Kind() != "package_declaration" {
+			continue
+		}
+		for j := uint(0); j < child.NamedChildCount(); j++ {
+			part := child.NamedChild(j)
+			if part.Kind() == "identifier" || part.Kind() == "scoped_identifier" {
+				return part.Utf8Text(source)
+			}
+		}
 	}
 	return ""
 }
 
-func parseType(ts []token, at int, pkg, path string) (model.Type, int, error) {
-	kind := model.Class
-	if ts[at].text == "interface" {
-		kind = model.Interface
+func declarationVisibility(node *sitter.Node, source []byte, fallback model.Visibility) model.Visibility {
+	modifiers := modifierWords(node, source)
+	switch {
+	case modifiers["public"]:
+		return model.Public
+	case modifiers["protected"]:
+		return model.Protected
+	case modifiers["private"]:
+		return model.Private
+	default:
+		return fallback
 	}
-	t := model.Type{
-		Package: pkg, Name: ts[at+1].text, Kind: kind, Source: path,
-		Visibility: visibilityBefore(ts, at),
+}
+
+func hasModifier(node *sitter.Node, source []byte, modifier string) bool {
+	return modifierWords(node, source)[modifier]
+}
+
+func modifierWords(node *sitter.Node, source []byte) map[string]bool {
+	result := map[string]bool{}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if child.Kind() != "modifiers" {
+			continue
+		}
+		for _, word := range strings.Fields(child.Utf8Text(source)) {
+			result[word] = true
+		}
+		break
 	}
-	open := -1
-	mode := ""
-	var current []token
-	angle := 0
-	for i := at + 2; i < len(ts); i++ {
-		x := ts[i].text
-		if x == "{" && angle == 0 {
-			open = i
+	return result
+}
+
+func superTypes(node *sitter.Node, source []byte, prefixes ...string) []string {
+	text := strings.TrimSpace(node.Utf8Text(source))
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(text, prefix) {
+			text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
 			break
 		}
-		if x == "<" {
+	}
+	var result []string
+	for _, item := range splitTopLevel(text, ',') {
+		if value := strings.TrimSpace(item); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func splitTopLevel(text string, separator rune) []string {
+	var result []string
+	start, angle, square, paren := 0, 0, 0, 0
+	for i, r := range text {
+		switch r {
+		case '<':
 			angle++
-		} else if x == ">" && angle > 0 {
+		case '>':
 			angle--
-		}
-		if angle == 0 && (x == "extends" || x == "implements" || x == "permits") {
-			flushSuper(&t, mode, current)
-			mode, current = x, nil
-			continue
-		}
-		if mode != "" {
-			current = append(current, ts[i])
-		}
-	}
-	flushSuper(&t, mode, current)
-	if open < 0 {
-		return t, at, fmt.Errorf("type %s has no body at line %d", t.Name, ts[at].line)
-	}
-	close := matchingBrace(ts, open)
-	if close < 0 {
-		return t, at, fmt.Errorf("type %s has an unclosed body at line %d", t.Name, ts[at].line)
-	}
-	parseMembers(&t, ts[open+1:close])
-	return t, close, nil
-}
-
-func flushSuper(t *model.Type, mode string, ts []token) {
-	if mode == "" || mode == "permits" {
-		return
-	}
-	for _, part := range splitTopLevel(ts, ",") {
-		name := cleanType(joinType(part))
-		if name == "" {
-			continue
-		}
-		if mode == "implements" {
-			t.Implements = append(t.Implements, name)
-		} else {
-			t.Extends = append(t.Extends, name)
-		}
-	}
-}
-
-func parseMembers(t *model.Type, ts []token) {
-	start := 0
-	for i := 0; i < len(ts); {
-		if ts[i].text == ";" {
-			parseMember(t, ts[start:i])
-			start, i = i+1, i+1
-			continue
-		}
-		if ts[i].text == "{" {
-			segment := ts[start:i]
-			if contains(segment, "(") {
-				parseMethod(t, segment)
-			}
-			close := matchingBrace(ts, i)
-			if close < 0 {
-				return
-			}
-			start, i = close+1, close+1
-			continue
-		}
-		i++
-	}
-}
-
-func parseMember(t *model.Type, ts []token) {
-	ts = stripAnnotations(ts)
-	if len(ts) == 0 || contains(ts, "class") || contains(ts, "interface") {
-		return
-	}
-	if contains(ts, "(") {
-		parseMethod(t, ts)
-		return
-	}
-	base := stripModifiers(ts)
-	if len(base) < 2 {
-		return
-	}
-	eq := index(base, "=")
-	if eq >= 0 {
-		base = base[:eq]
-	}
-	parts := splitTopLevel(base, ",")
-	if len(parts) == 0 {
-		return
-	}
-	firstName := lastIdentifier(parts[0])
-	if firstName <= 0 {
-		return
-	}
-	fieldType := joinType(parts[0][:firstName])
-	addField := func(part []token, first bool) {
-		n := lastIdentifier(part)
-		if n < 0 {
-			return
-		}
-		name := part[n].text
-		if first {
-			name = parts[0][firstName].text
-		}
-		t.Fields = append(t.Fields, model.Field{
-			Name: name, Type: fieldType, Visibility: memberVisibility(t, ts), Static: contains(ts, "static") || t.Kind == model.Interface,
-		})
-	}
-	for i, p := range parts {
-		addField(p, i == 0)
-	}
-}
-
-func parseMethod(t *model.Type, ts []token) {
-	ts = stripAnnotations(ts)
-	open := index(ts, "(")
-	if open <= 0 {
-		return
-	}
-	close := matchingParen(ts, open)
-	if close < 0 {
-		return
-	}
-	nameAt := open - 1
-	name := ts[nameAt].text
-	if !isIdentifier(name) || name == "if" || name == "for" || name == "while" || name == "switch" {
-		return
-	}
-	prefix := stripModifiers(ts[:nameAt])
-	constructor := name == t.Name
-	ret := ""
-	if !constructor && len(prefix) > 0 {
-		ret = joinType(prefix)
-	}
-	m := model.Method{
-		Name: name, ReturnType: ret, Constructor: constructor,
-		Visibility: memberVisibility(t, ts), Static: contains(ts, "static"),
-	}
-	for _, p := range splitTopLevel(ts[open+1:close], ",") {
-		p = stripAnnotations(stripModifiers(p))
-		n := lastIdentifier(p)
-		if n < 0 {
-			continue
-		}
-		m.Parameters = append(m.Parameters, model.Parameter{
-			Name: p[n].text, Type: joinType(p[:n]),
-		})
-	}
-	t.Methods = append(t.Methods, m)
-}
-
-func memberVisibility(t *model.Type, ts []token) model.Visibility {
-	v := visibility(ts)
-	if v == model.Package && t.Kind == model.Interface {
-		return model.Public
-	}
-	return v
-}
-
-func visibilityBefore(ts []token, at int) model.Visibility {
-	start := at - 1
-	for start >= 0 && ts[start].text != ";" && ts[start].text != "}" && ts[start].text != "{" {
-		start--
-	}
-	return visibility(ts[start+1 : at])
-}
-
-func visibility(ts []token) model.Visibility {
-	for _, t := range ts {
-		switch t.text {
-		case "public":
-			return model.Public
-		case "protected":
-			return model.Protected
-		case "private":
-			return model.Private
-		}
-	}
-	return model.Package
-}
-
-func stripAnnotations(ts []token) []token {
-	var out []token
-	for i := 0; i < len(ts); {
-		if ts[i].text != "@" {
-			out = append(out, ts[i])
-			i++
-			continue
-		}
-		i++
-		for i < len(ts) && (isIdentifier(ts[i].text) || ts[i].text == ".") {
-			i++
-		}
-		if i < len(ts) && ts[i].text == "(" {
-			end := matchingParen(ts, i)
-			if end < 0 {
-				return out
-			}
-			i = end + 1
-		}
-	}
-	return out
-}
-
-func stripModifiers(ts []token) []token {
-	i := 0
-	for i < len(ts) && modifiers[ts[i].text] {
-		i++
-	}
-	// Method type parameters, e.g. <T> T find().
-	if i < len(ts) && ts[i].text == "<" {
-		depth := 0
-		for ; i < len(ts); i++ {
-			if ts[i].text == "<" {
-				depth++
-			}
-			if ts[i].text == ">" {
-				depth--
-				if depth == 0 {
-					i++
-					break
-				}
-			}
-		}
-	}
-	return ts[i:]
-}
-
-func matchingBrace(ts []token, open int) int { return matching(ts, open, "{", "}") }
-func matchingParen(ts []token, open int) int { return matching(ts, open, "(", ")") }
-func matching(ts []token, open int, left, right string) int {
-	depth := 0
-	for i := open; i < len(ts); i++ {
-		if ts[i].text == left {
-			depth++
-		} else if ts[i].text == right {
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-func splitTopLevel(ts []token, separator string) [][]token {
-	var out [][]token
-	start, angle, paren, bracket := 0, 0, 0, 0
-	for i, t := range ts {
-		switch t.text {
-		case "<":
-			angle++
-		case ">":
-			if angle > 0 {
-				angle--
-			}
-		case "(":
+		case '[':
+			square++
+		case ']':
+			square--
+		case '(':
 			paren++
-		case ")":
+		case ')':
 			paren--
-		case "[":
-			bracket++
-		case "]":
-			bracket--
 		}
-		if t.text == separator && angle == 0 && paren == 0 && bracket == 0 {
-			out = append(out, ts[start:i])
+		if r == separator && angle == 0 && square == 0 && paren == 0 {
+			result = append(result, text[start:i])
 			start = i + 1
 		}
 	}
-	out = append(out, ts[start:])
-	return out
+	return append(result, text[start:])
 }
 
-func joinType(ts []token) string {
-	var b strings.Builder
-	for i, t := range ts {
-		if t.text == "final" || t.text == "volatile" || t.text == "transient" {
-			continue
-		}
-		if i > 0 && needsSpace(ts[i-1].text, t.text) {
-			b.WriteByte(' ')
-		}
-		b.WriteString(t.text)
+func typeText(node *sitter.Node, source []byte) string {
+	text := strings.Join(strings.Fields(node.Utf8Text(source)), " ")
+	replacer := strings.NewReplacer(
+		" <", "<", "< ", "<", " >", ">", "> ", ">",
+		" ,", ",", ", ", ", ",
+		" [", "[", "[ ", "[", " ]", "]", "] ", "]",
+		" . ", ".", " .", ".", ". ", ".",
+	)
+	return replacer.Replace(text)
+}
+
+func kindFor(nodeKind string) model.TypeKind {
+	switch nodeKind {
+	case "interface_declaration", "annotation_type_declaration":
+		return model.Interface
+	case "enum_declaration":
+		return model.Enum
+	case "record_declaration":
+		return model.Record
+	default:
+		return model.Class
 	}
-	return strings.TrimSpace(b.String())
 }
 
-func needsSpace(a, b string) bool {
-	return isIdentifier(a) && isIdentifier(b)
-}
-
-func cleanType(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.Index(s, "<"); i >= 0 {
-		s = s[:i]
-	}
-	return strings.TrimSuffix(strings.TrimSuffix(s, "[]"), "...")
-}
-
-func contains(ts []token, value string) bool {
-	return index(ts, value) >= 0
-}
-
-func index(ts []token, value string) int {
-	for i, t := range ts {
-		if t.text == value {
-			return i
-		}
-	}
-	return -1
-}
-
-func lastIdentifier(ts []token) int {
-	for i := len(ts) - 1; i >= 0; i-- {
-		if isIdentifier(ts[i].text) {
-			return i
-		}
-	}
-	return -1
-}
-
-func isIdentifier(s string) bool {
-	if s == "" {
+func isTypeDeclaration(kind string) bool {
+	switch kind {
+	case "class_declaration", "interface_declaration", "annotation_type_declaration",
+		"enum_declaration", "record_declaration":
+		return true
+	default:
 		return false
 	}
-	r := []rune(s)
-	return unicode.IsLetter(r[0]) || r[0] == '_' || r[0] == '$'
+}
+
+func syntaxError(root *sitter.Node, source []byte) error {
+	var find func(*sitter.Node) *sitter.Node
+	find = func(node *sitter.Node) *sitter.Node {
+		if node.IsError() || node.IsMissing() {
+			return node
+		}
+		for i := uint(0); i < node.NamedChildCount(); i++ {
+			if bad := find(node.NamedChild(i)); bad != nil {
+				return bad
+			}
+		}
+		return nil
+	}
+	if bad := find(root); bad != nil {
+		snippet := strings.TrimSpace(bad.Utf8Text(source))
+		if len(snippet) > 80 {
+			snippet = snippet[:80] + "..."
+		}
+		return fmt.Errorf("Java syntax error at line %d near %q", bad.StartPosition().Row+1, snippet)
+	}
+	return fmt.Errorf("Java syntax error")
 }
 
 func SortTypes(types []model.Type) {
 	sort.Slice(types, func(i, j int) bool {
 		return types[i].QualifiedName() < types[j].QualifiedName()
 	})
-}
-
-func SourceLabel(path string) string {
-	p, err := filepath.Abs(path)
-	if err == nil {
-		return p
-	}
-	return path
 }
