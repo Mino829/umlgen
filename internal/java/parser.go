@@ -19,7 +19,12 @@ func ParseFile(path string) ([]model.Type, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ParseSource(path, source)
+}
 
+// ParseSource parses Java source supplied by the caller. It is also used for
+// deleted files loaded from Git history by the diff command.
+func ParseSource(path string, source []byte) ([]model.Type, error) {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(tree_sitter_java.Language())); err != nil {
@@ -36,33 +41,36 @@ func ParseFile(path string) ([]model.Type, error) {
 	}
 
 	pkg := packageName(root, source)
+	imports := importDeclarations(root, source)
 	var types []model.Type
 	for i := uint(0); i < root.NamedChildCount(); i++ {
 		child := root.NamedChild(i)
 		if !isTypeDeclaration(child.Kind()) {
 			continue
 		}
-		t, err := parseType(child, source, pkg, path)
+		found, err := parseType(child, source, pkg, path, imports, nil)
 		if err != nil {
 			return nil, err
 		}
-		types = append(types, t)
+		types = append(types, found...)
 	}
 	return types, nil
 }
 
-func parseType(node *sitter.Node, source []byte, pkg, path string) (model.Type, error) {
+func parseType(node *sitter.Node, source []byte, pkg, path string, imports []model.Import, enclosing []string) ([]model.Type, error) {
 	nameNode := node.ChildByFieldName("name")
 	bodyNode := node.ChildByFieldName("body")
 	if nameNode == nil || bodyNode == nil {
-		return model.Type{}, fmt.Errorf("invalid %s declaration at line %d", node.Kind(), node.StartPosition().Row+1)
+		return nil, fmt.Errorf("invalid %s declaration at line %d", node.Kind(), node.StartPosition().Row+1)
 	}
 
 	t := model.Type{
 		Package:    pkg,
 		Name:       nameNode.Utf8Text(source),
+		Enclosing:  append([]string(nil), enclosing...),
 		Kind:       kindFor(node.Kind()),
 		Visibility: declarationVisibility(node, source, model.Package),
+		Imports:    append([]model.Import(nil), imports...),
 		Source:     path,
 	}
 	if superclass := node.ChildByFieldName("superclass"); superclass != nil {
@@ -86,7 +94,20 @@ func parseType(node *sitter.Node, source []byte, pkg, path string) (model.Type, 
 		}
 	}
 	parseBody(&t, bodyNode, source)
-	return t, nil
+	result := []model.Type{t}
+	nextEnclosing := append(append([]string(nil), enclosing...), t.Name)
+	for i := uint(0); i < bodyNode.NamedChildCount(); i++ {
+		child := bodyNode.NamedChild(i)
+		if !isTypeDeclaration(child.Kind()) {
+			continue
+		}
+		nested, err := parseType(child, source, pkg, path, imports, nextEnclosing)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, nested...)
+	}
+	return result, nil
 }
 
 func parseBody(t *model.Type, body *sitter.Node, source []byte) {
@@ -213,6 +234,30 @@ func packageName(root *sitter.Node, source []byte) string {
 		}
 	}
 	return ""
+}
+
+func importDeclarations(root *sitter.Node, source []byte) []model.Import {
+	var result []model.Import
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		child := root.NamedChild(i)
+		if child.Kind() != "import_declaration" {
+			continue
+		}
+		text := strings.TrimSpace(child.Utf8Text(source))
+		text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "import"), ";"))
+		item := model.Import{}
+		if strings.HasPrefix(text, "static ") {
+			item.Static = true
+			text = strings.TrimSpace(strings.TrimPrefix(text, "static "))
+		}
+		if strings.HasSuffix(text, ".*") {
+			item.Wildcard = true
+			text = strings.TrimSuffix(text, ".*")
+		}
+		item.Name = text
+		result = append(result, item)
+	}
+	return result
 }
 
 func declarationVisibility(node *sitter.Node, source []byte, fallback model.Visibility) model.Visibility {

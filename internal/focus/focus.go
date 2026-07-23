@@ -4,50 +4,91 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode"
 
 	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/relations"
 )
 
-// Apply returns the focused type and all types connected to it within maxDepth.
-// Relationships are undirected for navigation, exposing dependencies and dependants.
-func Apply(types []model.Type, name string, maxDepth int) ([]model.Type, error) {
-	if name == "" {
+type Direction string
+
+const (
+	Incoming Direction = "in"
+	Outgoing Direction = "out"
+	Both     Direction = "both"
+)
+
+func ParseDirection(value string) (Direction, error) {
+	direction := Direction(value)
+	switch direction {
+	case Incoming, Outgoing, Both:
+		return direction, nil
+	default:
+		return "", fmt.Errorf("unsupported direction: %s\nSupported directions: in, out, both", value)
+	}
+}
+
+// Apply returns the focused type and connected types within maxDepth.
+func Apply(types []model.Type, name string, maxDepth int, direction Direction) ([]model.Type, error) {
+	return ApplyMany(types, []string{name}, maxDepth, direction)
+}
+
+// ApplyMany focuses the graph around multiple seeds. Seed names may be simple
+// names, display names for nested types, or fully qualified names.
+func ApplyMany(types []model.Type, names []string, maxDepth int, direction Direction) ([]model.Type, error) {
+	if len(names) == 0 {
 		return types, nil
 	}
 	if maxDepth < 0 {
 		return nil, fmt.Errorf("--depth must be zero or greater")
 	}
+	if _, err := ParseDirection(string(direction)); err != nil {
+		return nil, err
+	}
+
 	qualified := make(map[string]int, len(types))
 	simple := make(map[string][]int, len(types))
+	display := make(map[string][]int, len(types))
 	for i, t := range types {
 		qualified[t.QualifiedName()] = i
 		simple[t.Name] = append(simple[t.Name], i)
+		display[t.DisplayName()] = append(display[t.DisplayName()], i)
 	}
-	start, err := resolveFocus(name, qualified, simple, types)
-	if err != nil {
-		return nil, err
+	var starts []int
+	for _, name := range names {
+		start, err := resolveFocus(name, qualified, simple, display, types)
+		if err != nil {
+			return nil, err
+		}
+		starts = append(starts, start)
 	}
 
 	adjacent := make([]map[int]bool, len(types))
 	for i := range adjacent {
 		adjacent[i] = map[int]bool{}
 	}
-	for i, t := range types {
-		for _, raw := range relationTypes(t) {
-			for _, ref := range typeReferences(raw) {
-				target := resolveReference(ref, t.Package, qualified, simple)
-				if target < 0 || target == i {
-					continue
-				}
-				adjacent[i][target] = true
-				adjacent[target][i] = true
-			}
+	for _, relation := range relations.Build(types) {
+		from, fromOK := qualified[relation.From]
+		to, toOK := qualified[relation.To]
+		if !fromOK || !toOK {
+			continue
+		}
+		if direction == Outgoing || direction == Both {
+			adjacent[from][to] = true
+		}
+		if direction == Incoming || direction == Both {
+			adjacent[to][from] = true
 		}
 	}
 
-	distance := map[int]int{start: 0}
-	queue := []int{start}
+	distance := map[int]int{}
+	queue := make([]int, 0, len(starts))
+	for _, start := range starts {
+		if _, exists := distance[start]; exists {
+			continue
+		}
+		distance[start] = 0
+		queue = append(queue, start)
+	}
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
@@ -77,11 +118,20 @@ func Apply(types []model.Type, name string, maxDepth int) ([]model.Type, error) 
 	return result, nil
 }
 
-func resolveFocus(name string, qualified map[string]int, simple map[string][]int, types []model.Type) (int, error) {
+func resolveFocus(
+	name string,
+	qualified map[string]int,
+	simple, display map[string][]int,
+	types []model.Type,
+) (int, error) {
 	if i, ok := qualified[name]; ok {
 		return i, nil
 	}
-	switch matches := simple[name]; len(matches) {
+	matches := display[name]
+	if len(matches) == 0 {
+		matches = simple[name]
+	}
+	switch len(matches) {
 	case 0:
 		return -1, fmt.Errorf("focus type not found: %s", name)
 	case 1:
@@ -94,55 +144,4 @@ func resolveFocus(name string, qualified map[string]int, simple map[string][]int
 		sort.Strings(names)
 		return -1, fmt.Errorf("focus type %q is ambiguous; use one of: %s", name, strings.Join(names, ", "))
 	}
-}
-
-func resolveReference(ref, pkg string, qualified map[string]int, simple map[string][]int) int {
-	if i, ok := qualified[ref]; ok {
-		return i
-	}
-	if i, ok := qualified[pkg+"."+ref]; ok {
-		return i
-	}
-	if dot := strings.LastIndex(ref, "."); dot >= 0 {
-		ref = ref[dot+1:]
-	}
-	if matches := simple[ref]; len(matches) == 1 {
-		return matches[0]
-	}
-	return -1
-}
-
-func relationTypes(t model.Type) []string {
-	result := append([]string{}, t.Extends...)
-	result = append(result, t.Implements...)
-	for _, f := range t.Fields {
-		result = append(result, f.Type)
-	}
-	for _, m := range t.Methods {
-		if !m.Constructor {
-			result = append(result, m.ReturnType)
-		}
-		for _, p := range m.Parameters {
-			result = append(result, p.Type)
-		}
-	}
-	return result
-}
-
-func typeReferences(text string) []string {
-	runes := []rune(text)
-	var result []string
-	for i := 0; i < len(runes); {
-		if !unicode.IsLetter(runes[i]) && runes[i] != '_' && runes[i] != '$' {
-			i++
-			continue
-		}
-		start := i
-		for i < len(runes) && (unicode.IsLetter(runes[i]) || unicode.IsDigit(runes[i]) ||
-			runes[i] == '_' || runes[i] == '$' || runes[i] == '.') {
-			i++
-		}
-		result = append(result, string(runes[start:i]))
-	}
-	return result
 }

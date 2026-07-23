@@ -105,3 +105,33 @@ enum Status { ACTIVE, INACTIVE }`
 		t.Fatalf("unexpected enum: %#v", types[1])
 	}
 }
+
+func TestParseImportsAndNestedTypes(t *testing.T) {
+	source := `package app;
+import two.User;
+import one.*;
+public class Outer {
+    private User user;
+    static class Inner {
+        User value;
+    }
+}`
+	path := filepath.Join(t.TempDir(), "Outer.java")
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	types, err := ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(types) != 2 {
+		t.Fatalf("types = %#v", types)
+	}
+	if len(types[0].Imports) != 2 || types[0].Imports[0].Name != "two.User" ||
+		!types[0].Imports[1].Wildcard {
+		t.Fatalf("imports = %#v", types[0].Imports)
+	}
+	if types[1].QualifiedName() != "app.Outer.Inner" || types[1].DisplayName() != "Outer.Inner" {
+		t.Fatalf("nested type = %#v", types[1])
+	}
+}
