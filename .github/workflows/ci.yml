@@ -42,6 +42,40 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./cmd/umlgen
+      - name: Test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'umlgen-installer-test'
+          ./scripts/install-windows.ps1 `
+            -Version v0.3.0 `
+            -InstallDir $installDir `
+            -InstallPlantUML `
+            -SkipPathUpdate
+
+          $env:Path = "$installDir;$env:Path"
+          & "$installDir\umlgen.exe" version
+          & "$installDir\umlgen.exe" class `
+            testdata/java/compatibility/project `
+            --format svg `
+            --output "$env:RUNNER_TEMP/windows-class-diagram.puml" `
+            --quiet
+
+          if (-not (Test-Path "$env:RUNNER_TEMP/windows-class-diagram.puml")) {
+            throw 'PlantUML output was not created.'
+          }
+          if (-not (Test-Path "$env:RUNNER_TEMP/windows-class-diagram.svg")) {
+            throw 'SVG output was not created.'
+          }
+
+          ./scripts/uninstall-windows.ps1 `
+            -InstallDir $installDir `
+            -SkipPathUpdate `
+            -Confirm:$false
+
+          if (Test-Path $installDir) {
+            throw 'The Windows uninstaller did not remove the install directory.'
+          }
       - name: Verify public demo
         if: runner.os == 'Linux'
         shell: bash

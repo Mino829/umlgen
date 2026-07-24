@@ -33,6 +33,18 @@ umlgen class ./src/main/java
 
 ## インストール
 
+### Windows（おすすめ）
+
+PowerShellインストーラーを使うと、管理者権限やJavaの事前準備なしでumlgenとSVG生成環境をセットアップできます。
+
+```powershell
+$installer = "$env:TEMP\install-umlgen.ps1"
+Invoke-WebRequest https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/install-windows.ps1 -OutFile $installer
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer -InstallPlantUML
+```
+
+インストール後にPowerShellを開き直し、`umlgen version`で確認します。画面の開き方から図の生成、更新、アンインストールまでの説明は[Windowsセットアップガイド](docs/windows-setup.md)を参照してください。
+
 ### Goからインストール
 
 Go 1.24以降とCコンパイラが必要です。
