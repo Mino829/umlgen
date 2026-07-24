@@ -1,0 +1,15 @@
+@startuml
+left to right direction
+skinparam shadowing false
+skinparam roundcorner 12
+skinparam defaultTextAlignment center
+
+rectangle "1. Pull Request\nJava changes" as PR #E8F5E9
+rectangle "2. GitHub Actions\nbase...head" as Actions #E3F2FD
+rectangle "3. umlgen diff\nPlantUML + SVG" as Umlgen #FFF8E1
+artifact "4. umlgen-pr-diff\nDownload artifact" as Artifact #F3E5F5
+
+PR --> Actions
+Actions --> Umlgen
+Umlgen --> Artifact
+@enduml

@@ -8,6 +8,8 @@ umlgen class ./src/main/java
 
 ソースコードが外部へ送信されることはありません。
 
+**[Pull Requestの設計変更がどう見えるか、30秒デモを見る](examples/order-service/README.md)**
+
 > **Javaプロジェクトへ導入したい方へ**
 >
 > GitHub Actionsへの導入、対象パッケージの調整、PR差分図の動作確認をまとめて行う

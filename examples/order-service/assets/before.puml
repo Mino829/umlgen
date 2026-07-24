@@ -1,0 +1,26 @@
+@startuml
+
+package "com.example.order" {
+  class "Order" as T_com_example_order_Order {
+    -id: String
+    -total: BigDecimal
+    +Order(id: String, total: BigDecimal)
+    +getId(): String
+    +getTotal(): BigDecimal
+  }
+  interface "OrderRepository" as T_com_example_order_OrderRepository {
+    +save(order: Order): void
+  }
+  class "OrderService" as T_com_example_order_OrderService {
+    -repository: OrderRepository
+    +OrderService(repository: OrderRepository)
+    +place(order: Order): void
+  }
+}
+
+  T_com_example_order_OrderRepository ..> "1" T_com_example_order_Order
+  T_com_example_order_OrderService --> "1" T_com_example_order_OrderRepository
+  T_com_example_order_OrderService ..> "1" T_com_example_order_Order
+  T_com_example_order_OrderService ..> "1" T_com_example_order_OrderRepository
+
+@enduml
