@@ -45,6 +45,8 @@ jobs:
       - name: Test Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $installDir = Join-Path $env:RUNNER_TEMP 'umlgen-installer-test'
           ./scripts/install-windows.ps1 `
