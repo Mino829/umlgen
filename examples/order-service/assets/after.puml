@@ -1,0 +1,48 @@
+@startuml
+
+package "com.example.order" {
+  class "Order" as T_com_example_order_Order {
+    -id: String
+    -total: BigDecimal
+    -status: OrderStatus
+    +Order(id: String, total: BigDecimal)
+    +getId(): String
+    +getTotal(): BigDecimal
+    +getStatus(): OrderStatus
+    +markPaid(): void
+  }
+  class "OrderService" as T_com_example_order_OrderService {
+    -store: OrderStore
+    -paymentGateway: PaymentGateway
+    +OrderService(store: OrderStore, paymentGateway: PaymentGateway)
+    +place(order: Order): Receipt
+  }
+  enum "OrderStatus" as T_com_example_order_OrderStatus {
+  }
+  interface "OrderStore" as T_com_example_order_OrderStore {
+    +save(order: Order): void
+    +findById(id: String): Optional<Order>
+  }
+  interface "PaymentGateway" as T_com_example_order_PaymentGateway {
+    +charge(order: Order): Receipt
+  }
+  class "Receipt" as T_com_example_order_Receipt <<record>> {
+    -paymentId: String
+    -amount: BigDecimal
+  }
+}
+
+  T_com_example_order_Order --> "1" T_com_example_order_OrderStatus
+  T_com_example_order_Order ..> "1" T_com_example_order_OrderStatus
+  T_com_example_order_OrderService --> "1" T_com_example_order_OrderStore
+  T_com_example_order_OrderService --> "1" T_com_example_order_PaymentGateway
+  T_com_example_order_OrderService ..> "1" T_com_example_order_Order
+  T_com_example_order_OrderService ..> "1" T_com_example_order_OrderStore
+  T_com_example_order_OrderService ..> "1" T_com_example_order_PaymentGateway
+  T_com_example_order_OrderService ..> "1" T_com_example_order_Receipt
+  T_com_example_order_OrderStore ..> "0..1" T_com_example_order_Order
+  T_com_example_order_OrderStore ..> "1" T_com_example_order_Order
+  T_com_example_order_PaymentGateway ..> "1" T_com_example_order_Order
+  T_com_example_order_PaymentGateway ..> "1" T_com_example_order_Receipt
+
+@enduml

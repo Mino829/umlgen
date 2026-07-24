@@ -42,3 +42,11 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./cmd/umlgen
+      - name: Verify public demo
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends plantuml
+          UMLGEN_BIN="$PWD/umlgen" \
+            ./examples/order-service/generate.sh "$RUNNER_TEMP/umlgen-demo"
