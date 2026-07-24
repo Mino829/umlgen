@@ -42,6 +42,29 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./cmd/umlgen
+      - name: Test macOS installer
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          install_dir="$RUNNER_TEMP/umlgen-installer-test"
+          ./scripts/install-macos.sh \
+            --version v0.3.0 \
+            --install-dir "$install_dir" \
+            --skip-path-update
+
+          "$install_dir/umlgen" version
+          "$install_dir/umlgen" class \
+            testdata/java/compatibility/project \
+            --output "$RUNNER_TEMP/macos-class-diagram.puml" \
+            --quiet
+
+          test -f "$RUNNER_TEMP/macos-class-diagram.puml"
+
+          ./scripts/uninstall-macos.sh \
+            --install-dir "$install_dir" \
+            --skip-path-update
+
+          test ! -e "$install_dir/umlgen"
       - name: Test Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
