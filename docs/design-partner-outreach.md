@@ -38,7 +38,7 @@ Pull Requestのbase/headから変更クラスと周辺の依存関係をPlantUML
 - 1週目と4週目に各20分程度のフィードバック
 - 良かった点だけでなく、役に立たなかったケースの共有
 
-終了後の有料契約は必須ではありません。OSS版はそのまま無料で使えます。
+終了後もOSS版はそのまま無料で使え、契約や支払いを求めることはありません。
 
 デモと応募条件:
 https://github.com/Mino829/umlgen/blob/main/docs/design-partner.md

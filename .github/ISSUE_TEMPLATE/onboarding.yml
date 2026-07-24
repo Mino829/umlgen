@@ -1,6 +1,6 @@
-name: umlgen導入相談
-description: JavaリポジトリへのGitHub Actions導入について相談する
-title: "[導入相談] "
+name: 無料導入サポート
+description: JavaリポジトリへのGitHub Actions無料導入を申し込む
+title: "[無料導入] "
 labels:
   - onboarding
   - question
@@ -8,7 +8,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        umlgenの導入サポートに関心を持っていただきありがとうございます。
+        umlgenの無料導入サポートに関心を持っていただきありがとうございます。
+        対象は最初の10リポジトリです。初回30分、設定調整1回、利用後のフィードバックを含みます。
         このIssueは公開されます。private repositoryのコード、secret、社外秘情報は記載しないでください。
 
   - type: dropdown
@@ -79,5 +80,5 @@ body:
       options:
         - label: このIssueが公開されることを理解し、ソースコード、secret、社外秘情報を記載していません
           required: true
-        - label: 相談は無料で、作業範囲と価格への合意後に有料作業が始まることを理解しました
+        - label: 初回30分、設定調整1回の範囲と、利用後にフィードバックを行う条件を理解しました
           required: true
