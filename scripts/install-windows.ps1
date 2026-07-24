@@ -7,7 +7,9 @@ param(
 
     [switch]$InstallPlantUML,
 
-    [switch]$SkipPathUpdate
+    [switch]$SkipPathUpdate,
+
+    [string]$GitHubToken = $env:GITHUB_TOKEN
 )
 
 Set-StrictMode -Version Latest
@@ -15,9 +17,13 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$headers = @{
+$downloadHeaders = @{
     Accept = 'application/vnd.github+json'
     'User-Agent' = 'umlgen-windows-installer'
+}
+$apiHeaders = $downloadHeaders.Clone()
+if (-not [string]::IsNullOrWhiteSpace($GitHubToken)) {
+    $apiHeaders.Authorization = "Bearer $GitHubToken"
 }
 
 function Get-GitHubRelease {
@@ -40,7 +46,7 @@ function Get-GitHubRelease {
         $releaseUrl = "https://api.github.com/repos/$Repository/releases/tags/$tag"
     }
 
-    return (Invoke-RestMethod -Uri $releaseUrl -Headers $headers)
+    return (Invoke-RestMethod -Uri $releaseUrl -Headers $apiHeaders)
 }
 
 function Get-ReleaseAsset {
@@ -81,7 +87,7 @@ function Save-VerifiedAsset {
 
     Invoke-WebRequest `
         -Uri $Asset.browser_download_url `
-        -Headers $headers `
+        -Headers $downloadHeaders `
         -OutFile $Destination `
         -UseBasicParsing
 
