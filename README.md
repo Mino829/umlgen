@@ -10,6 +10,11 @@ umlgen class ./src/main/java
 
 **[Pull Requestの設計変更がどう見えるか、30秒デモを見る](examples/order-service/README.md)**
 
+> **Javaチーム3組限定：無料デザインパートナー募集中**
+>
+> 4週間の無料導入と設定支援と引き換えに、実際のPull Requestでのフィードバックをお願いします。
+> 条件と応募方法は[デザインパートナー募集ページ](docs/design-partner.md)を参照してください。
+
 > **Javaプロジェクトへ導入したい方へ**
 >
 > GitHub Actionsへの導入、対象パッケージの調整、PR差分図の動作確認をまとめて行う

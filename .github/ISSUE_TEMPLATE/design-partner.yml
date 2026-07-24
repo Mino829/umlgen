@@ -1,0 +1,88 @@
+name: デザインパートナー応募
+description: Javaチーム向け4週間無料導入プログラムへ応募する
+title: "[デザインパートナー応募] "
+labels:
+  - design-partner
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ご応募ありがとうございます。このIssueは公開されます。
+        private repositoryの名前、URL、コード、secret、顧客情報は記載しないでください。
+
+  - type: dropdown
+    id: repository-visibility
+    attributes:
+      label: リポジトリの公開範囲
+      options:
+        - Public
+        - Private
+        - 両方
+    validations:
+      required: true
+
+  - type: dropdown
+    id: team-size
+    attributes:
+      label: Pull Requestへ関わる人数
+      options:
+        - 1人
+        - 2〜5人
+        - 6〜10人
+        - 11人以上
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pull-request-frequency
+    attributes:
+      label: 1週間のPull Request数
+      options:
+        - 1〜2件
+        - 3〜5件
+        - 6〜10件
+        - 11件以上
+    validations:
+      required: true
+
+  - type: textarea
+    id: technology
+    attributes:
+      label: 公開可能な技術構成
+      description: Java、Spring、Maven／Gradle、モジュール数など。Privateの名称やURLは書かないでください。
+      placeholder: Java 21、Spring Boot、Gradle、3モジュール
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-process
+    attributes:
+      label: 現在のレビュー方法と課題
+      description: 設計変更や依存関係を現在どう確認し、何に時間がかかっているか教えてください。
+      placeholder: 変更ファイルを追いながら依存先を手作業で確認している
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: interests
+    attributes:
+      label: 特に試したいこと
+      options:
+        - label: Pull Request差分図
+        - label: 大きなコードベースの絞り込み
+        - label: private repositoryでの利用
+        - label: チーム内での設計変更の共有
+
+  - type: checkboxes
+    id: commitment
+    attributes:
+      label: 参加条件
+      options:
+        - label: 4週間、週1回以上Pull Requestで試せます
+          required: true
+        - label: 1週目と4週目に各20分程度のフィードバックができます
+          required: true
+        - label: 匿名化した学びをumlgenの改善へ利用することに同意します
+          required: true
+        - label: このIssueが公開されることを理解し、コード、secret、社外秘情報を記載していません
+          required: true
