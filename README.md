@@ -10,16 +10,11 @@ umlgen class ./src/main/java
 
 **[Pull Requestの設計変更がどう見えるか、30秒デモを見る](examples/order-service/README.md)**
 
-> **Javaチーム3組限定：無料デザインパートナー募集中**
+> **まず無料で利用できます**
 >
-> 4週間の無料導入と設定支援と引き換えに、実際のPull Requestでのフィードバックをお願いします。
-> 条件と応募方法は[デザインパートナー募集ページ](docs/design-partner.md)を参照してください。
-
-> **Javaプロジェクトへ導入したい方へ**
->
-> GitHub Actionsへの導入、対象パッケージの調整、PR差分図の動作確認をまとめて行う
-> [導入サポート](docs/onboarding-support.md)を3,000円から受け付けています。
-> まずは公開情報だけで[導入相談を作成](https://github.com/Mino829/umlgen/issues/new?template=onboarding.yml)できます。
+> CLIとGitHub Actions workflowは無料です。さらに最初の10リポジトリには、
+> GitHub Actionsの設定と動作確認を行う[無料導入サポート](docs/onboarding-support.md)を提供します。
+> 継続的に試せるJavaチームは、3組限定の[デザインパートナープログラム](docs/design-partner.md)へ応募できます。
 
 ## 主な機能
 
