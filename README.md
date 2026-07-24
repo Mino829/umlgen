@@ -33,6 +33,18 @@ umlgen class ./src/main/java
 
 ## インストール
 
+### macOS（Apple Silicon／Intel）
+
+管理者権限なしのインストーラーがMacの種類を自動判定します。
+
+```bash
+installer="$TMPDIR/install-umlgen.sh"
+curl -fL https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/install-macos.sh -o "$installer"
+bash "$installer"
+```
+
+インストール後にターミナルを開き直し、`umlgen version`で確認します。画面の開き方から図の生成、更新、アンインストールまでの説明は[Macセットアップガイド](docs/macos-setup.md)を参照してください。
+
 ### Windows（おすすめ）
 
 PowerShellインストーラーを使うと、管理者権限やJavaの事前準備なしでumlgenとSVG生成環境をセットアップできます。
