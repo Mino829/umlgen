@@ -30,3 +30,23 @@ func TestJavaFilesRecursesAndExcludes(t *testing.T) {
 		t.Fatalf("unexpected files: %#v", files)
 	}
 }
+
+func TestSourceFilesSupportsGo(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"main.go", "service_test.go", "User.java", "vendor/dependency.go"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package sample"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := SourceFiles([]string{root}, nil, ".go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("files = %#v", files)
+	}
+}

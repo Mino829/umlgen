@@ -11,10 +11,18 @@ import (
 
 var defaultExcluded = map[string]bool{
 	".git": true, ".idea": true, ".vscode": true, "build": true,
-	"target": true, "out": true, "node_modules": true,
+	"target": true, "out": true, "node_modules": true, "vendor": true,
 }
 
 func JavaFiles(targets, excludes []string) ([]string, error) {
+	return SourceFiles(targets, excludes, ".java")
+}
+
+func SourceFiles(targets, excludes []string, extensions ...string) ([]string, error) {
+	supported := make(map[string]bool, len(extensions))
+	for _, extension := range extensions {
+		supported[strings.ToLower(extension)] = true
+	}
 	var files []string
 	seen := map[string]bool{}
 	for _, target := range targets {
@@ -26,14 +34,14 @@ func JavaFiles(targets, excludes []string) ([]string, error) {
 			return nil, err
 		}
 		if !info.IsDir() {
-			if strings.EqualFold(filepath.Ext(target), ".java") {
+			if supported[strings.ToLower(filepath.Ext(target))] {
 				abs, _ := filepath.Abs(target)
 				if !seen[abs] {
 					files, seen[abs] = append(files, abs), true
 				}
 				continue
 			}
-			return nil, fmt.Errorf("target is not a Java file or directory: %s", target)
+			return nil, fmt.Errorf("target is not a supported source file or directory: %s", target)
 		}
 		err = filepath.WalkDir(target, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -45,7 +53,7 @@ func JavaFiles(targets, excludes []string) ([]string, error) {
 				}
 				return nil
 			}
-			if strings.EqualFold(filepath.Ext(entry.Name()), ".java") && !excludedPath(path, excludes) {
+			if supported[strings.ToLower(filepath.Ext(entry.Name()))] && !excludedPath(path, excludes) {
 				abs, _ := filepath.Abs(path)
 				if !seen[abs] {
 					files, seen[abs] = append(files, abs), true

@@ -23,6 +23,7 @@ const (
 type Cache struct {
 	dir       string
 	signature []byte
+	parse     func(string, []byte) ([]model.Type, error)
 }
 
 type Result struct {
@@ -36,6 +37,14 @@ type entry struct {
 }
 
 func Open(version string, settings any) (*Cache, error) {
+	return OpenFor(version, "java", schemaVersion, settings, java.ParseSource)
+}
+
+func OpenFor(
+	version, language, parserSchema string,
+	settings any,
+	parse func(string, []byte) ([]model.Type, error),
+) (*Cache, error) {
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
 		return nil, fmt.Errorf("encode cache settings: %w", err)
@@ -44,12 +53,12 @@ func Open(version string, settings any) (*Cache, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(root, "java")
+	dir := filepath.Join(root, language)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create Java cache: %w", err)
+		return nil, fmt.Errorf("create %s cache: %w", language, err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("secure Java cache: %w", err)
+		return nil, fmt.Errorf("secure %s cache: %w", language, err)
 	}
 	markerPath := filepath.Join(root, markerFile)
 	if err := os.WriteFile(markerPath, []byte(markerContent), 0o600); err != nil {
@@ -58,8 +67,8 @@ func Open(version string, settings any) (*Cache, error) {
 	if err := os.Chmod(markerPath, 0o600); err != nil {
 		return nil, fmt.Errorf("secure umlgen cache marker: %w", err)
 	}
-	signature := append([]byte(schemaVersion+"\x00"+version+"\x00"), settingsJSON...)
-	return &Cache{dir: dir, signature: signature}, nil
+	signature := append([]byte(parserSchema+"\x00"+version+"\x00"), settingsJSON...)
+	return &Cache{dir: dir, signature: signature, parse: parse}, nil
 }
 
 func RootDir() (string, error) {
@@ -108,7 +117,7 @@ func (c *Cache) ParseFile(path string) (Result, error) {
 		return Result{Types: cached, Hit: true}, nil
 	}
 
-	types, parseErr := java.ParseSource(path, source)
+	types, parseErr := c.parse(path, source)
 	if parseErr != nil {
 		return Result{}, parseErr
 	}

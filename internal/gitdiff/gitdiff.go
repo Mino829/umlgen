@@ -27,7 +27,7 @@ func Analyze(rangeSpec string) (Result, error) {
 		return Result{}, fmt.Errorf("not inside a Git repository: %w", err)
 	}
 	root := strings.TrimSpace(string(rootOutput))
-	statusOutput, err := runGit(root, "diff", "--name-status", "--find-renames", rangeSpec, "--", "*.java")
+	statusOutput, err := runGit(root, "diff", "--name-status", "--find-renames", rangeSpec, "--", "*.java", "*.go")
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to inspect Git diff %q: %w", rangeSpec, err)
 	}
@@ -58,16 +58,16 @@ func Analyze(rangeSpec string) (Result, error) {
 		case 'D':
 			content, showErr := runGit(root, "show", base+":"+filepath.ToSlash(fields[1]))
 			if showErr != nil {
-				return Result{}, fmt.Errorf("failed to load deleted Java file %s: %w", fields[1], showErr)
+				return Result{}, fmt.Errorf("failed to load deleted source file %s: %w", fields[1], showErr)
 			}
 			result.Deleted = append(result.Deleted, DeletedSource{
 				Path: absolute(root, fields[1]), Content: content,
 			})
 		}
 	}
-	untracked, err := runGit(root, "ls-files", "--others", "--exclude-standard", "--", "*.java")
+	untracked, err := runGit(root, "ls-files", "--others", "--exclude-standard", "--", "*.java", "*.go")
 	if err != nil {
-		return Result{}, fmt.Errorf("failed to inspect untracked Java files: %w", err)
+		return Result{}, fmt.Errorf("failed to inspect untracked source files: %w", err)
 	}
 	for _, path := range strings.Split(strings.TrimSpace(string(untracked)), "\n") {
 		if path != "" {
@@ -75,7 +75,7 @@ func Analyze(rangeSpec string) (Result, error) {
 		}
 	}
 	if len(result.Current) == 0 && len(result.Deleted) == 0 {
-		return Result{}, fmt.Errorf("no changed Java files found in Git diff: %s", rangeSpec)
+		return Result{}, fmt.Errorf("no changed Java or Go files found in Git diff: %s", rangeSpec)
 	}
 	return result, nil
 }

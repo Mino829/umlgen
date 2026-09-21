@@ -30,6 +30,21 @@ func TestBuildResolvesExplicitAndWildcardImports(t *testing.T) {
 	}
 }
 
+func TestBuildResolvesGoImportAliases(t *testing.T) {
+	types := []model.Type{
+		{Package: "example.com/app/domain", Name: "User", Kind: model.Struct},
+		{
+			Package: "example.com/app/service", Name: "Service", Kind: model.Struct,
+			Imports: []model.Import{{Name: "example.com/app/domain", Alias: "entities"}},
+			Fields:  []model.Field{{Name: "user", Type: "*entities.User"}},
+		},
+	}
+	got := Build(types)
+	if len(got) != 1 || got[0].To != "example.com/app/domain.User" {
+		t.Fatalf("relations = %#v", got)
+	}
+}
+
 func TestResolveNestedType(t *testing.T) {
 	types := []model.Type{
 		{Package: "app", Name: "Outer"},
@@ -47,10 +62,12 @@ func TestResolveNestedType(t *testing.T) {
 
 func TestMultiplicity(t *testing.T) {
 	cases := map[string]string{
-		"User":           "1",
-		"Optional<User>": "0..1",
-		"List<User>":     "*",
-		"User[]":         "*",
+		"User":            "1",
+		"Optional<User>":  "0..1",
+		"List<User>":      "*",
+		"User[]":          "*",
+		"[]User":          "*",
+		"map[string]User": "*",
 	}
 	for input, want := range cases {
 		if got := Multiplicity(input); got != want {

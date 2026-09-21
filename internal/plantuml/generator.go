@@ -110,6 +110,9 @@ func changeColor(change model.ChangeKind) string {
 }
 
 func typeDeclaration(kind model.TypeKind) (string, string) {
+	if kind == model.Struct {
+		return "class", " <<struct>>"
+	}
 	if kind == model.Record {
 		return "class", " <<record>>"
 	}
