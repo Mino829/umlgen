@@ -1,9 +1,10 @@
 # umlgen
 
-`umlgen`は、Javaソースコードをローカルで解析し、編集可能なPlantUMLクラス図を生成するCLIです。
+`umlgen`は、Java／Goソースコードをローカルで解析し、編集可能なPlantUMLクラス図を生成するCLIです。
 
 ```bash
 umlgen class ./src/main/java
+umlgen class . --language go
 ```
 
 ソースコードが外部へ送信されることはありません。
@@ -19,7 +20,10 @@ umlgen class ./src/main/java
 ## 主な機能
 
 - Tree-sitter JavaによるAST解析
+- Go標準ASTによるGoソース解析
 - class、interface、enum、recordの抽出
+- Goのstruct、interface、field、methodの抽出
+- Goのembeddingと暗黙的なinterface実装の関係生成
 - importと入れ子型を考慮した型解決
 - フィールド、メソッド、コンストラクタの抽出
 - 継承、実装、フィールド型、引数型、戻り値型による関係の生成
@@ -82,6 +86,12 @@ mv umlgen ~/.local/bin/
 # クラス図を生成
 umlgen class ./src/main/java
 
+# go.modからGoプロジェクトを自動判定
+umlgen class .
+
+# 言語を明示
+umlgen class . --language go
+
 # 出力先を指定
 umlgen class ./src/main/java -o docs/domain.puml
 
@@ -124,6 +134,9 @@ umlgen class ./src --focus UserService --depth 2
 # 同名クラスがある場合は完全修飾名を使用
 umlgen class ./src --focus com.example.user.UserService --depth 2
 
+# Goの完全修飾名（module path + package + type）
+umlgen class . --focus github.com/example/project/internal/user.Service --depth 2
+
 # 依存先だけを表示
 umlgen class ./src --focus UserService --direction out
 
@@ -136,7 +149,7 @@ umlgen class ./src --focus UserService --direction in
 
 ## 解析キャッシュ
 
-Javaファイルの解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。
+Java／Goファイルの解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。
 
 詳細ログではヒット数を確認できます。
 
@@ -177,11 +190,11 @@ umlgen class ./src \
 - `return`
 - `all`
 
-`List<User>`や`User[]`は`*`、`Optional<User>`は`0..1`として関係線へ出力されます。
+`List<User>`、`User[]`、Goの`[]User`や`map[string]User`は`*`、`Optional<User>`は`0..1`として関係線へ出力されます。
 
 ## Git差分からクラス図を生成
 
-変更されたJava型と、その周辺の型だけを生成します。
+変更されたJava／Go型と、その周辺の型だけを生成します。
 
 ```bash
 # 直前の状態との差分
@@ -197,7 +210,7 @@ umlgen diff main...HEAD \
   --output docs/change-diagram.puml
 ```
 
-差分図では追加を緑、変更を黄色、削除を赤で表示します。削除されたJavaファイルもGit履歴から読み込んで図に含めます。デフォルト出力先は`change-diagram.puml`です。
+差分図では追加を緑、変更を黄色、削除を赤で表示します。削除されたJava／GoファイルもGit履歴から読み込んで図に含めます。デフォルト出力先は`change-diagram.puml`です。
 
 ### Pull Requestで自動生成
 
@@ -228,10 +241,10 @@ umlgen init
 生成される`.umlgen.yaml`：
 
 ```yaml
-language: java
+language: auto
 
 source:
-  - src/main/java
+  - .
 
 exclude:
   - src/test
@@ -260,6 +273,8 @@ relations:
   parameter_dependency: true
   return_dependency: true
 ```
+
+`language`は`auto`、`java`、`go`から選択できます。`auto`は対象ファイルと`go.mod`、`pom.xml`、Gradle設定から判定します。JavaとGoが混在して判定できない場合は、`--language`または設定ファイルで明示してください。
 
 優先順位は、コマンドライン、`--config`で指定した設定、`.umlgen.yaml`、デフォルト値の順です。
 
@@ -309,6 +324,8 @@ git push origin v0.2.0
 
 ## 現在の解析範囲
 
+### Java
+
 Javaの宣言構文はTree-sitterの構文木から取得します。明示的import、ワイルドカードimport、同一パッケージ、入れ子型を使ってプロジェクト内の型を解決します。
 
 sealed class／interfaceは通常のclass／interfaceとして、annotation宣言はinterfaceとして図へ出力します。record、generic型、wildcard型に含まれるプロジェクト内の型も、解決できる範囲で関係へ反映します。
@@ -326,6 +343,27 @@ sealed class／interfaceは通常のclass／interfaceとして、annotation宣�
 - Spring固有の高度な依存注入推論
 
 互換性は、Maven／Gradleで一般的な`src/main/java`構成を模した複数モジュールfixtureと、生成PlantUMLのgolden testで継続的に確認します。
+
+### Go
+
+Goの宣言構文は標準ライブラリの`go/parser`から取得します。`go.mod`のmodule path、package、import aliasを使ってプロジェクト内の型を解決します。
+
+- structは`<<struct>>`付きのclassとして表示する
+- interface embeddingとstruct embeddingを継承関係として表示する
+- プロジェクト内interfaceのmethod setを満たすstructを実装関係として表示する
+- slice、array、mapを多重度`*`として表示する
+- `_test.go`と`vendor`はデフォルトの解析対象から除外する
+- receiver methodが型宣言とは別ファイルにあっても統合する
+
+現在、次の要素はGoの意味解析対象外です。
+
+- 実行時解析とcall graph
+- CGo内部の解析
+- build tagによるファイル選択
+- プロジェクト外interfaceへの暗黙実装の推論
+- 関数本体からの依存関係推論
+
+互換性は、複数package、import、embedding、暗黙interface実装を含むGo fixtureで継続的に確認します。
 
 ## ライセンス
 

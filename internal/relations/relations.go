@@ -75,6 +75,29 @@ func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 		if imported.Static || imported.Wildcard {
 			continue
 		}
+		if imported.Alias == "." {
+			if candidate := imported.Name + "." + reference; i.has(candidate) {
+				return candidate, true
+			}
+			continue
+		}
+		if imported.Alias == "_" {
+			continue
+		}
+		if qualifier, name, ok := strings.Cut(reference, "."); ok {
+			alias := imported.Alias
+			if alias == "" {
+				alias = imported.Name
+				if slash := strings.LastIndex(alias, "/"); slash >= 0 {
+					alias = alias[slash+1:]
+				}
+			}
+			if alias == qualifier {
+				if candidate := imported.Name + "." + name; i.has(candidate) {
+					return candidate, true
+				}
+			}
+		}
 		if imported.Name == reference || strings.HasSuffix(imported.Name, "."+simpleName) {
 			if i.has(imported.Name) {
 				return imported.Name, true
@@ -104,6 +127,14 @@ func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 func (i *Index) has(name string) bool {
 	_, ok := i.qualified[name]
 	return ok
+}
+
+func (i *Index) Type(name string) (model.Type, bool) {
+	position, ok := i.qualified[name]
+	if !ok {
+		return model.Type{}, false
+	}
+	return i.types[position], true
 }
 
 func Build(types []model.Type) []Relation {
@@ -186,7 +217,25 @@ func References(text string) []string {
 
 func Base(text string) string {
 	text = strings.TrimSpace(text)
+	for {
+		switch {
+		case strings.HasPrefix(text, "*"):
+			text = strings.TrimSpace(strings.TrimPrefix(text, "*"))
+		case strings.HasPrefix(text, "[]"):
+			text = strings.TrimSpace(strings.TrimPrefix(text, "[]"))
+		case strings.HasPrefix(text, "chan "):
+			text = strings.TrimSpace(strings.TrimPrefix(text, "chan "))
+		case strings.HasPrefix(text, "<-chan "):
+			text = strings.TrimSpace(strings.TrimPrefix(text, "<-chan "))
+		default:
+			goto normalized
+		}
+	}
+normalized:
 	if generic := strings.IndexByte(text, '<'); generic >= 0 {
+		text = text[:generic]
+	}
+	if generic := strings.IndexByte(text, '['); generic >= 0 && !strings.HasPrefix(text, "[") {
 		text = text[:generic]
 	}
 	text = strings.TrimSpace(strings.TrimPrefix(text, "? extends "))
@@ -197,7 +246,9 @@ func Base(text string) string {
 
 func Multiplicity(text string) string {
 	trimmed := strings.TrimSpace(text)
-	if strings.HasSuffix(trimmed, "[]") || strings.HasSuffix(trimmed, "...") {
+	if strings.HasSuffix(trimmed, "[]") || strings.HasSuffix(trimmed, "...") ||
+		strings.HasPrefix(trimmed, "[]") || strings.HasPrefix(trimmed, "map[") ||
+		strings.HasPrefix(trimmed, "[") {
 		return "*"
 	}
 	base := Base(trimmed)
@@ -217,7 +268,10 @@ func Multiplicity(text string) string {
 func isBuiltin(name string) bool {
 	switch name {
 	case "byte", "short", "int", "long", "float", "double", "boolean", "char", "void",
-		"String", "Integer", "Long", "Short", "Byte", "Float", "Double", "Boolean", "Character":
+		"String", "Integer", "Long", "Short", "Byte", "Float", "Double", "Boolean", "Character",
+		"string", "bool", "rune", "uintptr", "uint", "uint8", "uint16", "uint32", "uint64",
+		"int8", "int16", "int32", "int64", "float32", "float64", "complex64", "complex128",
+		"any", "error", "map", "chan", "func", "interface", "struct":
 		return true
 	default:
 		return false

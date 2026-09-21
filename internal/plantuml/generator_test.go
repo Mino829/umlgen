@@ -21,6 +21,7 @@ func TestGenerate(t *testing.T) {
 		},
 		{Package: "sample", Name: "UseCase", Kind: model.Interface},
 		{Package: "sample", Name: "User", Kind: model.Class},
+		{Package: "sample", Name: "GoUser", Kind: model.Struct},
 		{Package: "sample", Name: "UserId", Kind: model.Record, Change: model.Added},
 	}}
 	got := Generate(project, Options{
@@ -35,6 +36,7 @@ func TestGenerate(t *testing.T) {
 		`T_sample_Service --> "*" T_sample_Repository : field repositories`,
 		`T_sample_Service ..> "1" T_sample_User : returns find`,
 		`class "UserId" as T_sample_UserId <<record>> #palegreen`,
+		`class "GoUser" as T_sample_GoUser <<struct>>`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output does not contain %q:\n%s", want, got)

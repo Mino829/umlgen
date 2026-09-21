@@ -40,7 +40,7 @@ type Config struct {
 
 func Defaults() Config {
 	var c Config
-	c.Language = "java"
+	c.Language = "auto"
 	c.Output.File = "class-diagram.puml"
 	c.Output.Format = "plantuml"
 	c.Visibility.Public = true
@@ -114,7 +114,8 @@ func Load(path string, explicit bool) (Config, string, error) {
 	if err := scanner.Err(); err != nil {
 		return c, path, err
 	}
-	if c.Language != "java" {
+	c.Language = strings.ToLower(strings.TrimSpace(c.Language))
+	if c.Language != "auto" && c.Language != "java" && c.Language != "go" {
 		return c, path, fmt.Errorf("invalid configuration in %s: unsupported language %q", path, c.Language)
 	}
 	return c, path, nil
@@ -218,10 +219,10 @@ func unquote(s string) string {
 	return s
 }
 
-const Template = `language: java
+const Template = `language: auto
 
 source:
-  - src/main/java
+  - .
 
 exclude:
   - src/test

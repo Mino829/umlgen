@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Mino829/umlgen/internal/golang"
 )
 
 func TestParseFileCachesAndInvalidatesContent(t *testing.T) {
@@ -40,6 +42,25 @@ func TestParseFileCachesAndInvalidatesContent(t *testing.T) {
 	changed, err := cache.ParseFile(source)
 	if err != nil || changed.Hit || changed.Types[0].Name != "Second" {
 		t.Fatalf("changed = %#v, err = %v", changed, err)
+	}
+}
+
+func TestOpenForCachesGoSource(t *testing.T) {
+	t.Setenv(cacheDirectoryEnv, filepath.Join(t.TempDir(), "cache"))
+	source := filepath.Join(t.TempDir(), "user.go")
+	writeSource(t, source, "package sample\ntype User struct{}\n")
+
+	cache, err := OpenFor("1.0.0", "go", golang.SchemaVersion, nil, golang.ParseSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := cache.ParseFile(source)
+	if err != nil || first.Hit || len(first.Types) != 1 || first.Types[0].Name != "User" {
+		t.Fatalf("first = %#v, err = %v", first, err)
+	}
+	second, err := cache.ParseFile(source)
+	if err != nil || !second.Hit || second.Types[0].Source != source {
+		t.Fatalf("second = %#v, err = %v", second, err)
 	}
 }
 

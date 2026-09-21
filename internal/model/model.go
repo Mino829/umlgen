@@ -15,6 +15,7 @@ type TypeKind string
 
 const (
 	Class     TypeKind = "class"
+	Struct    TypeKind = "struct"
 	Interface TypeKind = "interface"
 	Enum      TypeKind = "enum"
 	Record    TypeKind = "record"
@@ -35,6 +36,7 @@ const (
 
 type Import struct {
 	Name     string
+	Alias    string
 	Wildcard bool
 	Static   bool
 }

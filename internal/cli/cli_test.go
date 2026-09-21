@@ -241,6 +241,84 @@ func TestCompatibilityFixtureGoldenDiagram(t *testing.T) {
 	}
 }
 
+func TestGoCompatibilityFixture(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "go", "compatibility")
+	out := filepath.Join(t.TempDir(), "go-class-diagram.puml")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{
+		"class", root, "--language", "auto", "--no-cache",
+		"--show-relation-labels", "--output", out,
+	}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`package "example.com/shop/domain"`,
+		`class "User" as T_example_com_shop_domain_User <<struct>>`,
+		`interface "Repository"`,
+		`T_example_com_shop_service_BaseService <|-- T_example_com_shop_service_UserService`,
+		`T_example_com_shop_service_Repository <|.. T_example_com_shop_service_MemoryRepository`,
+		`T_example_com_shop_service_UserService --> "1" T_example_com_shop_service_Repository`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("output does not contain %q:\n%s", want, text)
+		}
+	}
+	if !strings.Contains(stdout.String(), "Found 3 Go files") {
+		t.Fatalf("stdout = %s", stdout.String())
+	}
+}
+
+func TestGoDiffCommand(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "umlgen@example.test")
+	runGit(t, root, "config", "user.name", "umlgen test")
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/app\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeGo(t, root, "service.go", "package app\ntype Service struct{}\n")
+	writeGo(t, root, "service_methods.go", "package app\nfunc (s *Service) Revision() int { return 1 }\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "base")
+	writeGo(t, root, "service_methods.go", "package app\nfunc (s *Service) Revision() int { return 2 }\n")
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(previous)
+
+	out := filepath.Join(root, "changes.puml")
+	var stdout, stderr bytes.Buffer
+	code, runErr := Run([]string{"diff", "HEAD", "--language", "go", "-o", out}, &stdout, &stderr)
+	if runErr != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, runErr, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `class "Service" as T_example_test_app_Service <<struct>> #lightyellow`) {
+		t.Fatalf("modified Go struct was not colored:\n%s", data)
+	}
+}
+
+func writeGo(t *testing.T, root, name, source string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, name), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSyntaxErrorsWarnOrFailConsistently(t *testing.T) {
 	broken, err := os.ReadFile(filepath.Join(
 		"..", "..", "testdata", "java", "compatibility", "broken", "Broken.java",

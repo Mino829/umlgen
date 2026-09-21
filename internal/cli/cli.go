@@ -13,15 +13,15 @@ import (
 	"github.com/Mino829/umlgen/internal/config"
 	"github.com/Mino829/umlgen/internal/focus"
 	"github.com/Mino829/umlgen/internal/gitdiff"
-	"github.com/Mino829/umlgen/internal/java"
 	"github.com/Mino829/umlgen/internal/javacache"
+	"github.com/Mino829/umlgen/internal/language"
 	"github.com/Mino829/umlgen/internal/model"
 	"github.com/Mino829/umlgen/internal/plantuml"
 	"github.com/Mino829/umlgen/internal/relations"
 	"github.com/Mino829/umlgen/internal/scanner"
 )
 
-var Version = "0.3.0-dev"
+var Version = "0.4.0-dev"
 
 const (
 	exitOK     = 0
@@ -194,6 +194,7 @@ type classOptions struct {
 	focus                                string
 	direction                            string
 	relationKinds                        string
+	language                             string
 	depth                                int
 	excludes                             stringList
 	hideFields, hideMethods, hidePrivate bool
@@ -242,6 +243,7 @@ func runClassMode(
 	fs.StringVar(&o.direction, "direction", "both", "")
 	fs.IntVar(&o.depth, "depth", 1, "")
 	fs.StringVar(&o.relationKinds, "relations", "", "")
+	fs.StringVar(&o.language, "language", "", "")
 	fs.Var(&o.excludes, "exclude", "")
 	fs.BoolVar(&o.hideFields, "hide-fields", false, "")
 	fs.BoolVar(&o.hideMethods, "hide-methods", false, "")
@@ -313,6 +315,9 @@ func runClassMode(
 		return exitArgs, err
 	}
 	config.ResolvePaths(&cfg, loadedPath)
+	if o.language != "" {
+		cfg.Language = strings.ToLower(o.language)
+	}
 	if o.outputSet {
 		cfg.Output.File = o.output
 	} else if diffSelection != nil && cfg.Output.File == "class-diagram.puml" {
@@ -358,6 +363,19 @@ func runClassMode(
 			targets = []string{"."}
 		}
 	}
+	var changedPaths []string
+	if diffSelection != nil {
+		for path := range diffSelection.Current {
+			changedPaths = append(changedPaths, path)
+		}
+		for _, deleted := range diffSelection.Deleted {
+			changedPaths = append(changedPaths, deleted.Path)
+		}
+	}
+	sourceParser, err := language.Select(cfg.Language, targets, cfg.Exclude, changedPaths)
+	if err != nil {
+		return exitArgs, err
+	}
 	if o.verbose {
 		if loadedPath != "" {
 			fmt.Fprintf(stdout, "Config file: %s\n", loadedPath)
@@ -365,14 +383,16 @@ func runClassMode(
 		for _, target := range targets {
 			fmt.Fprintf(stdout, "Target: %s\n", target)
 		}
-		fmt.Fprintln(stdout, "Scanning Java files...")
+		fmt.Fprintf(stdout, "Language: %s\n", sourceParser.DisplayName())
+		fmt.Fprintf(stdout, "Scanning %s files...\n", sourceParser.DisplayName())
 	}
-	files, err := scanner.JavaFiles(targets, cfg.Exclude)
+	files, err := scanner.SourceFiles(targets, cfg.Exclude, sourceParser.Extensions()...)
 	if err != nil {
 		return exitError, err
 	}
+	files = matchingFiles(files, sourceParser.MatchesPath)
 	if len(files) == 0 && (diffSelection == nil || len(diffSelection.Deleted) == 0) {
-		return exitError, fmt.Errorf("no Java files found in: %s", strings.Join(targets, ", "))
+		return exitError, fmt.Errorf("no %s files found in: %s", sourceParser.DisplayName(), strings.Join(targets, ", "))
 	}
 	if o.verbose {
 		for _, file := range files {
@@ -389,7 +409,9 @@ func runClassMode(
 		cacheSettings := cfg
 		cacheSettings.Output.File = ""
 		cacheSettings.Output.Format = ""
-		parseCache, err = javacache.Open(Version, cacheSettings)
+		parseCache, err = javacache.OpenFor(
+			Version, sourceParser.Name(), sourceParser.CacheSchema(), cacheSettings, sourceParser.ParseSource,
+		)
 		if err != nil {
 			fmt.Fprintf(stderr, "Warning: cache disabled: %v\n", err)
 			parseCache = nil
@@ -406,7 +428,7 @@ func runClassMode(
 		var found []model.Type
 		var parseErr error
 		if parseCache == nil {
-			found, parseErr = java.ParseFile(file)
+			found, parseErr = sourceParser.ParseFile(file)
 		} else {
 			result, resultErr := parseCache.ParseFile(file)
 			found, parseErr = result.Types, resultErr
@@ -426,6 +448,11 @@ func runClassMode(
 		}
 		for _, t := range found {
 			if includePackage(t.Package, o.include) && !excludePackage(t.Package, cfg.Exclude) {
+				if diffSelection != nil {
+					if change, ok := diffSelection.ChangeFor(t.Source); ok {
+						t.Change = change
+					}
+				}
 				types = append(types, t)
 				if o.verbose {
 					fmt.Fprintf(stdout, "Detected %s: %s\n", t.Kind, t.QualifiedName())
@@ -438,7 +465,10 @@ func runClassMode(
 	}
 	if diffSelection != nil {
 		for _, deleted := range diffSelection.Deleted {
-			found, parseErr := java.ParseSource(deleted.Path, deleted.Content)
+			if !sourceParser.MatchesPath(deleted.Path) {
+				continue
+			}
+			found, parseErr := sourceParser.ParseSource(deleted.Path, deleted.Content)
 			if parseErr != nil {
 				warnings++
 				fmt.Fprintf(stderr, "Warning: failed to parse deleted file %s: %v\n", deleted.Path, parseErr)
@@ -453,13 +483,13 @@ func runClassMode(
 		}
 	}
 	if len(types) == 0 && warnings == len(files) {
-		return exitParse, errors.New("failed to parse all Java files")
+		return exitParse, fmt.Errorf("failed to parse all %s files", sourceParser.DisplayName())
 	}
-	java.SortTypes(types)
+	types = sourceParser.Finalize(types)
 	if diffSelection != nil {
 		var changed []string
 		for i := range types {
-			if types[i].Change == model.Deleted {
+			if types[i].Change != model.Unchanged {
 				changed = append(changed, types[i].QualifiedName())
 				continue
 			}
@@ -469,7 +499,7 @@ func runClassMode(
 			}
 		}
 		if len(changed) == 0 {
-			return exitError, errors.New("changed Java files did not contain types in the selected target")
+			return exitError, fmt.Errorf("changed %s files did not contain types in the selected target", sourceParser.DisplayName())
 		}
 		types, err = focus.ApplyMany(types, changed, o.depth, direction)
 		if err != nil {
@@ -511,7 +541,7 @@ func runClassMode(
 	}
 	classes, interfaces := countKinds(types)
 	if !o.quiet {
-		fmt.Fprintf(stdout, "Found %d Java files\n", len(files))
+		fmt.Fprintf(stdout, "Found %d %s files\n", len(files), sourceParser.DisplayName())
 		fmt.Fprintf(stdout, "Detected %d classes and %d interfaces\n", classes, interfaces)
 		fmt.Fprintf(stdout, "Generated %s\n", pumlPath)
 		if warnings > 0 {
@@ -536,6 +566,7 @@ func normalizeClassArgs(args []string) ([]string, error) {
 		"--output": true, "-o": true, "--format": true, "-f": true,
 		"--include": true, "--exclude": true, "--title": true, "--config": true,
 		"--focus": true, "--depth": true, "--direction": true, "--relations": true,
+		"--language": true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -558,6 +589,16 @@ func normalizeClassArgs(args []string) ([]string, error) {
 		positional = append(positional, arg)
 	}
 	return append(flags, positional...), nil
+}
+
+func matchingFiles(files []string, matches func(string) bool) []string {
+	result := files[:0]
+	for _, file := range files {
+		if matches(file) {
+			result = append(result, file)
+		}
+	}
+	return result
 }
 
 func parseRelationKinds(value string) (map[relations.Kind]bool, error) {
@@ -608,13 +649,13 @@ func renderSVG(pumlPath string) (string, error) {
 }
 
 func includePackage(pkg, prefix string) bool {
-	return prefix == "" || pkg == prefix || strings.HasPrefix(pkg, prefix+".")
+	return prefix == "" || pkg == prefix || strings.HasPrefix(pkg, prefix+".") || strings.HasPrefix(pkg, prefix+"/")
 }
 
 func excludePackage(pkg string, excludes []string) bool {
 	for _, ex := range excludes {
 		ex = strings.TrimSpace(ex)
-		if strings.Contains(ex, ".") && (pkg == ex || strings.HasPrefix(pkg, ex+".")) {
+		if strings.Contains(ex, ".") && (pkg == ex || strings.HasPrefix(pkg, ex+".") || strings.HasPrefix(pkg, ex+"/")) {
 			return true
 		}
 	}
@@ -673,17 +714,17 @@ Flags:
 }
 
 func printCacheHelp(w io.Writer) {
-	fmt.Fprint(w, `Manage the local Java parse cache.
+	fmt.Fprint(w, `Manage the local source parse cache.
 
 Usage:
   umlgen cache clean
 
-The clean subcommand removes all cached Java parse results for umlgen.
+The clean subcommand removes all cached source parse results for umlgen.
 `)
 }
 
 func printDiffHelp(w io.Writer) {
-	fmt.Fprint(w, `Generate a class diagram for changed Java types and their surroundings.
+	fmt.Fprint(w, `Generate a class diagram for changed Java or Go types and their surroundings.
 
 Usage:
   umlgen diff <revision-or-range> [target] [flags]
@@ -698,7 +739,7 @@ Class command flags such as --depth, --direction, --output, and --format are sup
 }
 
 func printClassHelp(w io.Writer) {
-	fmt.Fprint(w, `Generate a PlantUML class diagram from Java source code.
+	fmt.Fprint(w, `Generate a PlantUML class diagram from Java or Go source code.
 
 Usage:
   umlgen class [target] [flags]
@@ -706,6 +747,7 @@ Usage:
 Flags:
       --exclude string      exclude paths or packages (repeatable)
   -f, --format string       output format: plantuml or svg
+      --language string     source language: auto, java, or go
       --hide-fields         hide class fields
       --hide-methods        hide class methods
       --hide-private        hide private members
