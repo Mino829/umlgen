@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Mino829/umlgen/internal/config"
 	"github.com/Mino829/umlgen/internal/focus"
@@ -18,6 +18,7 @@ import (
 	"github.com/Mino829/umlgen/internal/model"
 	"github.com/Mino829/umlgen/internal/plantuml"
 	"github.com/Mino829/umlgen/internal/relations"
+	"github.com/Mino829/umlgen/internal/renderer"
 	"github.com/Mino829/umlgen/internal/scanner"
 )
 
@@ -200,9 +201,14 @@ type classOptions struct {
 	hideFields, hideMethods, hidePrivate bool
 	noRelations, showRelationLabels      bool
 	noCache                              bool
+	rendererType                         string
+	serverURL                            string
+	renderTimeout                        time.Duration
 	outputSet, formatSet, excludesSet    bool
 	hideFieldsSet, hideMethodsSet        bool
 	depthSet                             bool
+	rendererTypeSet, serverURLSet        bool
+	renderTimeoutSet                     bool
 }
 
 func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
@@ -252,6 +258,9 @@ func runClassMode(
 	fs.BoolVar(&o.showRelationLabels, "show-relation-labels", false, "")
 	fs.BoolVar(&o.noCache, "no-cache", false, "")
 	fs.StringVar(&o.title, "title", "", "")
+	fs.StringVar(&o.rendererType, "renderer", "", "")
+	fs.StringVar(&o.serverURL, "server-url", "", "")
+	fs.DurationVar(&o.renderTimeout, "render-timeout", 0, "")
 	fs.StringVar(&o.configPath, "config", o.configPath, "")
 	fs.BoolVar(&o.verbose, "verbose", o.verbose, "")
 	fs.BoolVar(&o.verbose, "v", o.verbose, "")
@@ -285,6 +294,12 @@ func runClassMode(
 			o.hideMethodsSet = true
 		case "depth":
 			o.depthSet = true
+		case "renderer":
+			o.rendererTypeSet = true
+		case "server-url":
+			o.serverURLSet = true
+		case "render-timeout":
+			o.renderTimeoutSet = true
 		}
 	})
 	if fs.NArg() > 1 {
@@ -326,6 +341,15 @@ func runClassMode(
 	if o.formatSet {
 		cfg.Output.Format = strings.ToLower(o.format)
 	}
+	if o.rendererTypeSet {
+		cfg.Renderer.Type = strings.ToLower(o.rendererType)
+	}
+	if o.serverURLSet {
+		cfg.Renderer.ServerURL = o.serverURL
+	}
+	if o.renderTimeoutSet {
+		cfg.Renderer.Timeout = o.renderTimeout
+	}
 	if o.excludesSet {
 		cfg.Exclude = append([]string(nil), o.excludes...)
 	}
@@ -349,8 +373,8 @@ func runClassMode(
 		cfg.Relations.ParameterDependency = enabled[relations.Parameter]
 		cfg.Relations.ReturnDependency = enabled[relations.Return]
 	}
-	if cfg.Output.Format != "plantuml" && cfg.Output.Format != "svg" {
-		return exitArgs, fmt.Errorf("unsupported format: %s\nSupported formats: plantuml, svg", cfg.Output.Format)
+	if cfg.Output.Format != "plantuml" && cfg.Output.Format != "svg" && cfg.Output.Format != "png" {
+		return exitArgs, fmt.Errorf("unsupported format: %s\nSupported formats: plantuml, svg, png", cfg.Output.Format)
 	}
 	targets := cfg.Source
 	if fs.NArg() == 1 {
@@ -548,14 +572,22 @@ func runClassMode(
 			fmt.Fprintf(stdout, "%d warning(s)\n", warnings)
 		}
 	}
-	if cfg.Output.Format == "svg" {
-		svgPath, renderErr := renderSVG(pumlPath)
+	if cfg.Output.Format == "svg" || cfg.Output.Format == "png" {
+		renderCfg := renderer.Config{
+			Type:      renderer.Type(cfg.Renderer.Type),
+			ServerURL: cfg.Renderer.ServerURL,
+			Timeout:   cfg.Renderer.Timeout,
+		}
+		if renderCfg.Type == renderer.TypeServer && !o.quiet {
+			fmt.Fprintln(stdout, "Note: the PlantUML server receives your source code. The default renderer keeps code local.")
+		}
+		imagePath, renderErr := renderer.Render(cfg.Output.Format, pumlPath, renderCfg)
 		if renderErr != nil {
-			fmt.Fprintf(stderr, "Warning: PlantUML file was generated, but SVG rendering failed: %v\n", renderErr)
+			fmt.Fprintf(stderr, "Warning: PlantUML file was generated, but %s rendering failed: %v\n", strings.ToUpper(cfg.Output.Format), renderErr)
 			return exitRender, nil
 		}
 		if !o.quiet {
-			fmt.Fprintf(stdout, "Generated %s\n", svgPath)
+			fmt.Fprintf(stdout, "Generated %s\n", imagePath)
 		}
 	}
 	return exitOK, nil
@@ -631,21 +663,6 @@ func parseRelationKinds(value string) (map[relations.Kind]bool, error) {
 		result[kind] = true
 	}
 	return result, nil
-}
-
-func renderSVG(pumlPath string) (string, error) {
-	var command *exec.Cmd
-	if binary, err := exec.LookPath("plantuml"); err == nil {
-		command = exec.Command(binary, "-tsvg", pumlPath)
-	} else if jar := os.Getenv("PLANTUML_JAR"); jar != "" {
-		command = exec.Command("java", "-jar", jar, "-tsvg", pumlPath)
-	} else {
-		return "", errors.New("PlantUML was not found; install plantuml or set PLANTUML_JAR")
-	}
-	if output, err := command.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(output)))
-	}
-	return strings.TrimSuffix(pumlPath, filepath.Ext(pumlPath)) + ".svg", nil
 }
 
 func includePackage(pkg, prefix string) bool {
@@ -746,7 +763,7 @@ Usage:
 
 Flags:
       --exclude string      exclude paths or packages (repeatable)
-  -f, --format string       output format: plantuml or svg
+  -f, --format string       output format: plantuml, svg, or png
       --language string     source language: auto, java, or go
       --hide-fields         hide class fields
       --hide-methods        hide class methods
@@ -761,6 +778,9 @@ Flags:
       --no-relations        hide relationships
       --no-cache            parse source without reading or writing the cache
   -o, --output string       output file path
+      --renderer string     PlantUML renderer: auto, local, jar, or server
+      --render-timeout duration  rendering timeout (default 30s)
+      --server-url string   PlantUML server URL (used with --renderer server)
       --title string        diagram title
       --config string       configuration file path
   -q, --quiet               suppress normal output

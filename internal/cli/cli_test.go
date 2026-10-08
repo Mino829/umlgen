@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -143,6 +144,55 @@ func TestInvalidFormat(t *testing.T) {
 	code, err := Run([]string{"class", ".", "--format", "pdf"}, &stdout, &stderr)
 	if code != exitArgs || err == nil || !strings.Contains(err.Error(), "unsupported format") {
 		t.Fatalf("code=%d err=%v", code, err)
+	}
+}
+
+func TestPNGFormatWithMockRenderer(t *testing.T) {
+	dir := t.TempDir()
+	writeJava(t, dir, "User.java", `package sample; class User {}`)
+
+	binDir := t.TempDir()
+	script := filepath.Join(binDir, "plantuml")
+	pngPath := filepath.Join(dir, "class-diagram.png")
+	if err := os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\n/usr/bin/touch %q", pngPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(script); err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("mock script is not executable: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	if _, err := exec.LookPath("plantuml"); err != nil {
+		t.Fatalf("mock plantuml not found in PATH: %v", err)
+	}
+
+	out := filepath.Join(dir, "class-diagram.puml")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{"class", dir, "--output", out, "--format", "png"}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("puml file was not kept: %v", err)
+	}
+	if _, err := os.Stat(pngPath); err != nil {
+		t.Fatalf("png file was not generated: %v", err)
+	}
+}
+
+func TestPNGFormatRendererNotFound(t *testing.T) {
+	dir := t.TempDir()
+	writeJava(t, dir, "User.java", `package sample; class User {}`)
+	t.Setenv("PATH", "")
+	t.Setenv("PLANTUML_JAR", "")
+
+	out := filepath.Join(dir, "class-diagram.puml")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{"class", dir, "--output", out, "--format", "png"}, &stdout, &stderr)
+	if code != exitRender || err != nil {
+		t.Fatalf("code=%d err=%v", code, err)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("puml file should be kept even when rendering fails: %v", err)
 	}
 }
 
