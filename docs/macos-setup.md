@@ -65,7 +65,7 @@ brew install plantuml
 umlgen class ./src/main/java --format svg
 ```
 
-Homebrewを利用していない場合は、まず`.puml`生成まで利用できます。SVG環境の導入が分からない場合は[無料導入サポート](onboarding-support.md)で相談できます。
+Homebrewを利用していない場合は、まず`.puml`生成まで利用できます。
 
 ## Pull Requestで自動生成する
 

@@ -175,7 +175,7 @@ func assign(c *Config, key, value string) error {
 		c.Relations.ReturnDependency = v
 		return e
 	default:
-		// Forward-compatible: unknown keys are ignored in the MVP.
+		// Forward-compatible: unknown keys are ignored so newer configuration files remain usable.
 	}
 	return nil
 }

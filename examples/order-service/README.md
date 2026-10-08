@@ -59,5 +59,3 @@ brew install plantuml
 ```
 
 スクリプトは`scenarios/before`と`scenarios/after`から一時Gitリポジトリを作り、Before／After／DiffのPlantUMLとSVGを`assets`へ生成します。元のソースやGit履歴は変更しません。
-
-導入を任せたい場合は、最初の10リポジトリを対象とした[無料導入サポート](../../docs/onboarding-support.md)を利用できます。
