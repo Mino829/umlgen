@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const DefaultFile = ".umlgen.yaml"
@@ -36,6 +37,11 @@ type Config struct {
 		ParameterDependency bool
 		ReturnDependency    bool
 	}
+	Renderer struct {
+		Type      string
+		ServerURL string
+		Timeout   time.Duration
+	}
 }
 
 func Defaults() Config {
@@ -54,6 +60,8 @@ func Defaults() Config {
 	c.Relations.FieldDependency = true
 	c.Relations.ParameterDependency = true
 	c.Relations.ReturnDependency = true
+	c.Renderer.Type = "auto"
+	c.Renderer.Timeout = 30 * time.Second
 	return c
 }
 
@@ -174,6 +182,16 @@ func assign(c *Config, key, value string) error {
 		v, e := boolean()
 		c.Relations.ReturnDependency = v
 		return e
+	case "renderer.type":
+		c.Renderer.Type = strings.ToLower(value)
+		return nil
+	case "renderer.server_url":
+		c.Renderer.ServerURL = value
+		return nil
+	case "renderer.timeout":
+		d, e := time.ParseDuration(value)
+		c.Renderer.Timeout = d
+		return e
 	default:
 		// Forward-compatible: unknown keys are ignored so newer configuration files remain usable.
 	}
@@ -250,4 +268,9 @@ relations:
   field_dependency: true
   parameter_dependency: true
   return_dependency: true
+
+renderer:
+  type: auto
+  server_url: ""
+  timeout: 30s
 `
