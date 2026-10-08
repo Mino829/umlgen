@@ -70,8 +70,15 @@ func parseType(node *sitter.Node, source []byte, pkg, path string, imports []mod
 		Enclosing:  append([]string(nil), enclosing...),
 		Kind:       kindFor(node.Kind()),
 		Visibility: declarationVisibility(node, source, model.Package),
+		Abstract:   hasModifier(node, source, "abstract"),
+		Final:      hasModifier(node, source, "final"),
+		Sealed:     hasModifier(node, source, "sealed"),
+		NonSealed:  hasModifier(node, source, "non-sealed"),
 		Imports:    append([]model.Import(nil), imports...),
 		Source:     path,
+	}
+	if typeParameters := node.ChildByFieldName("type_parameters"); typeParameters != nil {
+		t.TypeParameters = typeText(typeParameters, source)
 	}
 	if superclass := node.ChildByFieldName("superclass"); superclass != nil {
 		t.Extends = append(t.Extends, superTypes(superclass, source, "extends")...)
@@ -96,11 +103,7 @@ func parseType(node *sitter.Node, source []byte, pkg, path string, imports []mod
 	parseBody(&t, bodyNode, source)
 	result := []model.Type{t}
 	nextEnclosing := append(append([]string(nil), enclosing...), t.Name)
-	for i := uint(0); i < bodyNode.NamedChildCount(); i++ {
-		child := bodyNode.NamedChild(i)
-		if !isTypeDeclaration(child.Kind()) {
-			continue
-		}
+	for _, child := range nestedTypeDeclarations(bodyNode) {
 		nested, err := parseType(child, source, pkg, path, imports, nextEnclosing)
 		if err != nil {
 			return nil, err
@@ -116,14 +119,49 @@ func parseBody(t *model.Type, body *sitter.Node, source []byte) {
 		switch child.Kind() {
 		case "field_declaration", "constant_declaration":
 			parseFields(t, child, source)
+		case "enum_constant":
+			if name := child.ChildByFieldName("name"); name != nil {
+				t.EnumValues = append(t.EnumValues, name.Utf8Text(source))
+			}
 		case "method_declaration":
 			t.Methods = append(t.Methods, parseMethod(t, child, source, false))
+		case "annotation_type_element_declaration":
+			t.Methods = append(t.Methods, parseAnnotationElement(child, source))
 		case "constructor_declaration", "compact_constructor_declaration":
 			t.Methods = append(t.Methods, parseMethod(t, child, source, true))
 		case "enum_body_declarations":
 			parseBody(t, child, source)
 		}
 	}
+}
+
+func nestedTypeDeclarations(body *sitter.Node) []*sitter.Node {
+	var result []*sitter.Node
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		child := body.NamedChild(i)
+		if isTypeDeclaration(child.Kind()) {
+			result = append(result, child)
+			continue
+		}
+		if child.Kind() == "enum_body_declarations" {
+			result = append(result, nestedTypeDeclarations(child)...)
+		}
+	}
+	return result
+}
+
+func parseAnnotationElement(node *sitter.Node, source []byte) model.Method {
+	method := model.Method{Visibility: model.Public, Abstract: true}
+	if name := node.ChildByFieldName("name"); name != nil {
+		method.Name = name.Utf8Text(source)
+	}
+	if returnType := node.ChildByFieldName("type"); returnType != nil {
+		method.ReturnType = typeText(returnType, source)
+		if dimensions := node.ChildByFieldName("dimensions"); dimensions != nil {
+			method.ReturnType += typeText(dimensions, source)
+		}
+	}
+	return method
 }
 
 func parseFields(t *model.Type, node *sitter.Node, source []byte) {
@@ -175,6 +213,7 @@ func parseMethod(t *model.Type, node *sitter.Node, source []byte, constructor bo
 		Constructor: constructor,
 		Visibility:  visibility,
 		Static:      hasModifier(node, source, "static"),
+		Abstract:    hasModifier(node, source, "abstract") || (t.Kind == model.Interface && !hasModifier(node, source, "default") && !hasModifier(node, source, "static") && !hasModifier(node, source, "private")),
 		Parameters:  parseParameters(node.ChildByFieldName("parameters"), source),
 	}
 	if !constructor {
@@ -349,8 +388,10 @@ func typeText(node *sitter.Node, source []byte) string {
 
 func kindFor(nodeKind string) model.TypeKind {
 	switch nodeKind {
-	case "interface_declaration", "annotation_type_declaration":
+	case "interface_declaration":
 		return model.Interface
+	case "annotation_type_declaration":
+		return model.Annotation
 	case "enum_declaration":
 		return model.Enum
 	case "record_declaration":
