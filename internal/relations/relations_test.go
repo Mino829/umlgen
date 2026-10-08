@@ -45,6 +45,46 @@ func TestBuildResolvesGoImportAliases(t *testing.T) {
 	}
 }
 
+func TestResolveDoesNotUseImportedTypeForDifferentQualifiedName(t *testing.T) {
+	types := []model.Type{
+		{Package: "com.acme", Name: "Bar"},
+		{
+			Package: "app", Name: "Service",
+			Imports: []model.Import{{Name: "com.acme.Bar"}},
+			Fields:  []model.Field{{Name: "external", Type: "other.Bar"}},
+		},
+	}
+	if got := Build(types); len(got) != 0 {
+		t.Fatalf("unresolved qualified type gained a relation: %#v", got)
+	}
+}
+
+func TestResolveDoesNotUseUnrelatedUniqueType(t *testing.T) {
+	types := []model.Type{
+		{Package: "unrelated", Name: "Bar"},
+		{Package: "app", Name: "Service", Fields: []model.Field{{Name: "external", Type: "Bar"}}},
+	}
+	if got := Build(types); len(got) != 0 {
+		t.Fatalf("unimported type gained a relation: %#v", got)
+	}
+}
+
+func TestResolveNestedTypeThroughExplicitImport(t *testing.T) {
+	types := []model.Type{
+		{Package: "com.acme", Name: "Outer"},
+		{Package: "com.acme", Enclosing: []string{"Outer"}, Name: "Inner"},
+		{
+			Package: "app", Name: "Service",
+			Imports: []model.Import{{Name: "com.acme.Outer"}},
+			Fields:  []model.Field{{Name: "nested", Type: "Outer.Inner"}},
+		},
+	}
+	got := Build(types)
+	if len(got) != 1 || got[0].To != "com.acme.Outer.Inner" {
+		t.Fatalf("relations = %#v", got)
+	}
+}
+
 func TestResolveNestedType(t *testing.T) {
 	types := []model.Type{
 		{Package: "app", Name: "Outer"},
