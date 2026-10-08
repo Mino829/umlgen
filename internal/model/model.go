@@ -14,11 +14,12 @@ const (
 type TypeKind string
 
 const (
-	Class     TypeKind = "class"
-	Struct    TypeKind = "struct"
-	Interface TypeKind = "interface"
-	Enum      TypeKind = "enum"
-	Record    TypeKind = "record"
+	Class      TypeKind = "class"
+	Struct     TypeKind = "struct"
+	Interface  TypeKind = "interface"
+	Annotation TypeKind = "annotation"
+	Enum       TypeKind = "enum"
+	Record     TypeKind = "record"
 )
 
 type Project struct {
@@ -42,18 +43,24 @@ type Import struct {
 }
 
 type Type struct {
-	Package    string
-	Name       string
-	Enclosing  []string
-	Kind       TypeKind
-	Visibility Visibility
-	Imports    []Import
-	Fields     []Field
-	Methods    []Method
-	Extends    []string
-	Implements []string
-	Source     string
-	Change     ChangeKind
+	Package        string
+	Name           string
+	Enclosing      []string
+	Kind           TypeKind
+	Visibility     Visibility
+	TypeParameters string
+	Abstract       bool
+	Final          bool
+	Sealed         bool
+	NonSealed      bool
+	Imports        []Import
+	EnumValues     []string
+	Fields         []Field
+	Methods        []Method
+	Extends        []string
+	Implements     []string
+	Source         string
+	Change         ChangeKind
 }
 
 func (t Type) QualifiedName() string {
@@ -68,7 +75,7 @@ func (t Type) QualifiedName() string {
 func (t Type) DisplayName() string {
 	parts := append([]string{}, t.Enclosing...)
 	parts = append(parts, t.Name)
-	return strings.Join(parts, ".")
+	return strings.Join(parts, ".") + t.TypeParameters
 }
 
 type Field struct {
@@ -85,6 +92,7 @@ type Method struct {
 	Visibility  Visibility
 	Constructor bool
 	Static      bool
+	Abstract    bool
 }
 
 type Parameter struct {

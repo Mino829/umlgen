@@ -103,8 +103,69 @@ enum Status { ACTIVE, INACTIVE }`
 	if len(types[0].Implements) != 1 || types[0].Implements[0] != "Comparable<UserId>" {
 		t.Fatalf("unexpected record interfaces: %#v", types[0].Implements)
 	}
-	if types[1].Kind != model.Enum {
+	if types[1].Kind != model.Enum || strings.Join(types[1].EnumValues, ",") != "ACTIVE,INACTIVE" {
 		t.Fatalf("unexpected enum: %#v", types[1])
+	}
+}
+
+func TestParseCommonModernDeclarations(t *testing.T) {
+	source := `package sample;
+
+public @interface Configuration {
+    String value() default "";
+    Class<?> target();
+}
+
+public abstract sealed class Base<T extends Entity & Comparable<T>> permits Child {
+    protected static final String KIND = "base";
+    public abstract T load(String id);
+}
+
+non-sealed class Child extends Base<Entity> {}
+
+enum Status {
+    ACTIVE("active"), INACTIVE("inactive");
+
+    private final String label;
+    Status(String label) { this.label = label; }
+
+    static class Metadata {}
+}`
+
+	types, err := ParseSource("Common.java", []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(types) != 5 {
+		t.Fatalf("types = %d, want 5: %#v", len(types), types)
+	}
+	byName := map[string]model.Type{}
+	for _, parsed := range types {
+		byName[parsed.QualifiedName()] = parsed
+	}
+
+	annotation := byName["sample.Configuration"]
+	if annotation.Kind != model.Annotation || len(annotation.Methods) != 2 ||
+		annotation.Methods[0].Name != "value" || annotation.Methods[0].ReturnType != "String" ||
+		annotation.Methods[1].ReturnType != "Class<?>" {
+		t.Fatalf("annotation = %#v", annotation)
+	}
+	base := byName["sample.Base"]
+	if !base.Abstract || !base.Sealed || base.TypeParameters != "<T extends Entity & Comparable<T>>" {
+		t.Fatalf("base modifiers/type parameters = %#v", base)
+	}
+	if len(base.Fields) != 1 || !base.Fields[0].Static || len(base.Methods) != 1 || !base.Methods[0].Abstract {
+		t.Fatalf("base members = %#v %#v", base.Fields, base.Methods)
+	}
+	if child := byName["sample.Child"]; !child.NonSealed {
+		t.Fatalf("child = %#v", child)
+	}
+	status := byName["sample.Status"]
+	if strings.Join(status.EnumValues, ",") != "ACTIVE,INACTIVE" || len(status.Fields) != 1 || len(status.Methods) != 1 {
+		t.Fatalf("status = %#v", status)
+	}
+	if _, ok := byName["sample.Status.Metadata"]; !ok {
+		t.Fatalf("nested enum type was not parsed: %#v", byName)
 	}
 }
 
@@ -166,7 +227,8 @@ func TestParseCompatibilityFixture(t *testing.T) {
 		command.Visibility != model.Public {
 		t.Fatalf("sealed interface = %#v", command)
 	}
-	if annotation := byName["com.acme.shared.DomainType"]; annotation.Kind != model.Interface {
+	if annotation := byName["com.acme.shared.DomainType"]; annotation.Kind != model.Annotation ||
+		len(annotation.Methods) != 1 || annotation.Methods[0].Name != "value" {
 		t.Fatalf("annotation = %#v", annotation)
 	}
 	identifiable := byName["com.acme.shared.Identifiable"]

@@ -11,17 +11,11 @@ umlgen class . --language go
 
 **[Pull Requestの設計変更がどう見えるか、30秒デモを見る](examples/order-service/README.md)**
 
-> **まず無料で利用できます**
->
-> CLIとGitHub Actions workflowは無料です。さらに最初の10リポジトリには、
-> GitHub Actionsの設定と動作確認を行う[無料導入サポート](docs/onboarding-support.md)を提供します。
-> 継続的に試せるJavaチームは、3組限定の[デザインパートナープログラム](docs/design-partner.md)へ応募できます。
-
 ## 主な機能
 
 - Tree-sitter JavaによるAST解析
 - Go標準ASTによるGoソース解析
-- class、interface、enum、recordの抽出
+- class、interface、annotation、enum、recordの抽出
 - Goのstruct、interface、field、methodの抽出
 - Goのembeddingと暗黙的なinterface実装の関係生成
 - importと入れ子型を考慮した型解決
@@ -228,8 +222,6 @@ jobs:
 
 導入方法、入力、Fork Pull Requestのセキュリティ上の注意は[`docs/github-actions.md`](docs/github-actions.md)を参照してください。
 
-自分のリポジトリに合わせた設定を依頼したい場合は、[導入サポート](docs/onboarding-support.md)を利用できます。
-
 ## 設定ファイル
 
 設定のひな型を生成します。
@@ -326,18 +318,19 @@ git push origin v0.2.0
 
 ### Java
 
-Javaの宣言構文はTree-sitterの構文木から取得します。明示的import、ワイルドカードimport、同一パッケージ、入れ子型を使ってプロジェクト内の型を解決します。
+Javaの宣言構文はTree-sitterの構文木から取得します。特定のフレームワークやビルドツールに依存せず、一般的なJavaソースからクラス図を生成することを基本方針としています。明示的import、ワイルドカードimport、同一パッケージ、入れ子型を使ってプロジェクト内の型を解決します。
 
-sealed class／interfaceは通常のclass／interfaceとして、annotation宣言はinterfaceとして図へ出力します。record、generic型、wildcard型に含まれるプロジェクト内の型も、解決できる範囲で関係へ反映します。
+annotation宣言とその要素、enum定数、record、generic型パラメーター、abstract／final／sealed／non-sealed型、static／abstractメンバーを図へ反映します。generic型やwildcard型に含まれるプロジェクト内の型も、解決できる範囲で関係へ反映します。
 
 構文エラーのあるファイルは警告してスキップし、解析できるファイルから図を生成します。すべてのJavaファイルを解析できなかった場合は終了コード3で終了します。
 
 現在、次の要素は意味解析の対象外です。
 
-- sealed型の`permits`関係
+- sealed型の`permits`一覧からの関係推論（型自身の`extends`／`implements`は反映します）
 - annotationの用途や意味
 - generic型パラメーターと境界の完全な型解析
 - プロジェクト外の未解決型
+- ローカルクラス、匿名クラス、enum定数固有のclass body
 - リフレクション、Lombokが生成するメンバー
 - メソッド内部の呼び出し
 - Spring固有の高度な依存注入推論

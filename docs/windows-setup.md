@@ -81,7 +81,7 @@ umlgen class . --exclude target --exclude build --format svg
 
 GitHub Actionsを使う場合、Windows PCへumlgenをインストールしなくてもGitHub上で図を自動生成できます。
 
-[GitHub Actions導入ガイド](github-actions.md)のworkflowをリポジトリへ追加してください。設定を任せたい場合は[無料導入サポート](onboarding-support.md)を利用できます。
+[GitHub Actions導入ガイド](github-actions.md)のworkflowをリポジトリへ追加してください。
 
 ## 更新
 

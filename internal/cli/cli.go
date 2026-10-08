@@ -665,7 +665,7 @@ func excludePackage(pkg string, excludes []string) bool {
 func countKinds(types []model.Type) (int, int) {
 	var classes, interfaces int
 	for _, t := range types {
-		if t.Kind == model.Interface {
+		if t.Kind == model.Interface || t.Kind == model.Annotation {
 			interfaces++
 		} else {
 			classes++
