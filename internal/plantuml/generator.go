@@ -49,15 +49,18 @@ func Generate(project model.Project, opts Options) string {
 			fmt.Fprintf(&b, "package %q {\n", t.Package)
 			lastPackage = t.Package
 		}
-		declaration, stereotype := typeDeclaration(t.Kind)
+		declaration, stereotype := typeDeclaration(t)
 		fmt.Fprintf(
 			&b, "  %s %q as %s%s%s {\n",
 			declaration, t.DisplayName(), aliases[t.QualifiedName()], stereotype, changeColor(t.Change),
 		)
 		if opts.ShowFields {
+			for _, value := range t.EnumValues {
+				fmt.Fprintf(&b, "    %s\n", value)
+			}
 			for _, f := range t.Fields {
 				if visible(f.Visibility, opts) {
-					fmt.Fprintf(&b, "    %s%s: %s\n", visibilitySymbol(f.Visibility), f.Name, f.Type)
+					fmt.Fprintf(&b, "    %s%s%s: %s\n", memberModifier(f.Static, false), visibilitySymbol(f.Visibility), f.Name, f.Type)
 				}
 			}
 		}
@@ -70,7 +73,8 @@ func Generate(project model.Project, opts Options) string {
 				for _, p := range m.Parameters {
 					params = append(params, p.Name+": "+p.Type)
 				}
-				fmt.Fprintf(&b, "    %s%s(%s)", visibilitySymbol(m.Visibility), m.Name, strings.Join(params, ", "))
+				showAbstract := m.Abstract && t.Kind != model.Interface && t.Kind != model.Annotation
+				fmt.Fprintf(&b, "    %s%s%s(%s)", memberModifier(m.Static, showAbstract), visibilitySymbol(m.Visibility), m.Name, strings.Join(params, ", "))
 				if !m.Constructor && m.ReturnType != "" {
 					fmt.Fprintf(&b, ": %s", m.ReturnType)
 				}
@@ -109,14 +113,47 @@ func changeColor(change model.ChangeKind) string {
 	}
 }
 
-func typeDeclaration(kind model.TypeKind) (string, string) {
-	if kind == model.Struct {
-		return "class", " <<struct>>"
+func typeDeclaration(t model.Type) (string, string) {
+	declaration := string(t.Kind)
+	var stereotypes []string
+	if t.Kind == model.Struct {
+		declaration = "class"
+		stereotypes = append(stereotypes, "struct")
 	}
-	if kind == model.Record {
-		return "class", " <<record>>"
+	if t.Kind == model.Record {
+		declaration = "class"
+		stereotypes = append(stereotypes, "record")
 	}
-	return string(kind), ""
+	if t.Kind == model.Class && t.Abstract {
+		declaration = "abstract class"
+	}
+	if t.Final {
+		stereotypes = append(stereotypes, "final")
+	}
+	if t.Sealed {
+		stereotypes = append(stereotypes, "sealed")
+	}
+	if t.NonSealed {
+		stereotypes = append(stereotypes, "non-sealed")
+	}
+	if len(stereotypes) == 0 {
+		return declaration, ""
+	}
+	return declaration, " <<" + strings.Join(stereotypes, ",") + ">>"
+}
+
+func memberModifier(static, abstract bool) string {
+	var modifiers []string
+	if static {
+		modifiers = append(modifiers, "{static}")
+	}
+	if abstract {
+		modifiers = append(modifiers, "{abstract}")
+	}
+	if len(modifiers) == 0 {
+		return ""
+	}
+	return strings.Join(modifiers, " ") + " "
 }
 
 func aliasesFor(types []model.Type) map[string]string {

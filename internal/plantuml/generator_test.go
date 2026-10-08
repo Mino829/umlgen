@@ -43,3 +43,40 @@ func TestGenerate(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateCommonJavaModifiersAndMembers(t *testing.T) {
+	project := model.Project{Types: []model.Type{
+		{
+			Package: "sample", Name: "Base", Kind: model.Class, Abstract: true, Sealed: true,
+			TypeParameters: "<T extends Entity>",
+			Fields:         []model.Field{{Name: "KIND", Type: "String", Visibility: model.Public, Static: true}},
+			Methods:        []model.Method{{Name: "load", ReturnType: "T", Visibility: model.Public, Abstract: true}},
+		},
+		{
+			Package: "sample", Name: "Status", Kind: model.Enum,
+			EnumValues: []string{"ACTIVE", "INACTIVE"},
+		},
+		{
+			Package: "sample", Name: "Configuration", Kind: model.Annotation,
+			Methods: []model.Method{{Name: "value", ReturnType: "String", Visibility: model.Public, Abstract: true}},
+		},
+	}}
+	got := Generate(project, Options{
+		ShowFields: true, ShowMethods: true, ShowPrivate: true, ShowPublic: true,
+		ShowProtected: true, ShowPackage: true,
+	})
+	for _, want := range []string{
+		`abstract class "Base<T extends Entity>" as T_sample_Base <<sealed>>`,
+		`{static} +KIND: String`,
+		`{abstract} +load(): T`,
+		`enum "Status"`,
+		`ACTIVE`,
+		`INACTIVE`,
+		`annotation "Configuration"`,
+		`+value(): String`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output does not contain %q:\n%s", want, got)
+		}
+	}
+}
