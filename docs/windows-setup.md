@@ -58,13 +58,14 @@ umlgen class .\src\main\java
 
 プロジェクトのフォルダーに`class-diagram.puml`が作成されます。
 
-SVG画像も生成する場合：
+SVG・PNG画像も生成する場合：
 
 ```powershell
 umlgen class .\src\main\java --format svg
+umlgen class .\src\main\java --format png
 ```
 
-次の2ファイルが作成されます。
+たとえばSVGを選ぶと、次の2ファイルが作成されます。
 
 ```text
 class-diagram.puml
@@ -90,7 +91,7 @@ GitHub Actionsを使う場合、Windows PCへumlgenをインストールしな�
 特定バージョンを使う場合：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.3.0 -InstallPlantUML
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.4.0 -InstallPlantUML
 ```
 
 ## アンインストール

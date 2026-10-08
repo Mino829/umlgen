@@ -56,13 +56,14 @@ umlgen class ./src/main/java
 umlgen class . --exclude target --exclude build
 ```
 
-## SVG画像も生成する
+## SVG／PNG画像も生成する
 
-SVG生成にはPlantUMLが必要です。すでにHomebrewを利用している場合：
+SVG・PNG生成にはPlantUMLレンダラーが必要です。すでにHomebrewを利用している場合：
 
 ```bash
 brew install plantuml
 umlgen class ./src/main/java --format svg
+umlgen class ./src/main/java --format png
 ```
 
 Homebrewを利用していない場合は、まず`.puml`生成まで利用できます。
@@ -80,7 +81,7 @@ GitHub Actionsを使うと、MacへPlantUMLを追加しなくてもGitHub上で�
 特定バージョンを使う場合：
 
 ```bash
-bash "$installer" --version v0.3.0
+bash "$installer" --version v0.4.0
 ```
 
 ## アンインストール

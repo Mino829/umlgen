@@ -40,7 +40,7 @@ change-diagram.svg
 | `source` | `.` | リポジトリ相対のJavaソースパス |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
-| `umlgen-version` | `v0.3.0` | ダウンロードするumlgenのリリースタグ |
+| `umlgen-version` | `v0.4.0` | ダウンロードするumlgenのリリースタグ |
 | `artifact-name` | `umlgen-pr-diff` | artifact名 |
 | `retention-days` | `14` | artifact保持日数 |
 | `base-sha` | Pull Requestのbase | base commitの上書き |
@@ -66,6 +66,7 @@ change-diagram.svg
 - umlgenのLinuxアーカイブは公開リリースの`SHA256SUMS.txt`で検証する
 - PlantUML Serverは使わず、GitHub-hosted runner内のPlantUML CLIでSVGを生成する
 - ソースコードを外部の図生成サービスへ送信しない
+- umlgen v0.4.0 以降でPNG出力やPlantUML Serverレンダラーを利用する場合は、明示的な設定が必要
 
 GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメンテナー承認が必要になる。
 

@@ -25,7 +25,7 @@ umlgen class . --language go
 - 特定の型と周辺だけを表示するフォーカス機能
 - Git差分に含まれる型と周辺型の色分け
 - パッケージやパスによる絞り込み
-- PlantUMLおよびSVG出力
+- PlantUML、SVG、PNG出力
 - `.umlgen.yaml`によるプロジェクト設定
 - macOS、Linux、WindowsでのCIとリリースビルド
 
@@ -91,6 +91,9 @@ umlgen class ./src/main/java -o docs/domain.puml
 
 # SVGも生成（ローカルにPlantUMLが必要）
 umlgen class ./src --format svg
+
+# PNGも生成（ローカルにPlantUMLが必要）
+umlgen class ./src --format png
 
 # privateメンバーとメソッドを非表示
 umlgen class ./src --hide-private --hide-methods
@@ -264,24 +267,43 @@ relations:
   field_dependency: true
   parameter_dependency: true
   return_dependency: true
+
+renderer:
+  type: auto
+  server_url: ""
+  timeout: 30s
 ```
 
 `language`は`auto`、`java`、`go`から選択できます。`auto`は対象ファイルと`go.mod`、`pom.xml`、Gradle設定から判定します。JavaとGoが混在して判定できない場合は、`--language`または設定ファイルで明示してください。
 
 優先順位は、コマンドライン、`--config`で指定した設定、`.umlgen.yaml`、デフォルト値の順です。
 
-## SVG出力
+## SVG／PNG出力
 
-SVG出力にはPlantUMLが必要です。
+SVG・PNG出力にはPlantUMLレンダラーが必要です。デフォルトでは`plantuml`コマンドを探し、見つからなければ`PLANTUML_JAR`を使います。`renderer`を`server`に設定した場合のみ、PlantUML Serverを利用します（ソースコードがサーバーに送信されます）。
 
 macOS：
 
 ```bash
 brew install plantuml
 umlgen class ./src --format svg
+umlgen class ./src --format png
 ```
 
-または`PLANTUML_JAR`へ`plantuml.jar`のパスを設定できます。SVG生成に失敗した場合も、元の`.puml`は残ります。
+または`PLANTUML_JAR`へ`plantuml.jar`のパスを設定できます。画像生成に失敗した場合も、元の`.puml`は残ります。
+
+### レンダラー設定
+
+`.umlgen.yaml`でレンダラーとタイムアウトを指定できます。
+
+```yaml
+renderer:
+  type: auto       # auto, local, jar, server
+  server_url: ""   # server使用時のみ（ソースが外部に送信されます）
+  timeout: 30s
+```
+
+`--renderer`、`--server-url`、`--render-timeout`フラグでも上書きできます。
 
 ## 開発
 
