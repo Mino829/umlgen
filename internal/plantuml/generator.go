@@ -158,9 +158,31 @@ func memberModifier(static, abstract bool) string {
 
 func aliasesFor(types []model.Type) map[string]string {
 	aliases := map[string]string{}
+	reserved := map[string]bool{}
+	var names []string
 	for _, t := range types {
-		alias := safeAlias(t.QualifiedName())
-		aliases[t.QualifiedName()] = alias
+		name := t.QualifiedName()
+		names = append(names, name)
+		reserved[safeAlias(name)] = true
+	}
+	sort.Strings(names)
+	used := map[string]bool{}
+	for _, name := range names {
+		if _, exists := aliases[name]; exists {
+			continue
+		}
+		base := safeAlias(name)
+		alias := base
+		if used[alias] {
+			for suffix := 2; ; suffix++ {
+				alias = fmt.Sprintf("%s_%d", base, suffix)
+				if !reserved[alias] && !used[alias] {
+					break
+				}
+			}
+		}
+		aliases[name] = alias
+		used[alias] = true
 	}
 	return aliases
 }

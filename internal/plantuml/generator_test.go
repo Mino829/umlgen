@@ -80,3 +80,41 @@ func TestGenerateCommonJavaModifiersAndMembers(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateUsesDistinctAliasesForCollidingNames(t *testing.T) {
+	types := []model.Type{
+		{Package: "a_b.c", Name: "Widget", Kind: model.Class},
+		{Package: "a.b_c", Name: "Widget", Kind: model.Class},
+		{Package: "a.b_c", Name: "Widget_2", Kind: model.Class},
+		{
+			Package: "app", Name: "Consumer", Kind: model.Class,
+			Fields: []model.Field{{Name: "widget", Type: "a_b.c.Widget", Visibility: model.Private}},
+		},
+	}
+	aliases := aliasesFor(types)
+	seen := map[string]bool{}
+	for _, typ := range types {
+		alias := aliases[typ.QualifiedName()]
+		if seen[alias] {
+			t.Fatalf("duplicate alias %q: %#v", alias, aliases)
+		}
+		seen[alias] = true
+	}
+	if aliases["a.b_c.Widget_2"] != "T_a_b_c_Widget_2" {
+		t.Fatalf("an existing base alias was reused: %#v", aliases)
+	}
+
+	got := Generate(model.Project{Types: types}, Options{
+		ShowRelations: true, FieldDependency: true, ShowRelationLabels: true,
+	})
+	for _, typ := range types {
+		declaration := `as ` + aliases[typ.QualifiedName()]
+		if !strings.Contains(got, declaration) {
+			t.Errorf("missing declaration %q:\n%s", declaration, got)
+		}
+	}
+	want := `T_app_Consumer --> "1" ` + aliases["a_b.c.Widget"] + ` : field widget`
+	if !strings.Contains(got, want) {
+		t.Errorf("missing relation %q:\n%s", want, got)
+	}
+}

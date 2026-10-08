@@ -29,18 +29,15 @@ type Relation struct {
 type Index struct {
 	types     []model.Type
 	qualified map[string]int
-	simple    map[string][]int
 }
 
 func NewIndex(types []model.Type) *Index {
 	index := &Index{
 		types:     types,
 		qualified: make(map[string]int, len(types)),
-		simple:    make(map[string][]int, len(types)),
 	}
 	for i, t := range types {
 		index.qualified[t.QualifiedName()] = i
-		index.simple[t.Name] = append(index.simple[t.Name], i)
 	}
 	return index
 }
@@ -67,10 +64,6 @@ func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 		}
 	}
 
-	simpleName := reference
-	if dot := strings.LastIndex(reference, "."); dot >= 0 {
-		simpleName = reference[dot+1:]
-	}
 	for _, imported := range owner.Imports {
 		if imported.Static || imported.Wildcard {
 			continue
@@ -90,6 +83,8 @@ func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 				alias = imported.Name
 				if slash := strings.LastIndex(alias, "/"); slash >= 0 {
 					alias = alias[slash+1:]
+				} else if dot := strings.LastIndex(alias, "."); dot >= 0 {
+					alias = alias[dot+1:]
 				}
 			}
 			if alias == qualifier {
@@ -98,7 +93,8 @@ func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 				}
 			}
 		}
-		if imported.Name == reference || strings.HasSuffix(imported.Name, "."+simpleName) {
+		if !strings.Contains(reference, ".") &&
+			(imported.Name == reference || strings.HasSuffix(imported.Name, "."+reference)) {
 			if i.has(imported.Name) {
 				return imported.Name, true
 			}
@@ -117,9 +113,6 @@ func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 		if candidate := owner.Package + "." + reference; i.has(candidate) {
 			return candidate, true
 		}
-	}
-	if matches := i.simple[simpleName]; len(matches) == 1 {
-		return i.types[matches[0]].QualifiedName(), true
 	}
 	return "", false
 }
