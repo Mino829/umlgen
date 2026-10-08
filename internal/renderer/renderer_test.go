@@ -3,6 +3,7 @@ package renderer
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -69,6 +70,9 @@ func TestRenderLocalCommandNotFound(t *testing.T) {
 }
 
 func TestRenderLocalSVG(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock shell script is not executable on Windows")
+	}
 	dir := t.TempDir()
 	script := filepath.Join(dir, "plantuml")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"mock\" > \""+dir+"/diagram.svg\""), 0o755); err != nil {
@@ -97,6 +101,9 @@ func TestRenderLocalSVG(t *testing.T) {
 }
 
 func TestRenderJar(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock shell script is not executable on Windows")
+	}
 	dir := t.TempDir()
 	jar := filepath.Join(dir, "plantuml.jar")
 	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {

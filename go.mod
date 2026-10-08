@@ -1,6 +1,6 @@
 module github.com/Mino829/umlgen
 
-go 1.24
+go 1.25
 
 require (
 	github.com/tree-sitter/go-tree-sitter v0.25.0

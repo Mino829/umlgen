@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -148,6 +149,9 @@ func TestInvalidFormat(t *testing.T) {
 }
 
 func TestPNGFormatWithMockRenderer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock shell script is not executable on Windows")
+	}
 	dir := t.TempDir()
 	writeJava(t, dir, "User.java", `package sample; class User {}`)
 
