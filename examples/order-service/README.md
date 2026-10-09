@@ -43,7 +43,7 @@ jobs:
       source: src/main/java
 ```
 
-本運用では`@main`ではなく、リリースタグまたは完全なcommit SHAへの固定を推奨します。入力項目とFork Pull Requestの注意事項は[GitHub Actions導入ガイド](../../docs/github-actions.md)を参照してください。
+本運用では`@main`ではなく、リリースタグまたは完全なcommit SHAへの固定を推奨します。入力項目とFork Pull Requestの注意事項は[GitHub Actions導入ガイド](../../docs/github-actions.md)を参照してください。差分図の読み方や精度については[PR差分図ガイド](../../docs/pr-diff.md)も参照してください。
 
 ## ローカルでデモを再生成する
 

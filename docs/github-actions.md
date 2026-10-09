@@ -2,6 +2,8 @@
 
 umlgenの再利用可能ワークフローを呼び出すと、Pull Requestのbase／headからJavaの差分クラス図を生成し、PlantUMLとSVGをActions artifactとして保存できる。
 
+差分図の読み方、精度、ローカルCLIの使い方については[`docs/pr-diff.md`](./pr-diff.md)を参照してください。
+
 ## 最小構成
 
 利用するリポジトリに`.github/workflows/umlgen-diff.yml`を作成する。
@@ -37,7 +39,7 @@ change-diagram.svg
 
 | Input | Default | 説明 |
 | --- | --- | --- |
-| `source` | `.` | リポジトリ相対のJavaソースパス |
+| `source` | `.` | リポジトリ相対のJavaソースパス（このワークフローは`.java`ファイルの変更を検知します） |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
 | `umlgen-version` | `v0.4.0` | ダウンロードするumlgenのリリースタグ |
@@ -47,6 +49,8 @@ change-diagram.svg
 | `head-sha` | Pull Requestのhead | head commitの上書き |
 
 `source`以下に変更されたJavaファイルがない場合も失敗にはしない。その場合は「Java変更なし」と記載したPlantUML／SVGをartifactへ保存する。
+
+なお、このワークフローは`.java`ファイルの変更のみを検知する。Goプロジェクトで利用する場合はローカルCLIまたは独自ワークフローで`umlgen diff`を呼び出してください。
 
 ## 出力
 
@@ -66,7 +70,7 @@ change-diagram.svg
 - umlgenのLinuxアーカイブは公開リリースの`SHA256SUMS.txt`で検証する
 - PlantUML Serverは使わず、GitHub-hosted runner内のPlantUML CLIでSVGを生成する
 - ソースコードを外部の図生成サービスへ送信しない
-- umlgen v0.4.0 以降でPNG出力やPlantUML Serverレンダラーを利用する場合は、明示的な設定が必要
+- このワークフローではSVG出力に固定している。PNG出力やPlantUML Serverレンダラーを利用する場合はローカルCLIで`umlgen diff`を実行する
 
 GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメンテナー承認が必要になる。
 
@@ -79,6 +83,10 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 ### Java変更があるのに「変更なし」になる
 
 `source`がリポジトリ相対パスになっているか、変更ファイルがその配下にあるか確認する。
+
+### 変更ファイルに型が含まれていない場合
+
+`package-info.java`など型を含まないファイルだけが変更された場合、今回の修正を含むCLIはプレースホルダ図を生成する。既定の`v0.4.0`が「変更ファイルに型がない」というエラーだけを出した場合も、ワークフロー側でプレースホルダ図を生成する。この場合もJavaファイルの変更はあるため、`no-java-changes`は`false`になる。解析警告を伴う場合や、その他の終了コード1のエラーは失敗として扱う。
 
 ### 再利用ワークフローを呼び出せない
 

@@ -444,8 +444,13 @@ func runClassMode(
 
 	var types []model.Type
 	warnings := 0
+	changedParseFailures := 0
 	cacheHits, cacheMisses := 0, 0
 	for _, file := range files {
+		changedFile := false
+		if diffSelection != nil {
+			_, changedFile = diffSelection.ChangeFor(file)
+		}
 		if o.verbose {
 			fmt.Fprintf(stdout, "Parsing: %s\n", file)
 		}
@@ -467,6 +472,9 @@ func runClassMode(
 		}
 		if parseErr != nil {
 			warnings++
+			if changedFile {
+				changedParseFailures++
+			}
 			fmt.Fprintf(stderr, "Warning: failed to parse %s: %v\n", file, parseErr)
 			continue
 		}
@@ -495,6 +503,7 @@ func runClassMode(
 			found, parseErr := sourceParser.ParseSource(deleted.Path, deleted.Content)
 			if parseErr != nil {
 				warnings++
+				changedParseFailures++
 				fmt.Fprintf(stderr, "Warning: failed to parse deleted file %s: %v\n", deleted.Path, parseErr)
 				continue
 			}
@@ -506,10 +515,11 @@ func runClassMode(
 			}
 		}
 	}
-	if len(types) == 0 && warnings == len(files) {
+	if diffSelection == nil && len(types) == 0 && warnings == len(files) {
 		return exitParse, fmt.Errorf("failed to parse all %s files", sourceParser.DisplayName())
 	}
 	types = sourceParser.Finalize(types)
+	var noChanges bool
 	if diffSelection != nil {
 		var changed []string
 		for i := range types {
@@ -523,14 +533,18 @@ func runClassMode(
 			}
 		}
 		if len(changed) == 0 {
-			return exitError, fmt.Errorf("changed %s files did not contain types in the selected target", sourceParser.DisplayName())
-		}
-		types, err = focus.ApplyMany(types, changed, o.depth, direction)
-		if err != nil {
-			return exitArgs, err
-		}
-		if o.verbose {
-			fmt.Fprintf(stdout, "Focused on %d changed types with depth %d (%d types)\n", len(changed), o.depth, len(types))
+			if changedParseFailures > 0 {
+				return exitParse, fmt.Errorf("failed to parse changed %s files; no changed types could be generated", sourceParser.DisplayName())
+			}
+			noChanges = true
+		} else {
+			types, err = focus.ApplyMany(types, changed, o.depth, direction)
+			if err != nil {
+				return exitArgs, err
+			}
+			if o.verbose {
+				fmt.Fprintf(stdout, "Focused on %d changed types with depth %d (%d types)\n", len(changed), o.depth, len(types))
+			}
 		}
 	} else if o.focus != "" {
 		types, err = focus.Apply(types, o.focus, o.depth, direction)
@@ -548,15 +562,20 @@ func runClassMode(
 	if filepath.Ext(pumlPath) == "" {
 		pumlPath += ".puml"
 	}
-	content := plantuml.Generate(model.Project{Types: types}, plantuml.Options{
-		Title: o.title, ShowFields: cfg.Members.Fields, ShowMethods: cfg.Members.Methods,
-		ShowPrivate: cfg.Visibility.Private, ShowPublic: cfg.Visibility.Public,
-		ShowProtected: cfg.Visibility.Protected, ShowPackage: cfg.Visibility.PackagePrivate,
-		ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
-		Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
-		ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
-		ShowRelationLabels: o.showRelationLabels,
-	})
+	var content string
+	if noChanges {
+		content = placeholderDiagram(o.title)
+	} else {
+		content = plantuml.Generate(model.Project{Types: types}, plantuml.Options{
+			Title: o.title, ShowFields: cfg.Members.Fields, ShowMethods: cfg.Members.Methods,
+			ShowPrivate: cfg.Visibility.Private, ShowPublic: cfg.Visibility.Public,
+			ShowProtected: cfg.Visibility.Protected, ShowPackage: cfg.Visibility.PackagePrivate,
+			ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
+			Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
+			ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
+			ShowRelationLabels: o.showRelationLabels,
+		})
+	}
 	if err := os.MkdirAll(filepath.Dir(pumlPath), 0o755); err != nil {
 		return exitOutput, fmt.Errorf("failed to create output directory: %s", filepath.Dir(pumlPath))
 	}
@@ -567,6 +586,9 @@ func runClassMode(
 	if !o.quiet {
 		fmt.Fprintf(stdout, "Found %d %s files\n", len(files), sourceParser.DisplayName())
 		fmt.Fprintf(stdout, "Detected %d classes and %d interfaces\n", classes, interfaces)
+		if noChanges {
+			fmt.Fprintln(stdout, "No displayable changed types; generated placeholder diagram")
+		}
 		fmt.Fprintf(stdout, "Generated %s\n", pumlPath)
 		if warnings > 0 {
 			fmt.Fprintf(stdout, "%d warning(s)\n", warnings)
@@ -591,6 +613,14 @@ func runClassMode(
 		}
 	}
 	return exitOK, nil
+}
+
+func placeholderDiagram(title string) string {
+	if title == "" {
+		title = "Pull request class diagram"
+	}
+	title = strings.ReplaceAll(strings.ReplaceAll(title, "\n", " "), "\r", " ")
+	return fmt.Sprintf("@startuml\ntitle %s\nnote \"No displayable changed types in the selected range\" as NoChanges\n@enduml\n", title)
 }
 
 func normalizeClassArgs(args []string) ([]string, error) {
