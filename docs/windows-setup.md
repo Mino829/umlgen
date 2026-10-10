@@ -35,7 +35,7 @@ umlgen version
 次のようにバージョンが表示されれば完了です。
 
 ```text
-umlgen version 0.3.0
+umlgen version 0.5.0
 ```
 
 ## 3. Javaプロジェクトへ移動する
@@ -91,7 +91,7 @@ GitHub Actionsを使う場合、Windows PCへumlgenをインストールしな�
 特定バージョンを使う場合：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.4.0 -InstallPlantUML
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.5.0 -InstallPlantUML
 ```
 
 ## アンインストール

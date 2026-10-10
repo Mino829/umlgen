@@ -42,7 +42,7 @@ change-diagram.svg
 | `source` | `.` | リポジトリ相対のJavaソースパス（このワークフローは`.java`ファイルの変更を検知します） |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
-| `umlgen-version` | `v0.4.0` | ダウンロードするumlgenのリリースタグ |
+| `umlgen-version` | `v0.5.0` | ダウンロードするumlgenのリリースタグ |
 | `artifact-name` | `umlgen-pr-diff` | artifact名 |
 | `retention-days` | `14` | artifact保持日数 |
 | `base-sha` | Pull Requestのbase | base commitの上書き |
@@ -86,7 +86,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 ### 変更ファイルに型が含まれていない場合
 
-`package-info.java`など型を含まないファイルだけが変更された場合、今回の修正を含むCLIはプレースホルダ図を生成する。既定の`v0.4.0`が「変更ファイルに型がない」というエラーだけを出した場合も、ワークフロー側でプレースホルダ図を生成する。この場合もJavaファイルの変更はあるため、`no-java-changes`は`false`になる。解析警告を伴う場合や、その他の終了コード1のエラーは失敗として扱う。
+`package-info.java`など型を含まないファイルだけが変更された場合、既定の`v0.5.0` CLIはプレースホルダ図を生成する。`v0.4.0`のように「変更ファイルに型がない」というエラーだけを出した場合も、ワークフロー側でプレースホルダ図を生成するフォールバックが動作する。この場合もJavaファイルの変更はあるため、`no-java-changes`は`false`になる。解析警告を伴う場合や、その他の終了コード1のエラーは失敗として扱う。
 
 ### 再利用ワークフローを呼び出せない
 
