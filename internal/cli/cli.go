@@ -556,7 +556,8 @@ func runClassMode(
 		}
 	}
 	pumlPath := cfg.Output.File
-	if strings.EqualFold(filepath.Ext(pumlPath), ".svg") {
+	ext := strings.ToLower(filepath.Ext(pumlPath))
+	if ext == ".svg" || ext == ".png" {
 		pumlPath = strings.TrimSuffix(pumlPath, filepath.Ext(pumlPath)) + ".puml"
 	}
 	if filepath.Ext(pumlPath) == "" {
@@ -629,6 +630,7 @@ func normalizeClassArgs(args []string) ([]string, error) {
 		"--include": true, "--exclude": true, "--title": true, "--config": true,
 		"--focus": true, "--depth": true, "--direction": true, "--relations": true,
 		"--language": true,
+		"--renderer": true, "--server-url": true, "--render-timeout": true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {

@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaults(t *testing.T) {
@@ -134,5 +135,52 @@ func TestRenderServerRequiresURL(t *testing.T) {
 	_, err := Render("svg", "diagram.puml", Config{Type: TypeServer})
 	if err == nil || !strings.Contains(err.Error(), "server_url") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRenderLocalMissingOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock shell script is not executable on Windows")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "plantuml")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho done"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	pumlPath := filepath.Join(dir, "diagram.puml")
+	if err := os.WriteFile(pumlPath, []byte("@startuml\n@enduml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Render("svg", pumlPath, Defaults())
+	if err == nil || !strings.Contains(err.Error(), "did not produce output file") {
+		t.Fatalf("expected output file error, got: %v", err)
+	}
+}
+
+func TestRenderLocalTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock shell script is not executable on Windows")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "plantuml")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n/bin/sleep 2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	pumlPath := filepath.Join(dir, "diagram.puml")
+	if err := os.WriteFile(pumlPath, []byte("@startuml\n@enduml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Render("svg", pumlPath, Config{Type: TypeLocal, Timeout: 100 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got: %v", err)
+	}
+}
+
+func TestRenderDoesNotOverwriteInput(t *testing.T) {
+	_, err := Render("png", "diagram.png", Config{Type: TypeLocal, Timeout: 100 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "overwrite the input .puml file") {
+		t.Fatalf("expected overwrite error, got: %v", err)
 	}
 }

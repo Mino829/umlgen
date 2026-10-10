@@ -609,3 +609,74 @@ func TestCacheCleanCommand(t *testing.T) {
 		t.Fatalf("cache still exists: %v", err)
 	}
 }
+
+func TestPNGFormatWithPNGExtension(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mock shell script is not executable on Windows")
+	}
+	dir := t.TempDir()
+	writeJava(t, dir, "User.java", `package sample; class User {}`)
+
+	binDir := t.TempDir()
+	script := filepath.Join(binDir, "plantuml")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n/usr/bin/printf '' > \"${2%.puml}.png\""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+
+	out := filepath.Join(dir, "class-diagram.png")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{"class", dir, "--output", out, "--format", "png"}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	puml := filepath.Join(dir, "class-diagram.puml")
+	if _, err := os.Stat(puml); err != nil {
+		t.Fatalf("puml file was not kept: %v", err)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("png file was not generated: %v", err)
+	}
+}
+
+func TestRendererFlagsBeforeTarget(t *testing.T) {
+	dir := t.TempDir()
+	writeJava(t, dir, "User.java", `package sample; class User {}`)
+	out := filepath.Join(dir, "diagram.puml")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{
+		"class", dir,
+		"--renderer", "local",
+		"--server-url", "http://example.com",
+		"--render-timeout", "1s",
+		"--format", "plantuml",
+		"--output", out,
+	}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("output not written: %v", err)
+	}
+}
+
+func TestRendererFlagsEqualsForm(t *testing.T) {
+	dir := t.TempDir()
+	writeJava(t, dir, "User.java", `package sample; class User {}`)
+	out := filepath.Join(dir, "diagram.puml")
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{
+		"class", dir,
+		"--renderer=local",
+		"--server-url=http://example.com",
+		"--render-timeout=1s",
+		"--format=plantuml",
+		"--output", out,
+	}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("output not written: %v", err)
+	}
+}

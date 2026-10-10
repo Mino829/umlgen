@@ -3,6 +3,7 @@ package renderer
 import (
 	"bytes"
 	"compress/flate"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -65,25 +66,37 @@ func Render(format, pumlPath string, cfg Config) (string, error) {
 		return "", err
 	}
 
+	outPath := outputPath(pumlPath, format)
+	if outPath == pumlPath {
+		return "", fmt.Errorf("output path %q would overwrite the input .puml file", outPath)
+	}
+
+	ctx := context.Background()
+	if cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+	}
+
 	switch cfg.Type {
 	case TypeServer:
-		return renderServer(format, pumlPath, cfg.ServerURL, cfg.Timeout)
+		return renderServer(ctx, format, pumlPath, cfg.ServerURL)
 	case TypeJar:
-		return renderJar(format, pumlPath)
+		return renderJar(ctx, format, pumlPath)
 	case TypeLocal:
-		return renderLocal(format, pumlPath)
+		return renderLocal(ctx, format, pumlPath)
 	default: // auto
-		return renderAuto(format, pumlPath, cfg)
+		return renderAuto(ctx, format, pumlPath, cfg)
 	}
 }
 
-func renderAuto(format, pumlPath string, cfg Config) (string, error) {
-	localPath, localErr := renderLocal(format, pumlPath)
+func renderAuto(ctx context.Context, format, pumlPath string, cfg Config) (string, error) {
+	localPath, localErr := renderLocal(ctx, format, pumlPath)
 	if localErr == nil {
 		return localPath, nil
 	}
 	if jar := os.Getenv("PLANTUML_JAR"); jar != "" {
-		jarPath, jarErr := renderJar(format, pumlPath)
+		jarPath, jarErr := renderJar(ctx, format, pumlPath)
 		if jarErr == nil {
 			return jarPath, nil
 		}
@@ -98,20 +111,20 @@ To render images, choose one of:
 The .puml file has still been generated.`, localErr)
 }
 
-func renderLocal(format, pumlPath string) (string, error) {
+func renderLocal(ctx context.Context, format, pumlPath string) (string, error) {
 	binary, err := exec.LookPath("plantuml")
 	if err != nil {
 		return "", err
 	}
-	return runCommand(exec.Command(binary, typeFlag(format), pumlPath), format, pumlPath)
+	return runCommand(ctx, exec.CommandContext(ctx, binary, typeFlag(format), pumlPath), format, pumlPath)
 }
 
-func renderJar(format, pumlPath string) (string, error) {
+func renderJar(ctx context.Context, format, pumlPath string) (string, error) {
 	jar := os.Getenv("PLANTUML_JAR")
 	if jar == "" {
 		return "", errors.New("PLANTUML_JAR is not set")
 	}
-	return runCommand(exec.Command("java", "-jar", jar, typeFlag(format), pumlPath), format, pumlPath)
+	return runCommand(ctx, exec.CommandContext(ctx, "java", "-jar", jar, typeFlag(format), pumlPath), format, pumlPath)
 }
 
 func typeFlag(format string) string {
@@ -121,19 +134,34 @@ func typeFlag(format string) string {
 	return "-tsvg"
 }
 
-func runCommand(cmd *exec.Cmd, format, pumlPath string) (string, error) {
+func runCommand(ctx context.Context, cmd *exec.Cmd, format, pumlPath string) (string, error) {
+	outPath := outputPath(pumlPath, format)
+	// Remove a stale output file so that a previous successful render is not
+	// mistaken for the result of this invocation.
+	_ = os.Remove(outPath)
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("rendering timed out: %w", ctx.Err())
+		}
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
-	return outputPath(pumlPath, format), nil
+	info, err := os.Stat(outPath)
+	if err != nil {
+		return "", fmt.Errorf("renderer did not produce output file %q", outPath)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("renderer output path %q is a directory", outPath)
+	}
+	return outPath, nil
 }
 
 func outputPath(pumlPath, format string) string {
 	return strings.TrimSuffix(pumlPath, filepath.Ext(pumlPath)) + "." + format
 }
 
-func renderServer(format, pumlPath, serverURL string, timeout time.Duration) (string, error) {
+func renderServer(ctx context.Context, format, pumlPath, serverURL string) (string, error) {
 	source, err := os.ReadFile(pumlPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read puml file: %w", err)
@@ -147,8 +175,11 @@ func renderServer(format, pumlPath, serverURL string, timeout time.Duration) (st
 	serverURL = strings.TrimRight(serverURL, "/")
 	url := fmt.Sprintf("%s/%s/%s", serverURL, format, encoded)
 
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to build PlantUML server request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("PlantUML server request failed: %w", err)
 	}
