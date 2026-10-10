@@ -124,6 +124,130 @@ func TestDiffCommand(t *testing.T) {
 	}
 }
 
+func TestDiffCommandNoChangedTypes(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "umlgen@example.test")
+	runGit(t, root, "config", "user.name", "umlgen test")
+	writeJava(t, root, "package-info.java", `package sample;`)
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "base")
+	writeJava(t, root, "package-info.java", `package sample;
+/** module docs */`)
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(previous)
+
+	out := filepath.Join(root, "changes.puml")
+	var stdout, stderr bytes.Buffer
+	code, runErr := Run([]string{"diff", "HEAD", "-o", out}, &stdout, &stderr)
+	if runErr != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, runErr, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "No displayable changed types in the selected range") {
+		t.Fatalf("missing placeholder note:\n%s", text)
+	}
+	if !strings.Contains(stdout.String(), "No displayable changed types") {
+		t.Fatalf("missing stdout notice:\n%s", stdout.String())
+	}
+}
+
+func TestDiffCommandNoChangedTypesAfterDeletion(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "umlgen@example.test")
+	runGit(t, root, "config", "user.name", "umlgen test")
+	writeJava(t, root, "package-info.java", `package sample;`)
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "base")
+	if err := os.Remove(filepath.Join(root, "package-info.java")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "add", "-A")
+	runGit(t, root, "commit", "-m", "remove package-info")
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(previous)
+
+	out := filepath.Join(root, "changes.puml")
+	var stdout, stderr bytes.Buffer
+	code, runErr := Run([]string{"diff", "HEAD~1", "-o", out}, &stdout, &stderr)
+	if runErr != nil || code != 0 {
+		t.Fatalf("code=%d err=%v stderr=%s", code, runErr, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "No displayable changed types in the selected range") {
+		t.Fatalf("missing placeholder note:\n%s", text)
+	}
+}
+
+func TestDiffCommandFailsWhenChangedFileCannotBeParsed(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "umlgen@example.test")
+	runGit(t, root, "config", "user.name", "umlgen test")
+	writeJava(t, root, "Valid.java", `package sample; class Valid {}`)
+	writeJava(t, root, "Broken.java", `package sample; class Broken {}`)
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "base")
+	writeJava(t, root, "Broken.java", `package sample; class Broken {`)
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(previous)
+
+	out := filepath.Join(root, "changes.puml")
+	var stdout, stderr bytes.Buffer
+	code, runErr := Run([]string{"diff", "HEAD", "-o", out}, &stdout, &stderr)
+	if code != exitParse || runErr == nil || !strings.Contains(runErr.Error(), "failed to parse changed Java files") {
+		t.Fatalf("code=%d err=%v stderr=%s", code, runErr, stderr.String())
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("diagram should not be generated after a parse failure, stat err=%v", err)
+	}
+}
+
+func TestPlaceholderDiagramSanitizesTitle(t *testing.T) {
+	diagram := placeholderDiagram("first\nsecond\rthird")
+	prefix := "@startuml\ntitle "
+	if !strings.HasPrefix(diagram, prefix) {
+		t.Fatalf("unexpected output: %q", diagram)
+	}
+	rest := diagram[len(prefix):]
+	if strings.ContainsAny(rest[:strings.Index(rest, "\n")], "\n\r") {
+		t.Fatalf("title should not contain newlines, got: %q", rest[:strings.Index(rest, "\n")])
+	}
+	if !strings.Contains(diagram, "first second third") {
+		t.Fatalf("newlines should be replaced with spaces, got: %q", diagram)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", args...)

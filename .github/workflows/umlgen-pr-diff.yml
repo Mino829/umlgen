@@ -21,7 +21,7 @@ on:
       umlgen-version:
         description: Released umlgen tag to download
         required: false
-        default: v0.3.0
+        default: v0.4.0
         type: string
       artifact-name:
         description: Uploaded artifact name
@@ -132,23 +132,39 @@ jobs:
           OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
           UMLGEN_BIN="$RUNNER_TEMP/umlgen/umlgen-linux-amd64"
           mkdir -p "$OUTPUT_DIR"
+          emit_placeholder_diagram() {
+            local note="$1"
+            printf '%s\n' \
+              '@startuml' \
+              'title Pull request class diagram' \
+              "note \"$note\" as NoChanges" \
+              '@enduml' \
+              > "$OUTPUT_DIR/change-diagram.puml"
+            plantuml -tsvg "$OUTPUT_DIR/change-diagram.puml"
+          }
           if git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" |
             grep -Eiq '\.java$'; then
-            "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
+            if "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
               --depth "$DEPTH" \
               --direction "$DIRECTION" \
               --format svg \
               --output "$OUTPUT_DIR/change-diagram.puml" \
-              --quiet
-            echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
+              --quiet 2> "$OUTPUT_DIR/umlgen.stderr"; then
+              cat "$OUTPUT_DIR/umlgen.stderr" >&2
+              echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
+            else
+              umlgen_exit=$?
+              if [ "$umlgen_exit" -ne 1 ] ||
+                [ "$(cat "$OUTPUT_DIR/umlgen.stderr")" != 'Error: changed Java files did not contain types in the selected target' ]; then
+                cat "$OUTPUT_DIR/umlgen.stderr" >&2
+                exit "$umlgen_exit"
+              fi
+              emit_placeholder_diagram 'No displayable changed Java types in the selected path'
+              echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::No displayable changed types were found under $SOURCE (umlgen exit 1)."
+            fi
           else
-            printf '%s\n' \
-              '@startuml' \
-              'title Pull request class diagram' \
-              'note "No Java source changes in the selected path" as NoChanges' \
-              '@enduml' \
-              > "$OUTPUT_DIR/change-diagram.puml"
-            plantuml -tsvg "$OUTPUT_DIR/change-diagram.puml"
+            emit_placeholder_diagram 'No Java source changes in the selected path'
             echo "no-java-changes=true" >> "$GITHUB_OUTPUT"
             echo "::notice::No changed Java files were found under $SOURCE."
           fi

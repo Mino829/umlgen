@@ -209,6 +209,10 @@ umlgen diff main...HEAD \
 
 差分図では追加を緑、変更を黄色、削除を赤で表示します。削除されたJava／GoファイルもGit履歴から読み込んで図に含めます。デフォルト出力先は`change-diagram.puml`です。
 
+`package-info.java`のみの変更など、解析できた変更ファイルに表示可能な型がない場合は、プレースホルダ図を生成して終了コード0で成功します。変更ファイルを解析できず、表示可能な変更型がない場合は終了コード3です。
+
+差分図の詳しい使い方、精度、検出ルールについては[`docs/pr-diff.md`](docs/pr-diff.md)を参照してください。
+
 ### Pull Requestで自動生成
 
 公開している再利用可能GitHub Actionsワークフローを利用すると、Pull Requestごとに差分図の`.puml`とSVGをartifactへ保存できます。
