@@ -227,4 +227,4 @@ Actions では `pull_request` イベントから呼び出すのが最も確実�
 - ワークフローは `pull_request` イベントと `contents: read` だけを使用します
 - Fork Pull Request では read-only の `GITHUB_TOKEN` で動作し、secret を要求しません
 - `pull_request_target` は使用しません
-- ソースコードは PlantUML Server へ送信されず、GitHub-hosted runner 内の PlantUML CLI で SVG を生成します
+- ソースコードは PlantUML Server へ送信されず、SHA-256で検証した PlantUML JAR を GitHub-hosted runner 内で実行して SVG を生成します

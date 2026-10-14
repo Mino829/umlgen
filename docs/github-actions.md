@@ -72,7 +72,7 @@ full-diagram.svg
 - `pull_request_target`は使用しない
 - checkout時に認証情報を保持しない
 - umlgenのLinuxアーカイブは公開リリースの`SHA256SUMS.txt`で検証する
-- PlantUML Serverは使わず、GitHub-hosted runner内のPlantUML CLIでSVGを生成する
+- PlantUML 1.2026.6のJARをMaven Centralから取得し、固定したSHA-256で検証してからrunner内でSVGを生成する。Ubuntuの`plantuml`パッケージ（1.2020.2）はJava annotationの宣言を描画できないため使用しない
 - ソースコードを外部の図生成サービスへ送信しない
 - このワークフローではSVG出力に固定している。PNG出力やPlantUML Serverレンダラーを利用する場合はローカルCLIで`umlgen diff`を実行する
 
