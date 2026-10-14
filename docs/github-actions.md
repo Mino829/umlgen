@@ -1,6 +1,6 @@
-# GitHub ActionsでPull Request差分図を生成する
+# GitHub ActionsでPull Request差分図と変更後の全体図を生成する
 
-umlgenの再利用可能ワークフローを呼び出すと、Pull Requestのbase／headからJavaの差分クラス図を生成し、PlantUMLとSVGをActions artifactとして保存できる。
+umlgenの再利用可能ワークフローを呼び出すと、Pull Requestのbase／headからJavaの差分クラス図を、PRのhead commitから変更後の全体クラス図を生成し、それぞれPlantUMLとSVGをActions artifactとして保存できる。
 
 差分図の読み方、精度、ローカルCLIの使い方については[`docs/pr-diff.md`](./pr-diff.md)を参照してください。
 
@@ -28,12 +28,16 @@ jobs:
 
 導入直後の試用では`@main`を利用できる。本運用では、内容が変化しないumlgenのリリースタグまたは完全なcommit SHAへ固定する。
 
-実行後、Actionsのrun summaryにあるArtifactsから`umlgen-pr-diff`をダウンロードする。内容は次の2ファイル。
+実行後、Actionsのrun summaryにあるArtifactsから`umlgen-pr-diff`をダウンロードする。内容は次の4ファイル。
 
 ```text
 change-diagram.puml
 change-diagram.svg
+full-diagram.puml
+full-diagram.svg
 ```
+
+`change-diagram`は変更型とその周辺の差分図、`full-diagram`はPRのhead commitにある対象パスのJava型の全体図です（`.umlgen.yaml`の除外設定は適用されます）。全体図に変更色や削除された型は含まれません。全体図はmerge commitではなくPRのhead commitから生成します。
 
 ## 入力
 
@@ -48,7 +52,7 @@ change-diagram.svg
 | `base-sha` | Pull Requestのbase | base commitの上書き |
 | `head-sha` | Pull Requestのhead | head commitの上書き |
 
-`source`以下に変更されたJavaファイルがない場合も失敗にはしない。その場合は「Java変更なし」と記載したPlantUML／SVGをartifactへ保存する。
+`source`以下に変更されたJavaファイルがない場合も失敗にはしない。その場合は差分図に「Java変更なし」と記載したPlantUML／SVGを保存し、全体図は通常どおりheadのソースから生成する。headで対象パスのJavaソースがすべて削除された場合は、全体図に「Javaソースなし」と記載したPlantUML／SVGを保存する。
 
 なお、このワークフローは`.java`ファイルの変更のみを検知する。Goプロジェクトで利用する場合はローカルCLIまたは独自ワークフローで`umlgen diff`を呼び出してください。
 
@@ -56,7 +60,7 @@ change-diagram.svg
 
 再利用ワークフローは次のoutputを返す。
 
-- `artifact-url`: アップロードされたartifactのURL
+- `artifact-url`: 差分図と変更後の全体図を収めたartifactのURL
 - `no-java-changes`: 選択したパスにJava変更がなければ`true`
 
 呼び出し側で後続jobから参照する場合は、呼び出しjobへ`id`を付けるか、job outputとして引き継ぐ。
@@ -68,7 +72,7 @@ change-diagram.svg
 - `pull_request_target`は使用しない
 - checkout時に認証情報を保持しない
 - umlgenのLinuxアーカイブは公開リリースの`SHA256SUMS.txt`で検証する
-- PlantUML Serverは使わず、GitHub-hosted runner内のPlantUML CLIでSVGを生成する
+- PlantUML 1.2026.6のJARをMaven Centralから取得し、固定したSHA-256で検証してからrunner内でSVGを生成する。Ubuntuの`plantuml`パッケージ（1.2020.2）はJava annotationの宣言を描画できないため使用しない
 - ソースコードを外部の図生成サービスへ送信しない
 - このワークフローではSVG出力に固定している。PNG出力やPlantUML Serverレンダラーを利用する場合はローカルCLIで`umlgen diff`を実行する
 

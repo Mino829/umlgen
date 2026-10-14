@@ -8,7 +8,7 @@
 
 ### GitHub Actions（おすすめ）
 
-再利用可能なワークフローを呼び出すと、Pull Request ごとに `change-diagram.puml` と `change-diagram.svg` を Actions artifact として保存できます。ソースコードを外部サービスに送信しません。
+再利用可能なワークフローを呼び出すと、Pull Request ごとに差分図の `change-diagram.puml` / `.svg` と変更後の全体図の `full-diagram.puml` / `.svg` を同じ Actions artifact として保存できます。ソースコードを外部サービスに送信しません。
 
 利用リポジトリに `.github/workflows/umlgen-diff.yml` を作成します。
 
@@ -32,12 +32,16 @@ jobs:
 
 導入直後の試用では `@main` を利用できます。本運用では、umlgen のリリースタグまたは完全な commit SHA へ固定することを推奨します。
 
-実行後、Actions の run summary から `umlgen-pr-diff` artifact をダウンロードします。内容は次の 2 ファイルです。
+実行後、Actions の run summary から `umlgen-pr-diff` artifact をダウンロードします。内容は次の 4 ファイルです。
 
 ```text
 change-diagram.puml
 change-diagram.svg
+full-diagram.puml
+full-diagram.svg
 ```
+
+全体図は PR の head commit の Java ソースから生成されます。削除された型や差分の変更色は含まれません。Java ファイルの変更がない PR でも生成されます。
 
 ワークフローの入力・出力・セキュリティに関する詳細は [`docs/github-actions.md`](./github-actions.md) を参照してください。
 
@@ -223,4 +227,4 @@ Actions では `pull_request` イベントから呼び出すのが最も確実�
 - ワークフローは `pull_request` イベントと `contents: read` だけを使用します
 - Fork Pull Request では read-only の `GITHUB_TOKEN` で動作し、secret を要求しません
 - `pull_request_target` は使用しません
-- ソースコードは PlantUML Server へ送信されず、GitHub-hosted runner 内の PlantUML CLI で SVG を生成します
+- ソースコードは PlantUML Server へ送信されず、SHA-256で検証した PlantUML JAR を GitHub-hosted runner 内で実行して SVG を生成します

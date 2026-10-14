@@ -91,6 +91,13 @@ jobs:
           echo "base-sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "head-sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Check out PR head for diagrams
+        shell: bash
+        env:
+          HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
+        run: git checkout --detach "$HEAD_SHA"
+
+
       - name: Download and verify umlgen
         shell: bash
         env:
@@ -112,11 +119,19 @@ jobs:
           )
           chmod +x "$INSTALL_DIR/umlgen-linux-amd64"
 
-      - name: Install PlantUML
+      - name: Install verified PlantUML
         shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends plantuml
+          sudo apt-get install --yes --no-install-recommends default-jre-headless graphviz
+          mkdir -p "$RUNNER_TEMP/plantuml"
+          curl --fail --location --silent --show-error \
+            https://repo.maven.apache.org/maven2/net/sourceforge/plantuml/plantuml/1.2026.6/plantuml-1.2026.6.jar \
+            --output "$RUNNER_TEMP/plantuml/plantuml.jar"
+          echo "e620ae095a2ba0134d3c33fd5ae34ff01e785f3df1796c0898802b8761a033a8  $RUNNER_TEMP/plantuml/plantuml.jar" |
+            sha256sum --check
+          echo "PLANTUML_JAR=$RUNNER_TEMP/plantuml/plantuml.jar" >> "$GITHUB_ENV"
 
       - name: Generate diagram
         id: diagram
@@ -140,14 +155,21 @@ jobs:
               "note \"$note\" as NoChanges" \
               '@enduml' \
               > "$OUTPUT_DIR/change-diagram.puml"
-            plantuml -tsvg "$OUTPUT_DIR/change-diagram.puml"
+            java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/change-diagram.puml"
           }
           if git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" |
             grep -Eiq '\.java$'; then
+            # An entirely deleted source directory must still be scannable so
+            # umlgen can render deleted types from Git history.
+            if [ ! -e "$SOURCE" ] &&
+              git ls-tree -d "$BASE_SHA" -- "$SOURCE" | grep -q .; then
+              mkdir -p "$SOURCE"
+            fi
             if "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
               --depth "$DEPTH" \
               --direction "$DIRECTION" \
               --format svg \
+              --renderer=jar \
               --output "$OUTPUT_DIR/change-diagram.puml" \
               --quiet 2> "$OUTPUT_DIR/umlgen.stderr"; then
               cat "$OUTPUT_DIR/umlgen.stderr" >&2
@@ -169,6 +191,32 @@ jobs:
             echo "::notice::No changed Java files were found under $SOURCE."
           fi
 
+      - name: Generate full diagram at PR head
+        shell: bash
+        env:
+          SOURCE: ${{ inputs.source }}
+        run: |
+          set -euo pipefail
+          OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
+          if git -c core.quotepath=false ls-files -- "$SOURCE" | grep -Eiq '\.java$'; then
+            "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class "$SOURCE" \
+              --language java \
+              --format svg \
+              --renderer=jar \
+              --output "$OUTPUT_DIR/full-diagram.puml" \
+              --quiet
+          else
+            printf '%s\n' \
+              '@startuml' \
+              'title Pull request head class diagram' \
+              'note "No Java source files in the selected path at PR head" as NoSources' \
+              '@enduml' \
+              > "$OUTPUT_DIR/full-diagram.puml"
+            java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/full-diagram.puml"
+            echo "::notice::No Java source files were found under $SOURCE at PR head."
+          fi
+
+
       - name: Upload diagram
         id: artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -177,5 +225,7 @@ jobs:
           path: |
             ${{ runner.temp }}/umlgen-pr-diff/change-diagram.puml
             ${{ runner.temp }}/umlgen-pr-diff/change-diagram.svg
+            ${{ runner.temp }}/umlgen-pr-diff/full-diagram.puml
+            ${{ runner.temp }}/umlgen-pr-diff/full-diagram.svg
           if-no-files-found: error
           retention-days: ${{ inputs.retention-days }}

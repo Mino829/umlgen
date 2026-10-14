@@ -1,5 +1,7 @@
 # Code review findings
 
+コードレビューを行ったら、対象commit、指摘、再現結果、確認したテストをこの文書へ追記する。
+
 確認日: 2026-10-08
 
 ## 型参照の解決
@@ -96,7 +98,7 @@ alias生成時に`.`などの記号を`_`へ置換するため、異なる完全
 
 ## 2026-10-10: v0.5.0公開後のコードレビュー
 
-対象: `v0.4.0..3e0de1c` のコード変更。上記の修正済み指摘は重複して数えない。以下は**未修正**の指摘であり、レビュー時点の`main`に残っている。
+対象: `v0.4.0..3e0de1c` のコード変更。上記の修正済み指摘は重複して数えない。以下はレビュー時点で未修正だった指摘で、その後の対応状態を各項目に記す。
 
 ### P1: PNGを出力先に指定すると画像も`.puml`も得られない
 
@@ -136,7 +138,7 @@ alias生成時に`.`などの記号を`_`へ置換するため、異なる完全
 
 ### P2: ローカル／JARレンダラーにタイムアウトが効かない
 
-**状態: 修正済み（main）**
+**状態: 一部修正（main）。期限超過後の待機については次節を参照。**
 
 対象: `internal/renderer/renderer.go` の `renderLocal`、`renderJar`、`runCommand`
 
@@ -150,4 +152,37 @@ alias生成時に`.`などの記号を`_`へ置換するため、異なる完全
 
 - `env GOCACHE=/tmp/umlgen-go-cache go test ./...`: 成功
 - `env GOCACHE=/tmp/umlgen-go-cache go vet ./...`: 成功
-- 上記のCLI再現は現在の`HEAD`をビルドした実行ファイルで確認。テスト成功はこれらの入力条件を網羅していない。
+- 上記のCLI再現は当時の`HEAD`（`3e0de1c`）をビルドした実行ファイルで確認。テスト成功はこれらの入力条件を網羅していない。
+
+## 2026-10-10: 修正コミット `cf07b57` の再レビュー
+
+対象: `3e0de1c..cf07b57`。作業ツリーはクリーン。前節のPNG出力先と空白区切りフラグは、現在のCLIで再確認した。`--renderer local --format png --output /tmp/umlgen-review-current-image.png`から、PlantUML本文の`.puml`と有効なPNG画像が生成された。
+
+### P2: タイムアウト後も子プロセスの出力待ちが続く
+
+**状態: 未修正**
+
+対象: `internal/renderer/renderer.go` の `runCommand`、`renderLocal`、`renderJar`
+
+`exec.CommandContext`は起動したコマンドを期限時に停止するが、シェルスクリプトが起動した子プロセスが標準出力／標準エラーを開いたままだと、`CombinedOutput`の待機は続く。`--render-timeout`が実行時間の上限になっていない。前節の「タイムアウトが効かない」は部分的に修正されたが、この条件は残っている。
+
+再現: `/bin/sleep 2`を実行する模擬`plantuml`に対し、現在のバイナリを`--renderer=local --render-timeout=100ms --format=svg`で実行した。終了コード5と`rendering timed out`は返るが、終了まで約2.26秒かかった。
+
+修正案: 子プロセスと出力パイプの扱いを含めて期限時に終了できるようにする。タイムアウトのテストではエラー文だけでなく、十分な余裕を持った実経過時間も確認する。
+
+### P2: 空の画像ファイルでも生成成功になる
+
+**状態: 未修正**
+
+対象: `internal/renderer/renderer.go` の `runCommand`、`internal/cli/cli_test.go` の `TestPNGFormatWithPNGExtension`
+
+`runCommand`は出力パスの存在とディレクトリでないことだけを確認する。現在のPNGテストでは、模擬レンダラーが`printf ''`で0バイトの`.png`を作ってもCLIが終了コード0になる。画像を開けない状態を生成成功と報告する。
+
+修正案: 少なくとも0バイトの出力をエラーにし、PNG／SVGとして読めることを代表的なCLIテストで確認する。
+
+### 確認
+
+- `env GOCACHE=/tmp/umlgen-go-cache go test ./...`: 成功
+- `env GOCACHE=/tmp/umlgen-go-cache go vet ./...`: 成功
+- 実際のPlantUMLを使ったPNG生成: `.puml`とPNG画像を確認
+- コードは変更していない
