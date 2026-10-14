@@ -215,7 +215,7 @@ umlgen diff main...HEAD \
 
 ### Pull Requestで自動生成
 
-公開している再利用可能GitHub Actionsワークフローを利用すると、Pull Requestごとに差分図の`.puml`とSVGをartifactへ保存できます。
+公開している再利用可能GitHub Actionsワークフローを利用すると、Pull Requestごとに差分図の`change-diagram.puml`とSVG、およびPRのhead commitから生成した全体図の`full-diagram.puml`とSVGを同じartifactへ保存できます。
 
 ```yaml
 jobs:
