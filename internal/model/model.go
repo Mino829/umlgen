@@ -86,13 +86,14 @@ type Field struct {
 }
 
 type Method struct {
-	Name        string
-	ReturnType  string
-	Parameters  []Parameter
-	Visibility  Visibility
-	Constructor bool
-	Static      bool
-	Abstract    bool
+	Name            string
+	ReturnType      string
+	Parameters      []Parameter
+	Visibility      Visibility
+	Constructor     bool
+	Static          bool
+	Abstract        bool
+	PointerReceiver bool
 }
 
 type Parameter struct {

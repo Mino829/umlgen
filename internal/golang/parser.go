@@ -66,6 +66,7 @@ func ParseSource(path string, source []byte) ([]model.Type, error) {
 		}
 		method := parseMethod(function.Name.Name, function.Type, fset)
 		method.Visibility = visibility(function.Name.Name)
+		method.PointerReceiver = isPointerReceiver(function.Recv.List[0].Type)
 		if index, ok := byName[receiver]; ok {
 			types[index].Methods = append(types[index].Methods, method)
 			continue
@@ -222,6 +223,19 @@ func receiverName(expression ast.Expr) string {
 	}
 }
 
+func isPointerReceiver(expression ast.Expr) bool {
+	switch value := expression.(type) {
+	case *ast.StarExpr:
+		return true
+	case *ast.IndexExpr:
+		return isPointerReceiver(value.X)
+	case *ast.IndexListExpr:
+		return isPointerReceiver(value.X)
+	default:
+		return false
+	}
+}
+
 func visibility(name string) model.Visibility {
 	for _, first := range name {
 		if unicode.IsUpper(first) {
@@ -322,25 +336,34 @@ func inferImplementations(types []model.Type) {
 			if contract.Kind != model.Interface {
 				continue
 			}
-			required := methodSet(contract, index, map[string]bool{})
+			required := methodSetForType(contract, index, map[string]bool{}, false)
 			if len(required) == 0 {
 				continue
 			}
-			available := methodSet(*candidate, index, map[string]bool{})
-			if implements(available, required) {
+			// Check if either the value type or pointer type implements the interface
+			// In UML, a struct represents both T and *T
+			valueMethods := methodSetForType(*candidate, index, map[string]bool{}, false)
+			pointerMethods := methodSetForType(*candidate, index, map[string]bool{}, true)
+			if implements(valueMethods, required) || implements(pointerMethods, required) {
 				candidate.Implements = appendUnique(candidate.Implements, contract.QualifiedName())
 			}
 		}
 	}
 }
 
-func methodSet(current model.Type, index *relations.Index, seen map[string]bool) []model.Method {
+func methodSetForType(current model.Type, index *relations.Index, seen map[string]bool, includePointer bool) []model.Method {
 	qualified := current.QualifiedName()
 	if seen[qualified] {
 		return nil
 	}
 	seen[qualified] = true
-	methods := append([]model.Method(nil), current.Methods...)
+	// Filter methods based on whether we're checking value or pointer type
+	methods := make([]model.Method, 0, len(current.Methods))
+	for _, method := range current.Methods {
+		if includePointer || !method.PointerReceiver {
+			methods = append(methods, method)
+		}
+	}
 	for _, embedded := range current.Extends {
 		resolved, ok := index.Resolve(current, embedded)
 		if !ok {
@@ -350,7 +373,7 @@ func methodSet(current model.Type, index *relations.Index, seen map[string]bool)
 		if !ok {
 			continue
 		}
-		methods = appendUniqueMethods(methods, methodSet(parent, index, seen)...)
+		methods = appendUniqueMethods(methods, methodSetForType(parent, index, seen, includePointer)...)
 	}
 	return methods
 }
