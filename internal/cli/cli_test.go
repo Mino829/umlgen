@@ -577,8 +577,9 @@ func TestParseCacheHitsAndInvalidates(t *testing.T) {
 	if stderr != "" || !strings.Contains(stdout, "Cache hits: 0, misses: 1") {
 		t.Fatalf("changed stdout=%s stderr=%s", stdout, stderr)
 	}
+	// Changing output settings (like --hide-methods) should NOT invalidate cache
 	stdout, stderr = run("--hide-methods")
-	if stderr != "" || !strings.Contains(stdout, "Cache hits: 0, misses: 1") {
+	if stderr != "" || !strings.Contains(stdout, "Cache hits: 1, misses: 0") {
 		t.Fatalf("settings stdout=%s stderr=%s", stdout, stderr)
 	}
 	stdout, stderr = run("--no-cache")
@@ -678,5 +679,38 @@ func TestRendererFlagsEqualsForm(t *testing.T) {
 	}
 	if _, err := os.Stat(out); err != nil {
 		t.Fatalf("output not written: %v", err)
+	}
+}
+
+func TestExcludePackageWithVariousFormats(t *testing.T) {
+	tests := []struct {
+		name    string
+		pkg     string
+		exclude []string
+		want    bool
+	}{
+		// Java package names (with dots)
+		{"Java exact match", "com.example.test", []string{"com.example.test"}, true},
+		{"Java prefix match", "com.example.test.sub", []string{"com.example.test"}, true},
+		{"Java no match", "com.example.other", []string{"com.example.test"}, false},
+
+		// Go package names (no dots)
+		{"Go exact match", "cmd", []string{"cmd"}, true},
+		{"Go prefix match", "cmd/app", []string{"cmd"}, true},
+		{"Go internal prefix", "internal/util", []string{"internal"}, true},
+		{"Go no match", "pkg", []string{"cmd"}, false},
+
+		// Path-based excludes
+		{"Path prefix match", "src/test/java/com/example", []string{"src/test"}, true},
+		{"Path no match", "src/main/java/com/example", []string{"src/test"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := excludePackage(tt.pkg, tt.exclude)
+			if got != tt.want {
+				t.Errorf("excludePackage(%q, %v) = %v, want %v", tt.pkg, tt.exclude, got, tt.want)
+			}
+		})
 	}
 }
