@@ -431,8 +431,23 @@ func runClassMode(
 		}
 	} else {
 		cacheSettings := cfg
+		// Clear output-related fields that don't affect parsing
 		cacheSettings.Output.File = ""
 		cacheSettings.Output.Format = ""
+		cacheSettings.Visibility.Public = false
+		cacheSettings.Visibility.Protected = false
+		cacheSettings.Visibility.Private = false
+		cacheSettings.Visibility.PackagePrivate = false
+		cacheSettings.Members.Fields = false
+		cacheSettings.Members.Methods = false
+		cacheSettings.Relations.Inheritance = false
+		cacheSettings.Relations.Implementation = false
+		cacheSettings.Relations.FieldDependency = false
+		cacheSettings.Relations.ParameterDependency = false
+		cacheSettings.Relations.ReturnDependency = false
+		cacheSettings.Renderer.Type = ""
+		cacheSettings.Renderer.ServerURL = ""
+		cacheSettings.Renderer.Timeout = 0
 		parseCache, err = javacache.OpenFor(
 			Version, sourceParser.Name(), sourceParser.CacheSchema(), cacheSettings, sourceParser.ParseSource,
 		)
@@ -704,7 +719,11 @@ func includePackage(pkg, prefix string) bool {
 func excludePackage(pkg string, excludes []string) bool {
 	for _, ex := range excludes {
 		ex = strings.TrimSpace(ex)
-		if strings.Contains(ex, ".") && (pkg == ex || strings.HasPrefix(pkg, ex+".") || strings.HasPrefix(pkg, ex+"/")) {
+		if ex == "" {
+			continue
+		}
+		// Match as package prefix or path suffix
+		if pkg == ex || strings.HasPrefix(pkg, ex+".") || strings.HasPrefix(pkg, ex+"/") || strings.HasSuffix(pkg, "/"+ex) || strings.HasSuffix(pkg, "\\"+ex) {
 			return true
 		}
 	}

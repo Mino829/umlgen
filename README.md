@@ -1,15 +1,101 @@
 # umlgen
 
-`umlgen`は、Java／Goソースコードをローカルで解析し、編集可能なPlantUMLクラス図を生成するCLIです。
+**ソースコードからクラス図を自動生成するCLIツール**
+
+umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLクラス図を生成します。ローカルで完結するので、ソースコードが外部に送信されることはありません。
 
 ```bash
+# Javaプロジェクトのクラス図を生成
 umlgen class ./src/main/java
+
+# Goプロジェクトのクラス図を生成
 umlgen class . --language go
 ```
 
-ソースコードが外部へ送信されることはありません。
+## 🎯 こんな方におすすめ
 
-**[Pull Requestの設計変更がどう見えるか、30秒デモを見る](examples/order-service/README.md)**
+- **既存コードの理解**: 大規模プロジェクトの構造を視覚的に把握したい
+- **設計レビュー**: チームでアーキテクチャを共有・議論したい
+- **ドキュメント自動生成**: コードの変更に合わせて図も最新に保ちたい
+- **PRレビュー**: 変更が全体に与える影響を素早く確認したい
+
+## 🚀 クイックスタート
+
+### 1. インストール
+
+**macOS（推奨）:**
+```bash
+curl -fL https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/install-macos.sh | bash
+```
+
+**Windows（推奨）:**
+```powershell
+iwr https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/install-windows.ps1 | iex
+```
+
+**その他:** [Releases](https://github.com/Mino829/umlgen/releases) からダウンロード
+
+### 2. クラス図の生成
+
+```bash
+# Javaプロジェクト
+umlgen class ./src/main/java -o diagram.puml
+
+# SVG画像も生成（PlantUML必要）
+umlgen class ./src/main/java --format svg -o diagram.svg
+```
+
+### 3. 大きなプロジェクトの場合
+
+```bash
+# 特定のクラスとその関連だけを表示
+umlgen class ./src --focus UserService --depth 2
+
+# パッケージ単位で絞り込み
+umlgen class ./src --include com.example.service
+```
+
+## 📚 ドキュメント
+
+- **[Mac セットアップガイド](docs/macos-setup.md)** - インストールから使い方まで
+- **[Windows セットアップガイド](docs/windows-setup.md)** - インストールから使い方まで
+- **[PR差分図の使い方](docs/pr-diff.md)** - Pull Requestでの活用法
+- **[GitHub Actions 連携](docs/github-actions.md)** - CI/CDでの自動生成
+- **[パフォーマンス](docs/performance.md)** - ベンチマーク結果
+
+## 💡 主な機能
+
+### 📊 多言語対応
+- **Java**: Tree-sitterによる高速AST解析
+- **Go**: 標準ライブラリによる確実な解析
+
+### 🎨 柔軟な出力
+- PlantUML（編集可能）
+- SVG（ベクター画像）
+- PNG（ラスター画像）
+
+### 🔍 強力なフィルタリング
+- `--focus`: 特定のクラスとその関連だけを表示
+- `--include`/`--exclude`: パッケージやパスで絞り込み
+- `--hide-private`: プライベートメンバーを非表示
+
+### 🔗 関係性の可視化
+- 継承（extends）
+- 実装（implements）
+- フィールド依存
+- メソッド引数・戻り値
+- 多重度（1対多、0..1など）
+
+### 📈 Git連携
+- 変更差分のハイライト（追加:緑、変更:黄、削除:赤）
+- PR専用の差分図生成
+- GitHub Actionsでの自動生成
+
+### ⚡ 高速キャッシュ
+- 解析結果をキャッシュして2回目以降を高速化
+- ファイル内容と設定に基づいた安全なキャッシュ
+
+
 
 ## 主な機能
 
@@ -383,6 +469,66 @@ Goの宣言構文は標準ライブラリの`go/parser`から取得します。`
 - 関数本体からの依存関係推論
 
 互換性は、複数package、import、embedding、暗黙interface実装を含むGo fixtureで継続的に確認します。
+
+## 🔧 トラブルシューティング
+
+### `umlgen`コマンドが見つからない
+
+インストール後にターミナルを再起動してください。それでも解決しない場合は、PATHが通っているか確認します。
+
+```bash
+# macOS/Linux
+echo $PATH | grep -o "umlgen"
+which umlgen
+
+# Windows
+echo $env:PATH
+Get-Command umlgen
+```
+
+### SVG/PNGが生成されない
+
+PlantUMLがインストールされているか確認します。
+
+```bash
+# macOS
+brew install plantuml
+
+# Windows（Chocolatey）
+choco install plantuml
+
+# 手動インストール
+# PlantUMLのJARファイルをダウンロードして、PLANTUML_JAR環境変数を設定
+export PLANTUML_JAR=/path/to/plantuml.jar
+```
+
+### 図が空になる
+
+- `--include`や`--exclude`ですべてのファイルが除外されていないか確認
+- 対象ディレクトリにJava/Goファイルがあるか確認
+- `--verbose`オプションで詳細ログを確認
+
+```bash
+umlgen class ./src --verbose
+```
+
+### Goのinterface実装が検出されない
+
+- ポインタレシーバーのメソッドは、ポインタ型のみが実装と判定されます
+- 値型とポインタ型の両方で実装と判定したい場合は、値レシーバーを使用してください
+
+### キャッシュをクリアしたい
+
+```bash
+umlgen cache clean
+```
+
+### その他の問題
+
+1. `--verbose`オプションで実行して詳細ログを確認
+2. [GitHub Issues](https://github.com/Mino829/umlgen/issues)で報告
+
+
 
 ## ライセンス
 
