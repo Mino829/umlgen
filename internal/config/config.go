@@ -1,13 +1,13 @@
 package config
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const DefaultFile = ".umlgen.yaml"
@@ -70,132 +70,23 @@ func Load(path string, explicit bool) (Config, string, error) {
 	if path == "" {
 		path = DefaultFile
 	}
-	data, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) && !explicit {
 			return c, "", nil
 		}
 		return c, "", fmt.Errorf("cannot read configuration %s: %w", path, err)
 	}
-	defer data.Close()
 
-	section := ""
-	lineNo := 0
-	scanner := bufio.NewScanner(data)
-	for scanner.Scan() {
-		lineNo++
-		raw := strings.TrimSpace(stripComment(scanner.Text()))
-		if raw == "" {
-			continue
-		}
-		if strings.HasPrefix(raw, "- ") {
-			value := unquote(strings.TrimSpace(strings.TrimPrefix(raw, "- ")))
-			switch section {
-			case "source":
-				c.Source = append(c.Source, value)
-			case "exclude":
-				c.Exclude = append(c.Exclude, value)
-			default:
-				return c, path, fmt.Errorf("invalid configuration in %s at line %d: unexpected list item", path, lineNo)
-			}
-			continue
-		}
-		key, value, ok := strings.Cut(raw, ":")
-		if !ok {
-			return c, path, fmt.Errorf("invalid configuration in %s at line %d", path, lineNo)
-		}
-		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
-		if value == "" {
-			section = key
-			continue
-		}
-		full := key
-		if strings.HasPrefix(scanner.Text(), " ") || strings.HasPrefix(scanner.Text(), "\t") {
-			full = section + "." + key
-		} else {
-			section = ""
-		}
-		if err := assign(&c, full, unquote(value)); err != nil {
-			return c, path, fmt.Errorf("invalid configuration in %s at line %d: %w", path, lineNo, err)
-		}
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return c, path, fmt.Errorf("invalid configuration in %s: %w", path, err)
 	}
-	if err := scanner.Err(); err != nil {
-		return c, path, err
-	}
+
 	c.Language = strings.ToLower(strings.TrimSpace(c.Language))
 	if c.Language != "auto" && c.Language != "java" && c.Language != "go" {
 		return c, path, fmt.Errorf("invalid configuration in %s: unsupported language %q", path, c.Language)
 	}
 	return c, path, nil
-}
-
-func assign(c *Config, key, value string) error {
-	boolean := func() (bool, error) { return strconv.ParseBool(value) }
-	switch key {
-	case "language":
-		c.Language = value
-	case "output.file":
-		c.Output.File = value
-	case "output.format":
-		c.Output.Format = value
-	case "visibility.public":
-		v, e := boolean()
-		c.Visibility.Public = v
-		return e
-	case "visibility.protected":
-		v, e := boolean()
-		c.Visibility.Protected = v
-		return e
-	case "visibility.private":
-		v, e := boolean()
-		c.Visibility.Private = v
-		return e
-	case "visibility.package_private":
-		v, e := boolean()
-		c.Visibility.PackagePrivate = v
-		return e
-	case "members.fields":
-		v, e := boolean()
-		c.Members.Fields = v
-		return e
-	case "members.methods":
-		v, e := boolean()
-		c.Members.Methods = v
-		return e
-	case "relations.inheritance":
-		v, e := boolean()
-		c.Relations.Inheritance = v
-		return e
-	case "relations.implementation":
-		v, e := boolean()
-		c.Relations.Implementation = v
-		return e
-	case "relations.field_dependency":
-		v, e := boolean()
-		c.Relations.FieldDependency = v
-		return e
-	case "relations.parameter_dependency":
-		v, e := boolean()
-		c.Relations.ParameterDependency = v
-		return e
-	case "relations.return_dependency":
-		v, e := boolean()
-		c.Relations.ReturnDependency = v
-		return e
-	case "renderer.type":
-		c.Renderer.Type = strings.ToLower(value)
-		return nil
-	case "renderer.server_url":
-		c.Renderer.ServerURL = value
-		return nil
-	case "renderer.timeout":
-		d, e := time.ParseDuration(value)
-		c.Renderer.Timeout = d
-		return e
-	default:
-		// Forward-compatible: unknown keys are ignored so newer configuration files remain usable.
-	}
-	return nil
 }
 
 func ResolvePaths(c *Config, configPath string) {
@@ -211,30 +102,6 @@ func ResolvePaths(c *Config, configPath string) {
 	if c.Output.File != "" && !filepath.IsAbs(c.Output.File) {
 		c.Output.File = filepath.Join(base, c.Output.File)
 	}
-}
-
-func stripComment(s string) string {
-	quote := rune(0)
-	for i, r := range s {
-		if r == '\'' || r == '"' {
-			if quote == 0 {
-				quote = r
-			} else if quote == r {
-				quote = 0
-			}
-		}
-		if r == '#' && quote == 0 {
-			return s[:i]
-		}
-	}
-	return s
-}
-
-func unquote(s string) string {
-	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
-		return s[1 : len(s)-1]
-	}
-	return s
 }
 
 const Template = `language: auto
