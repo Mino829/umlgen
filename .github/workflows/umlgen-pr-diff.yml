@@ -157,12 +157,13 @@ jobs:
               > "$OUTPUT_DIR/change-diagram.puml"
             java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/change-diagram.puml"
           }
-          if git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" |
-            grep -Eiq '\.java$'; then
+          # Use grep -c to consume all input and avoid SIGPIPE under pipefail
+          java_change_count=$(git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" | grep -Eic '\.java$' || echo 0)
+          if [ "$java_change_count" -gt 0 ]; then
             # An entirely deleted source directory must still be scannable so
             # umlgen can render deleted types from Git history.
-            if [ ! -e "$SOURCE" ] &&
-              git ls-tree -d "$BASE_SHA" -- "$SOURCE" | grep -q .; then
+              if [ ! -e "$SOURCE" ] &&
+                [ "$(git ls-tree -d "$BASE_SHA" -- "$SOURCE" | wc -l)" -gt 0 ]; then
               mkdir -p "$SOURCE"
             fi
             if "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
@@ -176,14 +177,27 @@ jobs:
               echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
             else
               umlgen_exit=$?
-              if [ "$umlgen_exit" -ne 1 ] ||
-                [ "$(cat "$OUTPUT_DIR/umlgen.stderr")" != 'Error: changed Java files did not contain types in the selected target' ]; then
+              umlgen_stderr="$(cat "$OUTPUT_DIR/umlgen.stderr")"
+              # Handle recoverable errors:
+              # - exit 1 with "no Java files found": all files excluded
+              # - exit 1 with "did not contain types": no displayable types
+              if [ "$umlgen_exit" -eq 1 ]; then
+                if echo "$umlgen_stderr" | grep -q "no Java files found"; then
+                  emit_placeholder_diagram 'All Java files excluded in the selected path'
+                  echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
+                  echo "::notice::All Java files were excluded under $SOURCE."
+                elif [ "$umlgen_stderr" = 'Error: changed Java files did not contain types in the selected target' ]; then
+                  emit_placeholder_diagram 'No displayable changed Java types in the selected path'
+                  echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
+                  echo "::notice::No displayable changed types were found under $SOURCE (umlgen exit 1)."
+                else
+                  cat "$OUTPUT_DIR/umlgen.stderr" >&2
+                  exit "$umlgen_exit"
+                fi
+              else
                 cat "$OUTPUT_DIR/umlgen.stderr" >&2
                 exit "$umlgen_exit"
               fi
-              emit_placeholder_diagram 'No displayable changed Java types in the selected path'
-              echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No displayable changed types were found under $SOURCE (umlgen exit 1)."
             fi
           else
             emit_placeholder_diagram 'No Java source changes in the selected path'
@@ -198,13 +212,44 @@ jobs:
         run: |
           set -euo pipefail
           OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
-          if git -c core.quotepath=false ls-files -- "$SOURCE" | grep -Eiq '\.java$'; then
-            "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class "$SOURCE" \
+          # Use grep -c to consume all input and avoid SIGPIPE under pipefail
+          java_file_count=$(git -c core.quotepath=false ls-files -- "$SOURCE" | grep -Eic '\.java$' || echo 0)
+          if [ "$java_file_count" -gt 0 ]; then
+            # umlgen may fail in two recoverable cases:
+            # 1. All files excluded by .umlgen.yaml or --exclude (exit 1, "no Java files found")
+            # 2. Only type-less files like package-info.java (exit 5, empty diagram)
+            # Other errors (parse failures, config errors) should fail the workflow.
+            if "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class "$SOURCE" \
               --language java \
               --format svg \
               --renderer=jar \
               --output "$OUTPUT_DIR/full-diagram.puml" \
-              --quiet
+              --quiet 2> "$OUTPUT_DIR/umlgen-full.stderr"; then
+              cat "$OUTPUT_DIR/umlgen-full.stderr" >&2
+            else
+              umlgen_exit=$?
+              umlgen_stderr="$(cat "$OUTPUT_DIR/umlgen-full.stderr")"
+              # Check if this is a recoverable error (no files or no displayable types)
+              if [ "$umlgen_exit" -eq 1 ] && echo "$umlgen_stderr" | grep -q "no Java files found"; then
+                # All files were excluded
+                placeholder_msg="All Java files excluded under $SOURCE at PR head"
+              elif [ "$umlgen_exit" -eq 5 ]; then
+                # No displayable types (e.g., only package-info.java)
+                placeholder_msg="No displayable Java types in the selected path at PR head"
+              else
+                # Unrecoverable error - propagate it
+                cat "$OUTPUT_DIR/umlgen-full.stderr" >&2
+                exit "$umlgen_exit"
+              fi
+              printf '%s\n' \
+                '@startuml' \
+                'title Pull request head class diagram' \
+                "note \"$placeholder_msg\" as NoTypes" \
+                '@enduml' \
+                > "$OUTPUT_DIR/full-diagram.puml"
+              java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/full-diagram.puml"
+              echo "::notice::umlgen class exited with code $umlgen_exit ($placeholder_msg)."
+            fi
           else
             printf '%s\n' \
               '@startuml' \
