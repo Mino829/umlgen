@@ -110,3 +110,135 @@ func TestEmbeddedInterfaceMethodsAreRequired(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPointerReceiverMethods(t *testing.T) {
+	// Test that pointer receiver methods are correctly handled
+	types := Finalize([]model.Type{
+		{
+			Package: "sample", Name: "MyInterface", Kind: model.Interface,
+			Methods: []model.Method{{Name: "DoSomething", ReturnType: "string"}},
+		},
+		{
+			Package: "sample", Name: "ValueImpl", Kind: model.Struct,
+			Methods: []model.Method{{Name: "DoSomething", ReturnType: "string", PointerReceiver: false}},
+		},
+		{
+			Package: "sample", Name: "PointerImpl", Kind: model.Struct,
+			Methods: []model.Method{{Name: "DoSomething", ReturnType: "string", PointerReceiver: true}},
+		},
+		{
+			Package: "sample", Name: "MixedImpl", Kind: model.Struct,
+			Methods: []model.Method{
+				{Name: "DoSomething", ReturnType: "string", PointerReceiver: false},
+				{Name: "AnotherMethod", PointerReceiver: true},
+			},
+		},
+	})
+
+	byName := map[string]model.Type{}
+	for _, typ := range types {
+		byName[typ.Name] = typ
+	}
+
+	// Check ValueImpl - should implement with value receiver
+	valueImpl := byName["ValueImpl"]
+	if len(valueImpl.Methods) != 1 {
+		t.Fatalf("ValueImpl should have 1 method, got %d", len(valueImpl.Methods))
+	}
+	if valueImpl.Methods[0].PointerReceiver {
+		t.Fatal("ValueImpl.DoSomething should not be a pointer receiver")
+	}
+	if !contains(valueImpl.Implements, "sample.MyInterface") {
+		t.Fatalf("ValueImpl should implement MyInterface, got: %v", valueImpl.Implements)
+	}
+
+	// Check PointerImpl - should implement via pointer type
+	pointerImpl := byName["PointerImpl"]
+	if len(pointerImpl.Methods) != 1 {
+		t.Fatalf("PointerImpl should have 1 method, got %d", len(pointerImpl.Methods))
+	}
+	if !pointerImpl.Methods[0].PointerReceiver {
+		t.Fatal("PointerImpl.DoSomething should be a pointer receiver")
+	}
+	// Should still implement the interface (we check pointer type too)
+	if !contains(pointerImpl.Implements, "sample.MyInterface") {
+		t.Fatalf("PointerImpl should implement MyInterface (via pointer type), got: %v", pointerImpl.Implements)
+	}
+
+	// Check MixedImpl - should implement with value receiver method
+	mixedImpl := byName["MixedImpl"]
+	if len(mixedImpl.Methods) != 2 {
+		t.Fatalf("MixedImpl should have 2 methods, got %d", len(mixedImpl.Methods))
+	}
+	// Find the DoSomething method
+	var doSomethingMethod *model.Method
+	for i := range mixedImpl.Methods {
+		if mixedImpl.Methods[i].Name == "DoSomething" {
+			doSomethingMethod = &mixedImpl.Methods[i]
+			break
+		}
+	}
+	if doSomethingMethod == nil {
+		t.Fatal("MixedImpl should have DoSomething method")
+	}
+	if doSomethingMethod.PointerReceiver {
+		t.Fatal("MixedImpl.DoSomething should not be a pointer receiver")
+	}
+	if !contains(mixedImpl.Implements, "sample.MyInterface") {
+		t.Fatalf("MixedImpl should implement MyInterface, got: %v", mixedImpl.Implements)
+	}
+}
+
+func TestPointerReceiverParsing(t *testing.T) {
+	// Test that pointer receiver methods are correctly parsed from source
+	source := []byte(`
+package testpkg
+
+type MyStruct struct{}
+
+func (m MyStruct) ValueMethod() {}
+func (m *MyStruct) PointerMethod() {}
+`)
+	types, err := ParseSource("test.go", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(types) != 1 {
+		t.Fatalf("Expected 1 type, got %d", len(types))
+	}
+
+	myStruct := types[0]
+	if myStruct.Name != "MyStruct" {
+		t.Fatalf("Expected MyStruct, got %s", myStruct.Name)
+	}
+
+	if len(myStruct.Methods) != 2 {
+		t.Fatalf("Expected 2 methods, got %d", len(myStruct.Methods))
+	}
+
+	// Find methods by name
+	var valueMethod, pointerMethod *model.Method
+	for i := range myStruct.Methods {
+		if myStruct.Methods[i].Name == "ValueMethod" {
+			valueMethod = &myStruct.Methods[i]
+		} else if myStruct.Methods[i].Name == "PointerMethod" {
+			pointerMethod = &myStruct.Methods[i]
+		}
+	}
+
+	if valueMethod == nil {
+		t.Fatal("ValueMethod not found")
+	}
+	if pointerMethod == nil {
+		t.Fatal("PointerMethod not found")
+	}
+
+	if valueMethod.PointerReceiver {
+		t.Fatal("ValueMethod should not be a pointer receiver")
+	}
+	if !pointerMethod.PointerReceiver {
+		t.Fatal("PointerMethod should be a pointer receiver")
+	}
+}
