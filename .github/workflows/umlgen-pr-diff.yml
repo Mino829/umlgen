@@ -157,12 +157,13 @@ jobs:
               > "$OUTPUT_DIR/change-diagram.puml"
             java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/change-diagram.puml"
           }
-          if git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" |
-            grep -Eiq '\.java$'; then
+          # Use grep -c to consume all input and avoid SIGPIPE under pipefail
+          java_change_count=$(git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" | grep -Eic '\.java$' || echo 0)
+          if [ "$java_change_count" -gt 0 ]; then
             # An entirely deleted source directory must still be scannable so
             # umlgen can render deleted types from Git history.
-            if [ ! -e "$SOURCE" ] &&
-              git ls-tree -d "$BASE_SHA" -- "$SOURCE" | grep -q .; then
+              if [ ! -e "$SOURCE" ] &&
+                [ "$(git ls-tree -d "$BASE_SHA" -- "$SOURCE" | wc -l)" -gt 0 ]; then
               mkdir -p "$SOURCE"
             fi
             if "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
@@ -198,7 +199,9 @@ jobs:
         run: |
           set -euo pipefail
           OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
-          if git -c core.quotepath=false ls-files -- "$SOURCE" | grep -Eiq '\.java$'; then
+          # Use grep -c to consume all input and avoid SIGPIPE under pipefail
+          java_file_count=$(git -c core.quotepath=false ls-files -- "$SOURCE" | grep -Eic '\.java$' || echo 0)
+          if [ "$java_file_count" -gt 0 ]; then
             "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class "$SOURCE" \
               --language java \
               --format svg \
