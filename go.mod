@@ -7,4 +7,7 @@ require (
 	github.com/tree-sitter/tree-sitter-java v0.23.5
 )
 
-require github.com/mattn/go-pointer v0.0.1 // indirect
+require (
+	github.com/mattn/go-pointer v0.0.1 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
