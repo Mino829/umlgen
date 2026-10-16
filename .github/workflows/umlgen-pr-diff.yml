@@ -202,12 +202,26 @@ jobs:
           # Use grep -c to consume all input and avoid SIGPIPE under pipefail
           java_file_count=$(git -c core.quotepath=false ls-files -- "$SOURCE" | grep -Eic '\.java$' || echo 0)
           if [ "$java_file_count" -gt 0 ]; then
-            "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class "$SOURCE" \
+            # umlgen may fail when files contain no displayable types (e.g., only package-info.java)
+            if "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class "$SOURCE" \
               --language java \
               --format svg \
               --renderer=jar \
               --output "$OUTPUT_DIR/full-diagram.puml" \
-              --quiet
+              --quiet 2> "$OUTPUT_DIR/umlgen-full.stderr"; then
+              cat "$OUTPUT_DIR/umlgen-full.stderr" >&2
+            else
+              umlgen_exit=$?
+              cat "$OUTPUT_DIR/umlgen-full.stderr" >&2
+              printf '%s\n' \
+                '@startuml' \
+                'title Pull request head class diagram' \
+                'note "No displayable Java types in the selected path at PR head" as NoTypes' \
+                '@enduml' \
+                > "$OUTPUT_DIR/full-diagram.puml"
+              java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/full-diagram.puml"
+              echo "::notice::umlgen class exited with code $umlgen_exit (no displayable types under $SOURCE)."
+            fi
           else
             printf '%s\n' \
               '@startuml' \
