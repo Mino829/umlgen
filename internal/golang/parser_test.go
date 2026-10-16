@@ -111,7 +111,6 @@ func TestEmbeddedInterfaceMethodsAreRequired(t *testing.T) {
 	}
 }
 
-
 func TestPointerReceiverMethods(t *testing.T) {
 	// Test that pointer receiver methods are correctly handled
 	types := Finalize([]model.Type{
