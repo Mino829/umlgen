@@ -13,35 +13,35 @@ import (
 const DefaultFile = ".umlgen.yaml"
 
 type Config struct {
-	Language string
-	Source   []string
-	Exclude  []string
+	Language string   `yaml:"language"`
+	Source   []string `yaml:"source"`
+	Exclude  []string `yaml:"exclude"`
 	Output   struct {
-		File   string
-		Format string
-	}
+		File   string `yaml:"file"`
+		Format string `yaml:"format"`
+	} `yaml:"output"`
 	Visibility struct {
-		Public         bool
-		Protected      bool
-		Private        bool
-		PackagePrivate bool
-	}
+		Public         bool `yaml:"public"`
+		Protected      bool `yaml:"protected"`
+		Private        bool `yaml:"private"`
+		PackagePrivate bool `yaml:"package_private"`
+	} `yaml:"visibility"`
 	Members struct {
-		Fields  bool
-		Methods bool
-	}
+		Fields  bool `yaml:"fields"`
+		Methods bool `yaml:"methods"`
+	} `yaml:"members"`
 	Relations struct {
-		Inheritance         bool
-		Implementation      bool
-		FieldDependency     bool
-		ParameterDependency bool
-		ReturnDependency    bool
-	}
+		Inheritance         bool `yaml:"inheritance"`
+		Implementation      bool `yaml:"implementation"`
+		FieldDependency     bool `yaml:"field_dependency"`
+		ParameterDependency bool `yaml:"parameter_dependency"`
+		ReturnDependency    bool `yaml:"return_dependency"`
+	} `yaml:"relations"`
 	Renderer struct {
-		Type      string
-		ServerURL string
-		Timeout   time.Duration
-	}
+		Type      string        `yaml:"type"`
+		ServerURL string        `yaml:"server_url"`
+		Timeout   time.Duration `yaml:"timeout"`
+	} `yaml:"renderer"`
 }
 
 func Defaults() Config {
@@ -83,6 +83,7 @@ func Load(path string, explicit bool) (Config, string, error) {
 	}
 
 	c.Language = strings.ToLower(strings.TrimSpace(c.Language))
+	c.Renderer.Type = strings.ToLower(strings.TrimSpace(c.Renderer.Type))
 	if c.Language != "auto" && c.Language != "java" && c.Language != "go" {
 		return c, path, fmt.Errorf("invalid configuration in %s: unsupported language %q", path, c.Language)
 	}

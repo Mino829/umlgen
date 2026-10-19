@@ -186,3 +186,45 @@ alias生成時に`.`などの記号を`_`へ置換するため、異なる完全
 - `env GOCACHE=/tmp/umlgen-go-cache go vet ./...`: 成功
 - 実際のPlantUMLを使ったPNG生成: `.puml`とPNG画像を確認
 - コードは変更していない
+
+## 2026-10-17: 設定パーサー置き換えコミット `095d6a2` のレビュー
+
+対象: `095d6a2`（`internal/config/config.go`の手書きYAMLパーサーを`gopkg.in/yaml.v3`へ置き換え）。コミットメッセージは既存の`.umlgen.yaml`との後方互換性を維持すると説明しているが、以下の指摘の通り互換性は崩れている。
+
+### P1: snake_caseの設定キーが読み込まれなくなる
+
+**状態: 修正済み（2026-10-19）**
+
+対象: `internal/config/config.go` の `Config` 構造体と `Load`、`README.md` の設定例、`internal/config/config.go` の `Template`
+
+`Config`のフィールドに`yaml`タグがないため、yaml.v3はフィールド名を小文字化したキー（`packageprivate`、`fielddependency`、`parameterdependency`、`returndependency`、`serverurl`）だけを認識する。旧パーサーの`assign`が受け付けていた`package_private`、`field_dependency`、`parameter_dependency`、`return_dependency`、`server_url`（READMEの設定例とCLIが生成する`Template`も同じ綴り）は未知キーとして黙って無視される。
+
+再現: `visibility: package_private: false`、`relations: field_dependency/parameter_dependency/return_dependency: false`、`renderer: server_url: http://example.com`を書いた`.umlgen.yaml`を`Load`で読み込むと、4つのboolはすべてデフォルトの`true`のまま、`ServerURL`は空文字列だった。そのため`renderer: type: server`でREADMEの綴りで`server_url`を指定しても`renderer server requires a server_url`で画像生成が失敗し、関係線の無効化も黙って無視される。
+
+修正案: `Config`の該当フィールドへ`yaml:"package_private"`等のタグを付け、READMEと`Template`の綴りで読み込むことを確認する回帰テストを追加する。
+
+### P2: `renderer.type`の大文字小文字正規化がなくなった
+
+**状態: 修正済み（2026-10-19）**
+
+対象: `internal/config/config.go` の `Load`、`internal/renderer/renderer.go` の `Validate`
+
+旧パーサーは`renderer.type`の値を`strings.ToLower`で正規化していた。新しい`Load`は`Language`だけを正規化し、`Renderer.Type`は正規化しない（CLIフラグ経由の指定は`internal/cli/cli.go`の`normalizeClassArgs`適用時に小文字化）。設定ファイルで`type: Local`や`type: SERVER`と書くと、画像出力時に`unsupported renderer: "Local"`で失敗する。
+
+再現: `renderer: type: LOCAL`を書いた`.umlgen.yaml`を`Load`で読み込むと`Renderer.Type`は`"LOCAL"`のままだった。`renderer.Validate`は小文字の`auto/local/jar/server`だけを受け付ける。
+
+修正案: `Load`で`Renderer.Type`も`Language`と同じく小文字化する。
+
+### 確認
+
+- `go build ./...`: 成功
+- `go test ./internal/config/ ./internal/cli/`: 成功
+- 指摘の再現は`internal/config`へ一時的なテスト（`TestProbeSnakeCaseKeys`、`TestProbeTimeoutInt`）を置いて検証し、検証後に削除した
+- コードは変更していない（本レビューとこの追記のみ）
+
+### 修正（2026-10-19）
+
+- P1: `Config`と各ネスト構造体に`yaml`タグを付与し、README／`Template`と同じsnake_caseキー（`package_private`、`field_dependency`、`parameter_dependency`、`return_dependency`、`server_url`）で読み込むようにした
+- P2: `Load`で`Renderer.Type`を`Language`と同様に小文字化
+- 回帰テスト`TestLoadReadsSnakeCaseKeys`、`TestLoadNormalizesRendererType`を追加
+- `go build ./...`、`go test ./...`、`go vet ./...`: 成功
