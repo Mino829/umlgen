@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadAndResolvePaths(t *testing.T) {
@@ -72,5 +73,53 @@ func TestLoadRejectsUnsupportedLanguage(t *testing.T) {
 	}
 	if _, _, err := Load(path, true); err == nil {
 		t.Fatal("expected unsupported language error")
+	}
+}
+
+func TestLoadReadsSnakeCaseKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".umlgen.yaml")
+	input := `visibility:
+  package_private: false
+relations:
+  field_dependency: false
+  parameter_dependency: false
+  return_dependency: false
+renderer:
+  type: server
+  server_url: http://example.com:8080
+  timeout: 45s
+`
+	if err := os.WriteFile(path, []byte(input), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Visibility.PackagePrivate {
+		t.Fatal("package_private was ignored")
+	}
+	if cfg.Relations.FieldDependency || cfg.Relations.ParameterDependency || cfg.Relations.ReturnDependency {
+		t.Fatalf("relations flags were ignored: %#v", cfg.Relations)
+	}
+	if cfg.Renderer.ServerURL != "http://example.com:8080" {
+		t.Fatalf("server_url = %q", cfg.Renderer.ServerURL)
+	}
+	if cfg.Renderer.Timeout != 45*time.Second {
+		t.Fatalf("timeout = %v", cfg.Renderer.Timeout)
+	}
+}
+
+func TestLoadNormalizesRendererType(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".umlgen.yaml")
+	if err := os.WriteFile(path, []byte("renderer:\n  type: SERVER\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Renderer.Type != "server" {
+		t.Fatalf("renderer type = %q", cfg.Renderer.Type)
 	}
 }
