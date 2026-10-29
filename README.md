@@ -406,6 +406,8 @@ make build
 
 Tree-sitterを使用するため、ビルドにはCGoとCコンパイラが必要です。リリース用バイナリは各OSのGitHub Actionsランナー上でネイティブビルドされます。
 
+CI・CodeQL・リリースビルドではGo 1.26.10を使用します。`crypto/x509`の脆弱性[GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809)の修正版で、CIの`govulncheck`による検査を継続します。
+
 ベンチマークの構成と参考結果は[`docs/performance.md`](docs/performance.md)に記録しています。
 
 タグをpushすると、macOS（Apple Silicon／Intel）、Linux amd64、Windows amd64向けのアーカイブとSHA-256チェックサムがGitHub Releasesへ自動公開されます。
