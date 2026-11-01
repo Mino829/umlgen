@@ -235,21 +235,6 @@ func TestDiffCommandFailsWhenChangedFileCannotBeParsed(t *testing.T) {
 	}
 }
 
-func TestPlaceholderDiagramSanitizesTitle(t *testing.T) {
-	diagram := placeholderDiagram("first\nsecond\rthird")
-	prefix := "@startuml\ntitle "
-	if !strings.HasPrefix(diagram, prefix) {
-		t.Fatalf("unexpected output: %q", diagram)
-	}
-	rest := diagram[len(prefix):]
-	if strings.ContainsAny(rest[:strings.Index(rest, "\n")], "\n\r") {
-		t.Fatalf("title should not contain newlines, got: %q", rest[:strings.Index(rest, "\n")])
-	}
-	if !strings.Contains(diagram, "first second third") {
-		t.Fatalf("newlines should be replaced with spaces, got: %q", diagram)
-	}
-}
-
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", args...)
@@ -789,5 +774,82 @@ class Other { Target ignored; }
 	hidden, _ := run("hidden", "--explain", "--no-relations")
 	if strings.Contains(hidden, " -> ") || strings.Contains(hidden, source) {
 		t.Fatalf("explained relationships hidden from the diagram:\n%s", hidden)
+	}
+}
+
+func TestLayoutFlagsOverrideConfigurationPerSetting(t *testing.T) {
+	dir := t.TempDir()
+	writeJava(t, dir, "Service.java", "package app.service; class Service { app.domain.User user; }")
+	writeJava(t, dir, "User.java", "package app.domain; class User {}")
+	configPath := filepath.Join(dir, ".umlgen.yaml")
+	if err := os.WriteFile(configPath, []byte(`layout:
+  package_grouping: hierarchical
+  direction: left-to-right
+  skinparams:
+    shadowing: true
+    linetype: ortho
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(name string, extra ...string) string {
+		t.Helper()
+		path := filepath.Join(dir, name+".puml")
+		args := append([]string{"class", dir, "--config", configPath, "--output", path}, extra...)
+		var stdout, stderr bytes.Buffer
+		code, err := Run(args, &stdout, &stderr)
+		if err != nil || code != exitOK {
+			t.Fatalf("%s: code=%d err=%v stderr=%s", name, code, err, stderr.String())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	configured := run("configured")
+	for _, want := range []string{`package "app"`, `package "service"`, `package "domain"`,
+		"left to right direction", "skinparam shadowing true", "skinparam linetype ortho"} {
+		if !strings.Contains(configured, want) {
+			t.Errorf("missing configured setting %q:\n%s", want, configured)
+		}
+	}
+	overridden := run("overridden", "--package-grouping", "none", "--layout-direction", "top-to-bottom",
+		"--skinparam", "shadowing=false")
+	if strings.Contains(overridden, "package ") || strings.Contains(overridden, "left to right direction") {
+		t.Fatalf("CLI layout overrides were ignored:\n%s", overridden)
+	}
+	for _, want := range []string{"skinparam shadowing false", "skinparam linetype ortho",
+		`T_app_service_Service --> "1" T_app_domain_User`} {
+		if !strings.Contains(overridden, want) {
+			t.Errorf("missing overridden or retained setting %q:\n%s", want, overridden)
+		}
+	}
+}
+
+func TestInvalidLayoutPreservesExistingOutput(t *testing.T) {
+	for _, args := range [][]string{
+		{"--package-grouping", "invalid"},
+		{"--layout-direction", "out"},
+		{"--skinparam", "shadowing=false\n!include remote.puml"},
+		{"--skinparam", "shadowing"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			dir := t.TempDir()
+			writeJava(t, dir, "User.java", "package sample; class User {}")
+			path := filepath.Join(dir, "existing.puml")
+			const existing = "@startuml\nclass Existing\n@enduml\n"
+			if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			code, err := Run(append([]string{"class", dir, "--output", path}, args...), &stdout, &stderr)
+			if code != exitArgs || err == nil {
+				t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != existing {
+				t.Fatalf("invalid settings modified output: data=%q err=%v", data, err)
+			}
+		})
 	}
 }

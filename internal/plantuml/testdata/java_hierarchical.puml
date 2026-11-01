@@ -1,0 +1,37 @@
+@startuml
+title Release #13
+left to right direction
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+
+class "Bootstrap" as T_Bootstrap {
+}
+package "com" as P_1 {
+  package "acme" as P_2 {
+    package "api" as P_3 {
+      class "Service" as T_com_acme_api_Service #palegreen {
+        -repository: com.acme.store.Repository
+      }
+      interface "UseCase" as T_com_acme_api_UseCase {
+      }
+    }
+    package "store" as P_4 {
+      interface "Repository" as T_com_acme_store_Repository #lightcoral {
+      }
+    }
+  }
+}
+package "org" as P_5 {
+  package "example" as P_6 {
+    package "api" as P_7 {
+      class "Service" as T_org_example_api_Service #lightyellow {
+      }
+    }
+  }
+}
+
+  T_com_acme_api_Service --> "1" T_com_acme_store_Repository : field repository
+  T_com_acme_api_UseCase <|.. T_com_acme_api_Service
+
+@enduml

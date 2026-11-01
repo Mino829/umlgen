@@ -1,0 +1,27 @@
+@startuml
+
+package "example.com" as P_1 {
+  class "Root" as T_example_com_Root <<struct>> {
+  }
+  package "acme" as P_2 {
+    package "api" as P_3 {
+      class "Service" as T_example_com_acme_api_Service <<struct>> #palegreen {
+        -repository: *store.Repository
+      }
+    }
+    package "store" as P_4 {
+      class "Repository" as T_example_com_acme_store_Repository <<struct>> #lightcoral {
+      }
+    }
+  }
+  package "other" as P_5 {
+    package "api" as P_6 {
+      class "Service" as T_example_com_other_api_Service <<struct>> {
+      }
+    }
+  }
+}
+
+  T_example_com_acme_api_Service --> "1" T_example_com_acme_store_Repository : field repository
+
+@enduml
