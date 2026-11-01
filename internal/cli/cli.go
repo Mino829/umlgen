@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mino829/umlgen/internal/config"
+	"github.com/Mino829/umlgen/internal/explain"
 	"github.com/Mino829/umlgen/internal/focus"
 	"github.com/Mino829/umlgen/internal/gitdiff"
 	"github.com/Mino829/umlgen/internal/javacache"
@@ -447,12 +448,32 @@ func runClassMode(
 		fmt.Fprintf(stdout, "Language: %s\n", sourceParser.DisplayName())
 		fmt.Fprintf(stdout, "Scanning %s files...\n", sourceParser.DisplayName())
 	}
+	var explanation explain.Report
+	if o.explain {
+		explanation.Scope = explain.Scope{
+			Targets: targets, Excludes: cfg.Exclude, Include: o.include,
+			Language: sourceParser.DisplayName(),
+		}
+		explanation.Sources = make(map[string]explain.Source)
+	}
 	files, err := scanner.SourceFiles(targets, cfg.Exclude, sourceParser.Extensions()...)
 	if err != nil {
+		if o.explain {
+			explanation.Failures = append(explanation.Failures, explain.Failure{
+				Source: strings.Join(targets, ", "), Message: err.Error(), Origin: "working tree",
+			})
+			writeExplanation(stdout, explanation, nil, nil, opts)
+		}
 		return exitError, err
 	}
 	files = matchingFiles(files, sourceParser.MatchesPath)
+	if o.explain {
+		explanation.Scope.Files = len(files)
+	}
 	if len(files) == 0 && (diffSelection == nil || len(diffSelection.Deleted) == 0) {
+		if o.explain {
+			writeExplanation(stdout, explanation, nil, nil, opts)
+		}
 		return exitError, fmt.Errorf("no %s files found in: %s", sourceParser.DisplayName(), strings.Join(targets, ", "))
 	}
 	if o.verbose {
@@ -498,6 +519,7 @@ func runClassMode(
 	}
 
 	var types []model.Type
+	var knownTypes []model.Type
 	warnings := 0
 	changedParseFailures := 0
 	cacheHits, cacheMisses := 0, 0
@@ -511,18 +533,36 @@ func runClassMode(
 		}
 		var found []model.Type
 		var parseErr error
-		if parseCache == nil {
-			found, parseErr = sourceParser.ParseFile(file)
-		} else {
-			result, resultErr := parseCache.ParseFile(file)
-			found, parseErr = result.Types, resultErr
-			if result.Hit {
-				cacheHits++
-			} else {
-				cacheMisses++
+		var source []byte
+		if o.explain {
+			source, parseErr = os.ReadFile(file)
+			if parseErr == nil {
+				explanation.Sources[file] = explain.Source{Content: source, Origin: "working tree"}
 			}
-			if result.CacheError != nil {
-				fmt.Fprintf(stderr, "Warning: cache entry was refreshed for %s: %v\n", file, result.CacheError)
+		}
+		if parseErr == nil {
+			if parseCache == nil {
+				if o.explain {
+					found, parseErr = sourceParser.ParseSource(file, source)
+				} else {
+					found, parseErr = sourceParser.ParseFile(file)
+				}
+			} else {
+				var result javacache.Result
+				if o.explain {
+					result, parseErr = parseCache.ParseSource(file, source)
+				} else {
+					result, parseErr = parseCache.ParseFile(file)
+				}
+				found = result.Types
+				if result.Hit {
+					cacheHits++
+				} else {
+					cacheMisses++
+				}
+				if result.CacheError != nil {
+					fmt.Fprintf(stderr, "Warning: cache entry was refreshed for %s: %v\n", file, result.CacheError)
+				}
 			}
 		}
 		if parseErr != nil {
@@ -531,7 +571,15 @@ func runClassMode(
 				changedParseFailures++
 			}
 			fmt.Fprintf(stderr, "Warning: failed to parse %s: %v\n", file, parseErr)
+			if o.explain {
+				explanation.Failures = append(explanation.Failures, explain.Failure{
+					Source: file, Message: parseErr.Error(), Origin: "working tree",
+				})
+			}
 			continue
+		}
+		if o.explain {
+			knownTypes = append(knownTypes, found...)
 		}
 		for _, t := range found {
 			if includePackage(t.Package, o.include) && !excludePackage(t.Package, cfg.Exclude) {
@@ -555,12 +603,24 @@ func runClassMode(
 			if !sourceParser.MatchesPath(deleted.Path) {
 				continue
 			}
+			if o.explain {
+				explanation.Scope.Files++
+				explanation.Sources[deleted.Path] = explain.Source{Content: deleted.Content, Origin: "Git base"}
+			}
 			found, parseErr := sourceParser.ParseSource(deleted.Path, deleted.Content)
 			if parseErr != nil {
 				warnings++
 				changedParseFailures++
 				fmt.Fprintf(stderr, "Warning: failed to parse deleted file %s: %v\n", deleted.Path, parseErr)
+				if o.explain {
+					explanation.Failures = append(explanation.Failures, explain.Failure{
+						Source: deleted.Path, Message: parseErr.Error(), Origin: "Git base",
+					})
+				}
 				continue
+			}
+			if o.explain {
+				knownTypes = append(knownTypes, found...)
 			}
 			for _, t := range found {
 				if includePackage(t.Package, o.include) && !excludePackage(t.Package, cfg.Exclude) {
@@ -571,9 +631,12 @@ func runClassMode(
 		}
 	}
 	if diffSelection == nil && len(types) == 0 && warnings == len(files) {
+		if o.explain {
+			writeExplanation(stdout, explanation, nil, knownTypes, opts)
+		}
 		return exitParse, fmt.Errorf("failed to parse all %s files", sourceParser.DisplayName())
 	}
-	types = sourceParser.Finalize(types)
+	types = sourceParser.Finalize(types, o.explain)
 	var noChanges bool
 	if diffSelection != nil {
 		var changed []string
@@ -589,6 +652,9 @@ func runClassMode(
 		}
 		if len(changed) == 0 {
 			if changedParseFailures > 0 {
+				if o.explain {
+					writeExplanation(stdout, explanation, nil, knownTypes, opts)
+				}
 				return exitParse, fmt.Errorf("failed to parse changed %s files; no changed types could be generated", sourceParser.DisplayName())
 			}
 			noChanges = true
@@ -647,7 +713,7 @@ func runClassMode(
 		if noChanges {
 			explainedTypes = nil
 		}
-		fmt.Fprint(stdout, plantuml.Explain(model.Project{Types: explainedTypes}, opts))
+		writeExplanation(stdout, explanation, explainedTypes, knownTypes, opts)
 	}
 	if cfg.Output.Format == "svg" || cfg.Output.Format == "png" {
 		renderCfg := renderer.Config{
@@ -863,7 +929,7 @@ Flags:
                             label field, parameter, and return relations
       --no-relations        hide relationships
       --no-cache            parse source without reading or writing the cache
-      --explain             explain displayed relationships with source file and line
+      --explain             explain reasons, source snippets, and analysis limitations
   -o, --output string       output file path
       --renderer string     PlantUML renderer: auto, local, jar, or server
       --render-timeout duration  rendering timeout (default 30s)

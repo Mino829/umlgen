@@ -1,7 +1,7 @@
 package relations
 
 import (
-	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
@@ -30,11 +30,35 @@ type Relation struct {
 
 // Evidence identifies a declaration responsible for a resolved relationship.
 type Evidence struct {
-	Member   string
-	Type     string
-	Source   string
-	Line     int
-	Inferred bool
+	Member    string
+	Type      string
+	Source    string
+	Line      int
+	Inferred  bool
+	Language  string
+	OwnerKind model.TypeKind
+}
+
+type ReferenceStatus string
+
+const (
+	StatusUnresolved     ReferenceStatus = "unresolved"
+	StatusOutsideDiagram ReferenceStatus = "outside-diagram"
+)
+
+type ReferenceDiagnostic struct {
+	From      string
+	Kind      Kind
+	Reference string
+	Target    string
+	Evidence  Evidence
+	Status    ReferenceStatus
+}
+
+// Analysis separates displayed relationships from references we cannot display.
+type Analysis struct {
+	Relations   []Relation
+	Diagnostics []ReferenceDiagnostic
 }
 
 type Index struct {
@@ -142,17 +166,43 @@ func (i *Index) Type(name string) (model.Type, bool) {
 }
 
 func Build(types []model.Type) []Relation {
-	return build(types, false)
+	return build(types, nil, false).Relations
 }
 
-// BuildWithEvidence preserves every distinct declaration behind each edge.
-// Ordinary diagram generation avoids allocating this additional metadata.
-func BuildWithEvidence(types []model.Type) []Relation {
-	return build(types, true)
+// Analyze collects declaration evidence and distinguishes unresolved references
+// from known declarations hidden by the diagram's selection.
+func Analyze(types, known []model.Type) Analysis {
+	return build(types, known, true)
 }
 
-func build(types []model.Type, explain bool) []Relation {
+func build(types, known []model.Type, explain bool) Analysis {
 	index := NewIndex(types)
+	knownIndex := index
+	if explain && known != nil {
+		knownIndex = NewIndex(known)
+	}
+	var diagnostics []ReferenceDiagnostic
+	var seenDiagnostics map[ReferenceDiagnostic]bool
+	diagnose := func(owner model.Type, ref string, kind Kind, evidence Evidence) {
+		if !explain || ref == "" || isBuiltin(Base(ref)) {
+			return
+		}
+		diagnostic := ReferenceDiagnostic{
+			From: owner.QualifiedName(), Kind: kind, Reference: ref,
+			Evidence: evidence, Status: StatusUnresolved,
+		}
+		if target, ok := knownIndex.Resolve(owner, ref); ok {
+			diagnostic.Target = target
+			diagnostic.Status = StatusOutsideDiagram
+		}
+		if seenDiagnostics == nil {
+			seenDiagnostics = make(map[ReferenceDiagnostic]bool)
+		}
+		if !seenDiagnostics[diagnostic] {
+			diagnostics = append(diagnostics, diagnostic)
+			seenDiagnostics[diagnostic] = true
+		}
+	}
 	unique := map[string]Relation{}
 	store := func(r Relation, evidence Evidence) {
 		key := relationKey(r)
@@ -169,9 +219,16 @@ func build(types []model.Type, explain bool) []Relation {
 		unique[key] = r
 	}
 	add := func(owner model.Type, raw string, kind Kind, label, multiplicity string, evidence Evidence) {
+		if explain {
+			evidence = locateEvidence(owner, evidence)
+		}
 		for _, ref := range References(raw) {
 			target, ok := index.Resolve(owner, ref)
-			if !ok || target == owner.QualifiedName() {
+			if !ok {
+				diagnose(owner, ref, kind, evidence)
+				continue
+			}
+			if target == owner.QualifiedName() {
 				continue
 			}
 			store(Relation{
@@ -186,10 +243,25 @@ func build(types []model.Type, explain bool) []Relation {
 			kind Kind
 		}{{t.Extends, Inheritance}, {t.Implements, Implementation}} {
 			for _, parent := range parents.refs {
+				evidence := Evidence{Type: parent.Name, Source: parent.Source, Line: parent.Line, Inferred: parent.Inferred}
+				if explain {
+					evidence = locateEvidence(t, evidence)
+				}
 				if target, ok := index.Resolve(t, parent.Name); ok && target != t.QualifiedName() {
-					store(Relation{From: t.QualifiedName(), To: target, Kind: parents.kind}, Evidence{
-						Type: parent.Name, Source: parent.Source, Line: parent.Line, Inferred: parent.Inferred,
-					})
+					relation := Relation{From: t.QualifiedName(), To: target, Kind: parents.kind}
+					store(relation, evidence)
+					if explain && parent.Inferred {
+						for _, method := range t.ImplementationMethods {
+							if method.Interface == target {
+								store(relation, locateEvidence(t, Evidence{
+									Member: method.Signature, Type: parent.Name,
+									Source: method.Source, Line: method.Line, Inferred: true,
+								}))
+							}
+						}
+					}
+				} else if !ok {
+					diagnose(t, Base(parent.Name), parents.kind, evidence)
 				}
 			}
 		}
@@ -255,60 +327,46 @@ func build(types []model.Type, explain bool) []Relation {
 		left, right := result[a], result[b]
 		return relationKey(left) < relationKey(right)
 	})
-	return result
+	if len(diagnostics) > 1 {
+		sort.Slice(diagnostics, func(a, b int) bool {
+			left, right := diagnostics[a], diagnostics[b]
+			if left.From != right.From {
+				return left.From < right.From
+			}
+			if left.Kind != right.Kind {
+				return left.Kind < right.Kind
+			}
+			if left.Evidence.Source != right.Evidence.Source {
+				return left.Evidence.Source < right.Evidence.Source
+			}
+			if left.Evidence.Line != right.Evidence.Line {
+				return left.Evidence.Line < right.Evidence.Line
+			}
+			if left.Evidence.Member != right.Evidence.Member {
+				return left.Evidence.Member < right.Evidence.Member
+			}
+			if left.Reference != right.Reference {
+				return left.Reference < right.Reference
+			}
+			return left.Status < right.Status
+		})
+	}
+	return Analysis{Relations: result, Diagnostics: diagnostics}
 }
 
 func relationKey(r Relation) string {
 	return strings.Join([]string{r.From, r.To, string(r.Kind), r.Label, r.Multiplicity}, "\x00")
 }
 
-// Explain formats resolved edges and their declaration evidence as plain text.
-func Explain(relations []Relation) string {
-	var b strings.Builder
-	b.WriteString("Relationship explanations:\n")
-	if len(relations) == 0 {
-		b.WriteString("  No relationships are displayed.\n")
+func locateEvidence(owner model.Type, evidence Evidence) Evidence {
+	evidence.OwnerKind = owner.Kind
+	switch {
+	case strings.EqualFold(filepath.Ext(owner.Source), ".go"):
+		evidence.Language = "go"
+	case strings.EqualFold(filepath.Ext(owner.Source), ".java"):
+		evidence.Language = "java"
 	}
-	for _, relation := range relations {
-		fmt.Fprintf(&b, "%s -> %s [%s", relation.From, relation.To, relation.Kind)
-		if relation.Label != "" {
-			fmt.Fprintf(&b, ", label=%q", relation.Label)
-		}
-		if relation.Multiplicity != "" {
-			fmt.Fprintf(&b, ", multiplicity=%s", relation.Multiplicity)
-		}
-		b.WriteString("]\n")
-		for _, evidence := range relation.Evidence {
-			source := evidence.Source
-			if source == "" {
-				source = "<unknown>"
-			}
-			fmt.Fprintf(&b, "  %s", source)
-			if evidence.Line > 0 {
-				fmt.Fprintf(&b, ":%d", evidence.Line)
-			}
-			b.WriteString(": ")
-			declaredType := strings.Join(strings.Fields(evidence.Type), " ")
-			switch relation.Kind {
-			case Inheritance:
-				fmt.Fprintf(&b, "extends/embeds %s", declaredType)
-			case Implementation:
-				if evidence.Inferred {
-					fmt.Fprintf(&b, "inferred implementation: method set satisfies %s", declaredType)
-				} else {
-					fmt.Fprintf(&b, "implements %s", declaredType)
-				}
-			case Field:
-				fmt.Fprintf(&b, "field %s has type %s", evidence.Member, declaredType)
-			case Parameter:
-				fmt.Fprintf(&b, "parameter %s has type %s", evidence.Member, declaredType)
-			case Return:
-				fmt.Fprintf(&b, "return of %s has type %s", evidence.Member, declaredType)
-			}
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
+	return evidence
 }
 
 func References(text string) []string {

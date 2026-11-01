@@ -111,6 +111,11 @@ func (c *Cache) ParseFile(path string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	return c.ParseSource(path, source)
+}
+
+// ParseSource uses the caller's captured bytes for both parsing and caching.
+func (c *Cache) ParseSource(path string, source []byte) (Result, error) {
 	cachePath := filepath.Join(c.dir, c.key(source)+".json")
 	cached, cacheErr := c.load(cachePath, path)
 	if cacheErr == nil && cached != nil {

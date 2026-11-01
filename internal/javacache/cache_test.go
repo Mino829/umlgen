@@ -195,7 +195,7 @@ class Service extends Target implements Contract {
 		if err != nil || result.Hit != (i == 1) {
 			t.Fatalf("%s: hit=%v err=%v", name, result.Hit, err)
 		}
-		got := relations.BuildWithEvidence(result.Types)
+		got := relations.Analyze(result.Types, nil).Relations
 		if len(got) != len(wantLines) {
 			t.Fatalf("%s relations = %#v", name, got)
 		}
@@ -209,5 +209,28 @@ class Service extends Target implements Contract {
 					evidence.Source, evidence.Line, path, wantLines[relation.Kind])
 			}
 		}
+	}
+}
+
+func TestCapturedSourceAndCurrentFileDoNotShareStaleCacheContent(t *testing.T) {
+	t.Setenv(cacheDirectoryEnv, filepath.Join(t.TempDir(), "cache"))
+	path := filepath.Join(t.TempDir(), "Type.java")
+	captured := []byte("package sample; class Captured {}")
+	writeSource(t, path, "package sample; class Current {}")
+	cache, err := Open("snapshots", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := cache.ParseSource(path, captured)
+	if err != nil || snapshot.Hit || len(snapshot.Types) != 1 || snapshot.Types[0].Name != "Captured" {
+		t.Fatalf("snapshot = %#v err=%v", snapshot, err)
+	}
+	current, err := cache.ParseFile(path)
+	if err != nil || current.Hit || len(current.Types) != 1 || current.Types[0].Name != "Current" {
+		t.Fatalf("current = %#v err=%v", current, err)
+	}
+	warm, err := cache.ParseSource(path, captured)
+	if err != nil || !warm.Hit || len(warm.Types) != 1 || warm.Types[0].Name != "Captured" {
+		t.Fatalf("warm snapshot = %#v err=%v", warm, err)
 	}
 }
