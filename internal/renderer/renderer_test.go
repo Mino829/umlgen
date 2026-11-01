@@ -1,6 +1,8 @@
 package renderer
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -162,19 +164,79 @@ func TestRenderLocalTimeout(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("mock shell script is not executable on Windows")
 	}
-	dir := t.TempDir()
-	script := filepath.Join(dir, "plantuml")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n/bin/sleep 2"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, kind := range []Type{TypeLocal, TypeJar} {
+		t.Run(string(kind), func(t *testing.T) {
+			dir := t.TempDir()
+			binary := "plantuml"
+			if kind == TypeJar {
+				binary = "java"
+				t.Setenv("PLANTUML_JAR", filepath.Join(dir, "plantuml.jar"))
+			}
+			// Keep a descendant holding stdout/stderr after the wrapper is killed.
+			script := filepath.Join(dir, binary)
+			if err := os.WriteFile(script, []byte("#!/bin/sh\n/bin/sleep 5 &\nwait\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir)
+			pumlPath := filepath.Join(dir, "diagram.puml")
+			if err := os.WriteFile(pumlPath, []byte("@startuml\n@enduml"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now()
+			_, err := Render("svg", pumlPath, Config{Type: kind, Timeout: time.Second})
+			elapsed := time.Since(start)
+			if err == nil || !strings.Contains(err.Error(), "timed out") {
+				t.Fatalf("expected timeout error, got: %v", err)
+			}
+			if elapsed >= 3*time.Second {
+				t.Fatalf("timeout waited for descendant output: %v", elapsed)
+			}
+		})
 	}
-	t.Setenv("PATH", dir)
-	pumlPath := filepath.Join(dir, "diagram.puml")
-	if err := os.WriteFile(pumlPath, []byte("@startuml\n@enduml"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Render("svg", pumlPath, Config{Type: TypeLocal, Timeout: 100 * time.Millisecond})
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("expected timeout error, got: %v", err)
+}
+
+func TestRenderEmptyOutput(t *testing.T) {
+	for _, kind := range []Type{TypeLocal, TypeJar, TypeServer} {
+		for _, format := range []string{"svg", "png"} {
+			t.Run(string(kind)+"/"+format, func(t *testing.T) {
+				dir := t.TempDir()
+				cfg := Config{Type: kind}
+				if kind == TypeServer {
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.WriteHeader(http.StatusOK)
+					}))
+					defer server.Close()
+					cfg.ServerURL = server.URL
+				} else {
+					if runtime.GOOS == "windows" {
+						t.Skip("mock shell script is not executable on Windows")
+					}
+					binary := "plantuml"
+					if kind == TypeJar {
+						binary = "java"
+						t.Setenv("PLANTUML_JAR", filepath.Join(dir, "plantuml.jar"))
+					}
+					script := "#!/bin/sh\n: > \"" + filepath.Join(dir, "diagram."+format) + "\"\n"
+					if err := os.WriteFile(filepath.Join(dir, binary), []byte(script), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					t.Setenv("PATH", dir)
+				}
+				pumlPath := filepath.Join(dir, "diagram.puml")
+				source := "@startuml\n@enduml"
+				if err := os.WriteFile(pumlPath, []byte(source), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				_, err := Render(format, pumlPath, cfg)
+				if err == nil || !strings.Contains(err.Error(), "empty output file") {
+					t.Fatalf("expected empty output error, got: %v", err)
+				}
+				data, err := os.ReadFile(pumlPath)
+				if err != nil || string(data) != source {
+					t.Fatalf("input was not preserved: data=%q err=%v", data, err)
+				}
+			})
+		}
 	}
 }
 

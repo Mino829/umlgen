@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -272,7 +274,7 @@ func TestInvalidFormat(t *testing.T) {
 	}
 }
 
-func TestPNGFormatWithMockRenderer(t *testing.T) {
+func TestPNGFormatRejectsEmptyOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("mock shell script is not executable on Windows")
 	}
@@ -282,28 +284,25 @@ func TestPNGFormatWithMockRenderer(t *testing.T) {
 	binDir := t.TempDir()
 	script := filepath.Join(binDir, "plantuml")
 	pngPath := filepath.Join(dir, "class-diagram.png")
-	if err := os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\n/usr/bin/touch %q", pngPath)), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\n: > %q\n", pngPath)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := os.Stat(script); err != nil || info.Mode()&0o111 == 0 {
-		t.Fatalf("mock script is not executable: %v", err)
-	}
 	t.Setenv("PATH", binDir)
-	if _, err := exec.LookPath("plantuml"); err != nil {
-		t.Fatalf("mock plantuml not found in PATH: %v", err)
-	}
 
 	out := filepath.Join(dir, "class-diagram.puml")
 	var stdout, stderr bytes.Buffer
-	code, err := Run([]string{"class", dir, "--output", out, "--format", "png"}, &stdout, &stderr)
-	if err != nil || code != 0 {
+	code, err := Run([]string{"class", dir, "--output", out, "--format", "png", "--renderer", "local"}, &stdout, &stderr)
+	if err != nil || code != exitRender {
 		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
 	}
 	if _, err := os.Stat(out); err != nil {
 		t.Fatalf("puml file was not kept: %v", err)
 	}
-	if _, err := os.Stat(pngPath); err != nil {
-		t.Fatalf("png file was not generated: %v", err)
+	if !strings.Contains(stderr.String(), "empty output file") {
+		t.Fatalf("missing empty output diagnostic: %s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Generated "+pngPath) {
+		t.Fatalf("reported empty image as generated: %s", stdout.String())
 	}
 }
 
@@ -618,9 +617,18 @@ func TestPNGFormatWithPNGExtension(t *testing.T) {
 	dir := t.TempDir()
 	writeJava(t, dir, "User.java", `package sample; class User {}`)
 
+	var fixture bytes.Buffer
+	bounds := image.Rect(0, 0, 2, 3)
+	if err := png.Encode(&fixture, image.NewRGBA(bounds)); err != nil {
+		t.Fatal(err)
+	}
 	binDir := t.TempDir()
+	fixturePath := filepath.Join(binDir, "fixture.png")
+	if err := os.WriteFile(fixturePath, fixture.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	script := filepath.Join(binDir, "plantuml")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n/usr/bin/printf '' > \"${2%.puml}.png\""), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte(fmt.Sprintf("#!/bin/sh\n/bin/cp %q \"${2%%.puml}.png\"\n", fixturePath)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir)
@@ -635,8 +643,16 @@ func TestPNGFormatWithPNGExtension(t *testing.T) {
 	if _, err := os.Stat(puml); err != nil {
 		t.Fatalf("puml file was not kept: %v", err)
 	}
-	if _, err := os.Stat(out); err != nil {
+	data, err := os.ReadFile(out)
+	if err != nil {
 		t.Fatalf("png file was not generated: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("invalid PNG output: %v", err)
+	}
+	if img.Bounds() != bounds {
+		t.Fatalf("PNG bounds = %v, want %v", img.Bounds(), bounds)
 	}
 }
 
