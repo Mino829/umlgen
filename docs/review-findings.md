@@ -160,7 +160,7 @@ alias生成時に`.`などの記号を`_`へ置換するため、異なる完全
 
 ### P2: タイムアウト後も子プロセスの出力待ちが続く
 
-**状態: 修正済み（作業ツリー）**
+**状態: 修正済み（main / PR #62）**
 
 対象: `internal/renderer/renderer.go` の `runCommand`、`renderLocal`、`renderJar`
 
@@ -174,7 +174,7 @@ alias生成時に`.`などの記号を`_`へ置換するため、異なる完全
 
 ### P2: 空の画像ファイルでも生成成功になる
 
-**状態: 修正済み（作業ツリー）**
+**状態: 修正済み（main / PR #62）**
 
 対象: `internal/renderer/renderer.go` の `runCommand`、`internal/cli/cli_test.go` の `TestPNGFormatWithPNGExtension`
 

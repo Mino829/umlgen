@@ -15,17 +15,18 @@
 
 ## 実装・PR状況（未リリース）
 
-- **レンダラーの残存不具合 — [PR #62](https://github.com/Mino829/umlgen/pull/62)** — タイムアウト後の出力パイプ待機と0バイト画像の成功扱いを修正。main向けに独立して提出済み。
-- **`--explain`（Issue #12）— [PR #63](https://github.com/Mino829/umlgen/pull/63)** — 継承・実装・フィールド・引数・戻り値の関係について、解決先、メンバー、ファイル、宣言行をテキスト表示。複数根拠とJava／Goの宣言位置を保持し、キャッシュスキーマを更新。通常のPlantUML出力は維持。main向けに独立して提出済み。
+- **レンダラーの残存不具合 — [PR #62](https://github.com/Mino829/umlgen/pull/62)** — mainへマージ済み。タイムアウト後の出力パイプ待機と0バイト画像の成功扱いを修正。
+- **`--explain`（Issue #12）— [PR #63](https://github.com/Mino829/umlgen/pull/63)** — mainへマージ済み、Issue #12は完了。継承・実装・フィールド・引数・戻り値の解決先、メンバー、ファイル、宣言行を表示し、複数根拠とJava／Goの宣言位置を保持。通常のPlantUML出力は維持。
 - **確認済み** — `go test ./...`、`go vet ./...`成功。Java／Goの実CLIで宣言位置、コールド／ウォームキャッシュの説明一致、図の不変性、関係種別・focusによる絞り込み、差分図・削除ファイル・プレースホルダを確認。`class --help`／`-h`が引数エラーになる既存不具合も修正し、`--explain`のヘルプ表示を確認。
-- **パッケージグルーピングとレイアウト（Issue #13）— [PR #64](https://github.com/Mino829/umlgen/pull/64)** — flat／hierarchical／none、縦／横方向、CLIと設定ファイル、安全な3種類のskinparamを実装。複数パッケージのgoldenを追加。Java／Goの実CLIとSVG・PNG表示、既定出力のバイト一致、Goのドメインだけのmodule root、focus／差分の色・タイトル・プレースホルダを確認。PR #63をベースに別PRとして提出済み。
+- **パッケージグルーピングとレイアウト（Issue #13）— [PR #64](https://github.com/Mino829/umlgen/pull/64)** — `feat/explain-source-evidence`へマージ済みだが、mainには未反映。既存コミットを最新mainと統合するPRを別途提出する。flat／hierarchical／none、縦／横方向、CLI・設定ファイル、安全なskinparam、Windowsのgolden改行対策を含む。
 - **リモートCI** — PR #62／#63のLinux、Windows、macOS amd64／arm64およびCodeQL等のチェック成功を確認。
 - **Windowsのgolden比較** — 初回CIでチェックアウト時のCRLF変換による不一致を検出。`.gitattributes`で対象fixtureをLFに固定し、`core.autocrlf=true`でも4つのfixtureのバイト列が変わらないことを確認。比較条件は緩めない。
-- マージ・リリース前のため、GitHubのIssue／ロードマップは未完了のまま。
+- **main統合候補の確認** — `go test ./...`、`go vet ./...`成功。実CLIでJavaのSVG・GoのPNGを`--explain`と階層・横方向・skinparam併用で生成。コールド／ウォーム説明一致を確認。模擬レンダラーの1秒期限は約1.12秒で終了コード5、空画像も終了コード5となり、説明と`.puml`は保持。
+- 未リリース。Issue #13とロードマップのレイアウト完了状態は、main向け統合PRのマージ後に更新する。
 
 ## 次の作業
 
-PR #62、PR #63、PR #64の順にレビュー・マージし、マージ後にIssue #12／#13とロードマップ #16の完了状態を更新する。CIを確認してからリリースする。
+レイアウトのmain向け統合PRをレビュー・マージし、Issue #13とロードマップ #16を更新する。main上でCIと配布物を確認してからv0.6.0をリリースする。
 
 ## 進め方
 
