@@ -103,6 +103,17 @@ umlgen diff main...HEAD --direction in
 umlgen diff main...HEAD --direction both
 ```
 
+### パッケージと配置方向
+
+```bash
+umlgen diff main...HEAD --package-grouping hierarchical \
+  --layout-direction left-to-right --skinparam linetype=ortho
+```
+
+`--package-grouping`は`flat`（既定）・`hierarchical`・`none`、`--layout-direction`は`top-to-bottom`（既定）・`left-to-right`から選択します。配置方向は、依存関係の探索に使う`--direction in/out/both`とは別です。`.umlgen.yaml`の`layout`設定も利用できます。
+
+タイトルと追加・変更・削除の色は維持され、プレースホルダ図にも配置方向と安全なskinparamが反映されます。対応するskinparamはREADMEの「パッケージ表示とレイアウト」を参照してください。
+
 ### 色の意味
 
 | 色 | 意味 |

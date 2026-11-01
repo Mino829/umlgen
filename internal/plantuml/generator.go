@@ -2,7 +2,9 @@ package plantuml
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -25,6 +27,88 @@ type Options struct {
 	ParamDependency    bool
 	ReturnDependency   bool
 	ShowRelationLabels bool
+	PackageGrouping    string
+	LayoutDirection    string
+	SkinParams         map[string]string
+}
+
+func (opts Options) ValidateLayout() error {
+	switch opts.PackageGrouping {
+	case "", "flat", "hierarchical", "none":
+	default:
+		return fmt.Errorf("invalid package grouping %q: expected flat, hierarchical, or none", opts.PackageGrouping)
+	}
+	switch opts.LayoutDirection {
+	case "", "top-to-bottom", "left-to-right":
+	default:
+		return fmt.Errorf("invalid layout direction %q: expected top-to-bottom or left-to-right", opts.LayoutDirection)
+	}
+	keys := make([]string, 0, len(opts.SkinParams))
+	for key := range opts.SkinParams {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if !validSkinParam(key, opts.SkinParams[key]) {
+			return fmt.Errorf("invalid skinparam %q=%q: allowed settings are linetype (ortho/polyline), shadowing (true/false), and classAttributeIconSize (nonnegative integer)", key, opts.SkinParams[key])
+		}
+	}
+	return nil
+}
+
+func validSkinParam(key, value string) bool {
+	switch key {
+	case "linetype":
+		return value == "ortho" || value == "polyline"
+	case "shadowing":
+		return value == "true" || value == "false"
+	case "classAttributeIconSize":
+		if value == "" {
+			return false
+		}
+		for _, c := range value {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+		_, err := strconv.ParseUint(value, 10, 31)
+		return err == nil
+	default:
+		return false
+	}
+}
+
+func writePreamble(b *strings.Builder, title string, opts Options) {
+	b.WriteString("@startuml\n")
+	if title != "" {
+		fmt.Fprintf(b, "title %s\n", escapeTitle(title))
+	}
+	if opts.LayoutDirection == "left-to-right" {
+		b.WriteString("left to right direction\n")
+	}
+	keys := make([]string, 0, len(opts.SkinParams))
+	for key, value := range opts.SkinParams {
+		// Generate and Placeholder cannot return errors; never emit raw settings,
+		// even if a caller omitted ValidateLayout.
+		if validSkinParam(key, value) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Fprintf(b, "skinparam %s %s\n", key, opts.SkinParams[key])
+	}
+}
+
+// Placeholder renders an empty diff diagram using the same layout as Generate.
+func Placeholder(title string, opts Options) string {
+	if title == "" {
+		title = "Pull request class diagram"
+	}
+	var b strings.Builder
+	writePreamble(&b, title, opts)
+	b.WriteString("note \"No displayable changed types in the selected range\" as NoChanges\n@enduml\n")
+	return b.String()
 }
 
 func Generate(project model.Project, opts Options) string {
@@ -33,58 +117,32 @@ func Generate(project model.Project, opts Options) string {
 	aliases := aliasesFor(types)
 
 	var b strings.Builder
-	b.WriteString("@startuml\n")
-	if opts.Title != "" {
-		fmt.Fprintf(&b, "title %s\n", escapeTitle(opts.Title))
-	}
+	writePreamble(&b, opts.Title, opts)
 	if len(types) > 0 {
 		b.WriteByte('\n')
 	}
-	lastPackage := "\x00"
-	for _, t := range types {
-		if t.Package != lastPackage {
-			if lastPackage != "\x00" {
-				b.WriteString("}\n\n")
-			}
-			fmt.Fprintf(&b, "package %q {\n", t.Package)
-			lastPackage = t.Package
+	switch opts.PackageGrouping {
+	case "none":
+		for _, t := range types {
+			writeType(&b, t, aliases[t.QualifiedName()], "", opts)
 		}
-		declaration, stereotype := typeDeclaration(t)
-		fmt.Fprintf(
-			&b, "  %s %q as %s%s%s {\n",
-			declaration, t.DisplayName(), aliases[t.QualifiedName()], stereotype, changeColor(t.Change),
-		)
-		if opts.ShowFields {
-			for _, value := range t.EnumValues {
-				fmt.Fprintf(&b, "    %s\n", value)
-			}
-			for _, f := range t.Fields {
-				if visible(f.Visibility, opts) {
-					fmt.Fprintf(&b, "    %s%s%s: %s\n", memberModifier(f.Static, false), visibilitySymbol(f.Visibility), f.Name, f.Type)
+	case "hierarchical":
+		writeHierarchy(&b, types, aliases, opts)
+	default:
+		lastPackage := "\x00"
+		for _, t := range types {
+			if t.Package != lastPackage {
+				if lastPackage != "\x00" {
+					b.WriteString("}\n\n")
 				}
+				fmt.Fprintf(&b, "package %q {\n", t.Package)
+				lastPackage = t.Package
 			}
+			writeType(&b, t, aliases[t.QualifiedName()], "  ", opts)
 		}
-		if opts.ShowMethods {
-			for _, m := range t.Methods {
-				if !visible(m.Visibility, opts) {
-					continue
-				}
-				var params []string
-				for _, p := range m.Parameters {
-					params = append(params, p.Name+": "+p.Type)
-				}
-				showAbstract := m.Abstract && t.Kind != model.Interface && t.Kind != model.Annotation
-				fmt.Fprintf(&b, "    %s%s%s(%s)", memberModifier(m.Static, showAbstract), visibilitySymbol(m.Visibility), m.Name, strings.Join(params, ", "))
-				if !m.Constructor && m.ReturnType != "" {
-					fmt.Fprintf(&b, ": %s", m.ReturnType)
-				}
-				b.WriteByte('\n')
-			}
+		if lastPackage != "\x00" {
+			b.WriteString("}\n")
 		}
-		b.WriteString("  }\n")
-	}
-	if lastPackage != "\x00" {
-		b.WriteString("}\n")
 	}
 	if opts.ShowRelations {
 		rels := relationLines(types, aliases, opts)
@@ -113,6 +171,91 @@ func Explain(project model.Project, opts Options) string {
 		}
 	}
 	return relations.Explain(selected)
+}
+
+func writeType(b *strings.Builder, t model.Type, alias, indent string, opts Options) {
+	declaration, stereotype := typeDeclaration(t)
+	fmt.Fprintf(b, "%s%s %q as %s%s%s {\n", indent, declaration, t.DisplayName(), alias, stereotype, changeColor(t.Change))
+	if opts.ShowFields {
+		for _, value := range t.EnumValues {
+			fmt.Fprintf(b, "%s  %s\n", indent, value)
+		}
+		for _, f := range t.Fields {
+			if visible(f.Visibility, opts) {
+				fmt.Fprintf(b, "%s  %s%s%s: %s\n", indent, memberModifier(f.Static, false), visibilitySymbol(f.Visibility), f.Name, f.Type)
+			}
+		}
+	}
+	if opts.ShowMethods {
+		for _, m := range t.Methods {
+			if !visible(m.Visibility, opts) {
+				continue
+			}
+			var params []string
+			for _, p := range m.Parameters {
+				params = append(params, p.Name+": "+p.Type)
+			}
+			showAbstract := m.Abstract && t.Kind != model.Interface && t.Kind != model.Annotation
+			fmt.Fprintf(b, "%s  %s%s%s(%s)", indent, memberModifier(m.Static, showAbstract), visibilitySymbol(m.Visibility), m.Name, strings.Join(params, ", "))
+			if !m.Constructor && m.ReturnType != "" {
+				fmt.Fprintf(b, ": %s", m.ReturnType)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	fmt.Fprintf(b, "%s}\n", indent)
+}
+
+type packageNode struct {
+	types    []int
+	children map[string]*packageNode
+}
+
+func writeHierarchy(b *strings.Builder, types []model.Type, aliases map[string]string, opts Options) {
+	root := &packageNode{}
+	for i := range types {
+		t := &types[i]
+		node := root
+		if t.Package != "" {
+			separator := "."
+			if strings.Contains(t.Package, "/") || strings.EqualFold(filepath.Ext(t.Source), ".go") {
+				separator = "/"
+			}
+			for _, name := range strings.Split(t.Package, separator) {
+				if node.children == nil {
+					node.children = make(map[string]*packageNode)
+				}
+				child := node.children[name]
+				if child == nil {
+					child = &packageNode{}
+					node.children[name] = child
+				}
+				node = child
+			}
+		}
+		node.types = append(node.types, i)
+	}
+	// Package aliases use a separate namespace from type aliases. Assigning
+	// them in sorted traversal order also distinguishes repeated leaf names.
+	nextPackage := 0
+	var writeNode func(*packageNode, string)
+	writeNode = func(node *packageNode, indent string) {
+		for _, i := range node.types {
+			writeType(b, types[i], aliases[types[i].QualifiedName()], indent, opts)
+		}
+		names := make([]string, 0, len(node.children))
+		for name := range node.children {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			nextPackage++
+			fmt.Fprintf(b, "%spackage %q as P_%d {\n", indent, name, nextPackage)
+			writeNode(node.children[name], indent+"  ")
+			fmt.Fprintf(b, "%s}\n", indent)
+		}
+	}
+	writeNode(root, "")
 }
 
 func changeColor(change model.ChangeKind) string {

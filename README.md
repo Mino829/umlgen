@@ -230,6 +230,44 @@ umlgen class ./src --focus UserService --direction in
 関係は双方向に探索されるため、依存先だけでなく、その型に依存している型も含まれます。
 `--direction`を指定すると、`in`、`out`、`both`から探索方向を選べます。
 
+## パッケージ表示とレイアウト
+
+既定の`flat`は、完全なパッケージ名ごとの囲みと従来の出力を維持します。`hierarchical`はJavaの`.`、Goの`/`ごとに囲みを階層化し、Goのドメイン名（`example.com`など）は1つの階層として扱います。`none`はパッケージの囲みを省略します。
+
+```bash
+# パッケージ階層と横方向の配置
+umlgen class ./src --package-grouping hierarchical --layout-direction left-to-right
+
+# 囲みなしの図
+umlgen class ./src --package-grouping none
+
+# 依存先の探索方向と、図の配置方向は別の設定
+umlgen class ./src --focus UserService --direction out \
+  --layout-direction left-to-right --skinparam linetype=ortho
+```
+
+`--layout-direction`は`top-to-bottom`（既定）または`left-to-right`です。`.umlgen.yaml`にも設定できます。
+
+```yaml
+layout:
+  package_grouping: hierarchical
+  direction: left-to-right
+  skinparams:
+    linetype: ortho
+    shadowing: false
+    classAttributeIconSize: 0
+```
+
+`--skinparam key=value`は繰り返し指定でき、設定ファイルの同じキーだけを上書きします。同じキーを複数回指定した場合は最後の値を使います。安全に読み込める設定は次の3つに限定しています。
+
+- `linetype`: `ortho`または`polyline`
+- `shadowing`: `true`または`false`
+- `classAttributeIconSize`: 非負の32bit整数（`0`でメンバーのアイコンを非表示）
+
+未対応のキー・値や改行を含む設定は、図を書き出す前に引数エラーとして拒否します。任意のPlantUML本文や`!include`は読み込みません。タイトル、差分の追加・変更・削除色、型のaliasと関係線は維持します。
+
+これらの設定は`--focus`と`diff`でも共通です。差分プレースホルダにも配置方向とskinparamが適用されます。レイアウト設定だけの変更では、解析キャッシュを無効化しません。
+
 ## 解析キャッシュ
 
 Java／Goファイルの解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。
@@ -382,6 +420,11 @@ relations:
   field_dependency: true
   parameter_dependency: true
   return_dependency: true
+
+layout:
+  package_grouping: flat
+  direction: top-to-bottom
+  skinparams: {}
 
 renderer:
   type: auto
