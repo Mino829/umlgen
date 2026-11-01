@@ -18,7 +18,7 @@ import (
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
-const SchemaVersion = "go-ast-v1"
+const SchemaVersion = "go-ast-v2"
 
 func ParseFile(path string) ([]model.Type, error) {
 	source, err := os.ReadFile(path)
@@ -64,7 +64,7 @@ func ParseSource(path string, source []byte) ([]model.Type, error) {
 		if receiver == "" {
 			continue
 		}
-		method := parseMethod(function.Name.Name, function.Type, fset)
+		method := parseMethod(function.Name.Name, function.Type, fset, path, function.Pos())
 		method.Visibility = visibility(function.Name.Name)
 		method.PointerReceiver = isPointerReceiver(function.Recv.List[0].Type)
 		if index, ok := byName[receiver]; ok {
@@ -86,6 +86,7 @@ func parseType(spec *ast.TypeSpec, fset *token.FileSet, pkg, path string, import
 	t := model.Type{
 		Package: pkg, Name: spec.Name.Name, Kind: model.Class,
 		Visibility: visibility(spec.Name.Name), Imports: cloneImports(imports), Source: path,
+		Line: fset.PositionFor(spec.Pos(), false).Line,
 	}
 	switch declared := spec.Type.(type) {
 	case *ast.StructType:
@@ -97,6 +98,7 @@ func parseType(spec *ast.TypeSpec, fset *token.FileSet, pkg, path string, import
 	default:
 		t.Fields = append(t.Fields, model.Field{
 			Name: "value", Type: expressionText(fset, spec.Type), Visibility: model.Private,
+			Source: path, Line: fset.PositionFor(spec.Pos(), false).Line,
 		})
 	}
 	return t
@@ -106,12 +108,15 @@ func parseStruct(t *model.Type, declared *ast.StructType, fset *token.FileSet) {
 	for _, field := range declared.Fields.List {
 		fieldType := expressionText(fset, field.Type)
 		if len(field.Names) == 0 {
-			t.Extends = append(t.Extends, fieldType)
+			t.Extends = append(t.Extends, model.TypeReference{
+				Name: fieldType, Source: t.Source, Line: fset.PositionFor(field.Type.Pos(), false).Line,
+			})
 			continue
 		}
 		for _, name := range field.Names {
 			t.Fields = append(t.Fields, model.Field{
 				Name: name.Name, Type: fieldType, Visibility: visibility(name.Name),
+				Source: t.Source, Line: fset.PositionFor(name.Pos(), false).Line,
 			})
 		}
 	}
@@ -120,7 +125,10 @@ func parseStruct(t *model.Type, declared *ast.StructType, fset *token.FileSet) {
 func parseInterface(t *model.Type, declared *ast.InterfaceType, fset *token.FileSet) {
 	for _, field := range declared.Methods.List {
 		if len(field.Names) == 0 {
-			t.Extends = append(t.Extends, expressionText(fset, field.Type))
+			t.Extends = append(t.Extends, model.TypeReference{
+				Name: expressionText(fset, field.Type), Source: t.Source,
+				Line: fset.PositionFor(field.Type.Pos(), false).Line,
+			})
 			continue
 		}
 		function, ok := field.Type.(*ast.FuncType)
@@ -128,16 +136,17 @@ func parseInterface(t *model.Type, declared *ast.InterfaceType, fset *token.File
 			continue
 		}
 		for _, name := range field.Names {
-			method := parseMethod(name.Name, function, fset)
+			method := parseMethod(name.Name, function, fset, t.Source, name.Pos())
 			method.Visibility = visibility(name.Name)
 			t.Methods = append(t.Methods, method)
 		}
 	}
 }
 
-func parseMethod(name string, function *ast.FuncType, fset *token.FileSet) model.Method {
+func parseMethod(name string, function *ast.FuncType, fset *token.FileSet, source string, position token.Pos) model.Method {
 	return model.Method{
 		Name: name, Visibility: visibility(name),
+		Source: source, Line: fset.PositionFor(position, false).Line,
 		Parameters: parseParameters(function.Params, fset),
 		ReturnType: parseResults(function.Results, fset),
 	}
@@ -153,11 +162,16 @@ func parseParameters(fields *ast.FieldList, fset *token.FileSet) []model.Paramet
 		parameterType := expressionText(fset, field.Type)
 		if len(field.Names) == 0 {
 			unnamed++
-			result = append(result, model.Parameter{Name: fmt.Sprintf("arg%d", unnamed), Type: parameterType})
+			result = append(result, model.Parameter{
+				Name: fmt.Sprintf("arg%d", unnamed), Type: parameterType,
+				Line: fset.PositionFor(field.Type.Pos(), false).Line,
+			})
 			continue
 		}
 		for _, name := range field.Names {
-			result = append(result, model.Parameter{Name: name.Name, Type: parameterType})
+			result = append(result, model.Parameter{
+				Name: name.Name, Type: parameterType, Line: fset.PositionFor(name.Pos(), false).Line,
+			})
 		}
 	}
 	return result
@@ -301,6 +315,10 @@ func Finalize(types []model.Type) []model.Type {
 }
 
 func mergeType(target *model.Type, source model.Type) {
+	if target.Line == 0 && source.Line != 0 {
+		target.Source = source.Source
+		target.Line = source.Line
+	}
 	if target.Kind == model.Struct && source.Kind != model.Struct {
 		target.Kind = source.Kind
 	}
@@ -332,6 +350,15 @@ func inferImplementations(types []model.Type) {
 		if candidate.Kind == model.Interface {
 			continue
 		}
+		source, line := candidate.Source, candidate.Line
+		if line == 0 {
+			for _, method := range candidate.Methods {
+				if method.Line != 0 {
+					source, line = method.Source, method.Line
+					break
+				}
+			}
+		}
 		for _, contract := range types {
 			if contract.Kind != model.Interface {
 				continue
@@ -345,7 +372,9 @@ func inferImplementations(types []model.Type) {
 			valueMethods := methodSetForType(*candidate, index, map[string]bool{}, false)
 			pointerMethods := methodSetForType(*candidate, index, map[string]bool{}, true)
 			if implements(valueMethods, required) || implements(pointerMethods, required) {
-				candidate.Implements = appendUnique(candidate.Implements, contract.QualifiedName())
+				candidate.Implements = appendUnique(candidate.Implements, model.TypeReference{
+					Name: contract.QualifiedName(), Source: source, Line: line, Inferred: true,
+				})
 			}
 		}
 	}
@@ -365,7 +394,7 @@ func methodSetForType(current model.Type, index *relations.Index, seen map[strin
 		}
 	}
 	for _, embedded := range current.Extends {
-		resolved, ok := index.Resolve(current, embedded)
+		resolved, ok := index.Resolve(current, embedded.Name)
 		if !ok {
 			continue
 		}
@@ -399,13 +428,13 @@ func methodSignature(method model.Method) string {
 	return method.Name + "(" + strings.Join(parameters, ",") + ")" + method.ReturnType
 }
 
-func appendUnique(values []string, additional ...string) []string {
-	seen := make(map[string]bool, len(values)+len(additional))
+func appendUnique(values []model.TypeReference, additional ...model.TypeReference) []model.TypeReference {
+	seen := make(map[model.TypeReference]bool, len(values)+len(additional))
 	for _, value := range values {
 		seen[value] = true
 	}
 	for _, value := range additional {
-		if value != "" && !seen[value] {
+		if value.Name != "" && !seen[value] {
 			values = append(values, value)
 			seen[value] = true
 		}

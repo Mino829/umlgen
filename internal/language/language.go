@@ -144,7 +144,7 @@ func (javaParser) Extensions() []string { return []string{".java"} }
 func (javaParser) MatchesPath(path string) bool {
 	return strings.EqualFold(filepath.Ext(path), ".java")
 }
-func (javaParser) CacheSchema() string { return "java-tree-sitter-v1" }
+func (javaParser) CacheSchema() string { return "java-tree-sitter-v2" }
 func (javaParser) ParseFile(path string) ([]model.Type, error) {
 	return java.ParseFile(path)
 }

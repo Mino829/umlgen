@@ -100,6 +100,21 @@ func Generate(project model.Project, opts Options) string {
 	return b.String()
 }
 
+// Explain describes only the relationships selected for this diagram.
+func Explain(project model.Project, opts Options) string {
+	if !opts.ShowRelations {
+		return relations.Explain(nil)
+	}
+	all := relations.BuildWithEvidence(project.Types)
+	selected := all[:0]
+	for _, relation := range all {
+		if relationEnabled(relation.Kind, opts) {
+			selected = append(selected, relation)
+		}
+	}
+	return relations.Explain(selected)
+}
+
 func changeColor(change model.ChangeKind) string {
 	switch change {
 	case model.Added:

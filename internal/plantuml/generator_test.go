@@ -12,7 +12,7 @@ func TestGenerate(t *testing.T) {
 		{Package: "sample", Name: "Repository", Kind: model.Interface},
 		{
 			Package: "sample", Name: "Service", Kind: model.Class,
-			Implements: []string{"UseCase"},
+			Implements: []model.TypeReference{{Name: "UseCase"}},
 			Fields:     []model.Field{{Name: "repositories", Type: "List<Repository>", Visibility: model.Private}},
 			Methods: []model.Method{{
 				Name: "find", ReturnType: "User", Visibility: model.Public,

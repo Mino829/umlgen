@@ -275,6 +275,31 @@ umlgen class ./src \
 
 `List<User>`、`User[]`、Goの`[]User`や`map[string]User`は`*`、`Optional<User>`は`0..1`として関係線へ出力されます。
 
+### 関係線の根拠を確認する
+
+`--explain`は、生成した関係線の種類、解決先の完全修飾名、根拠となった型・メンバー、ソースファイルと1始まりの宣言行番号を標準出力へ表示します。Java／Goに対応し、通常の`.puml`や画像の内容は変更しません。
+
+```bash
+# 図を生成しながら、関係線の理由も読む
+umlgen class ./src --explain
+
+# UserServiceが保持している型を、フィールド名と宣言位置から調べる
+umlgen class ./src --focus UserService --direction out \
+  --relations field --explain --quiet
+
+# Goの埋め込みや、メソッド集合から推定したインターフェース実装を確認
+umlgen class . --language go --explain
+
+# 差分図に表示された関係線の理由を読む
+umlgen diff main...HEAD --explain
+```
+
+たとえば`UserService`に`UserRepository`型の`repository`フィールドがある場合、`field`関係の説明にフィールド名・宣言された型・そのファイルと行番号が表示されます。オーバーロードなどで1本の関係線に複数の根拠がある場合は、すべての宣言位置を列挙します。
+
+説明対象は`--focus`、`--direction`、`--relations`などで絞った後の図に合わせます。`--no-relations`や差分プレースホルダでは、説明する関係線もありません。`--hide-fields`や`--hide-methods`はメンバー表示のみの設定なので、図に残る関係線の根拠は説明されます。`--quiet`でも、明示的に要求した説明は出力します。
+
+行番号は宣言の開始位置です。引数は各引数宣言、戻り値はメソッド宣言を指します。Goの暗黙実装は`inferred implementation`と区別して型宣言を示し、型宣言が解析対象にない場合はメソッド宣言を示します。削除ファイルの説明は、差分の比較元に保存されたコードの行番号です。出力形式は人が読むためのテキストで、JSON形式は提供していません。
+
 ## Git差分からクラス図を生成
 
 変更されたJava／Go型と、その周辺の型だけを生成します。

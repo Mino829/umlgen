@@ -100,7 +100,7 @@ enum Status { ACTIVE, INACTIVE }`
 	if types[0].Kind != model.Record || len(types[0].Fields) != 1 || types[0].Fields[0].Type != "long" {
 		t.Fatalf("unexpected record: %#v", types[0])
 	}
-	if len(types[0].Implements) != 1 || types[0].Implements[0] != "Comparable<UserId>" {
+	if len(types[0].Implements) != 1 || types[0].Implements[0].Name != "Comparable<UserId>" {
 		t.Fatalf("unexpected record interfaces: %#v", types[0].Implements)
 	}
 	if types[1].Kind != model.Enum || strings.Join(types[1].EnumValues, ",") != "ACTIVE,INACTIVE" {
@@ -167,6 +167,119 @@ enum Status {
 	if _, ok := byName["sample.Status.Metadata"]; !ok {
 		t.Fatalf("nested enum type was not parsed: %#v", byName)
 	}
+}
+
+func TestParseDeclarationLocations(t *testing.T) {
+	const path = "relative/Declarations.java"
+	source := `package sample;
+class Outer
+    extends
+        Base<String,
+             Integer>
+    implements
+        First<String, Integer>,
+        /* between parents */
+        Second {
+    private Target first,
+        second[];
+    Outer(
+        Target input) {}
+    Target load(
+        Target input,
+        Other another) { return null; }
+    Other load(
+        Other input) { return null; }
+    record Entry(
+        Target value,
+        Other other) implements
+            First<Target, Other> {
+        Entry {}
+    }
+    @interface Config {
+        Target value();
+    }
+    interface Nested extends
+        First<Target, Other>,
+        Second {}
+}`
+	types, err := ParseSource(path, []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(types) != 4 {
+		t.Fatalf("types = %d, want 4: %#v", len(types), types)
+	}
+	assertLocation := func(label, gotSource string, gotLine, wantLine int) {
+		t.Helper()
+		if gotSource != path || gotLine != wantLine {
+			t.Errorf("%s location = %s:%d, want %s:%d", label, gotSource, gotLine, path, wantLine)
+		}
+	}
+	assertParents := func(label string, got []model.TypeReference, names []string, lines []int) {
+		t.Helper()
+		if len(got) != len(names) {
+			t.Fatalf("%s parents = %#v, want %v", label, got, names)
+		}
+		for i, parent := range got {
+			if parent.Name != names[i] || parent.Inferred {
+				t.Errorf("%s parent %d = %#v, want explicit %q", label, i, parent, names[i])
+			}
+			assertLocation(label, parent.Source, parent.Line, lines[i])
+		}
+	}
+	outer := types[0]
+	assertLocation("outer", outer.Source, outer.Line, 2)
+	assertParents("extends", outer.Extends, []string{"Base<String,\n             Integer>"}, []int{4})
+	assertParents("implements", outer.Implements, []string{"First<String, Integer>", "Second"}, []int{7, 9})
+	if len(outer.Fields) != 2 || outer.Fields[0].Name != "first" || outer.Fields[0].Type != "Target" ||
+		outer.Fields[1].Name != "second" || outer.Fields[1].Type != "Target[]" {
+		t.Fatalf("multi-declarator fields = %#v", outer.Fields)
+	}
+	for _, field := range outer.Fields {
+		assertLocation(field.Name, field.Source, field.Line, 10)
+	}
+	if len(outer.Methods) != 3 || !outer.Methods[0].Constructor ||
+		outer.Methods[1].Name != "load" || outer.Methods[1].ReturnType != "Target" ||
+		outer.Methods[2].Name != "load" || outer.Methods[2].ReturnType != "Other" {
+		t.Fatalf("methods = %#v", outer.Methods)
+	}
+	for i, wantLine := range []int{12, 14, 17} {
+		method := outer.Methods[i]
+		assertLocation(method.Name, method.Source, method.Line, wantLine)
+		wantParameters := [][]int{{13}, {15, 16}, {18}}[i]
+		if len(method.Parameters) != len(wantParameters) {
+			t.Fatalf("method %d parameters = %#v", i, method.Parameters)
+		}
+		for j, parameter := range method.Parameters {
+			if parameter.Line != wantParameters[j] {
+				t.Errorf("method %d parameter %d line = %d, want %d", i, j, parameter.Line, wantParameters[j])
+			}
+		}
+	}
+	entry := types[1]
+	assertLocation("record", entry.Source, entry.Line, 19)
+	if entry.QualifiedName() != "sample.Outer.Entry" || len(entry.Fields) != 2 ||
+		entry.Fields[0].Name != "value" || entry.Fields[0].Type != "Target" ||
+		entry.Fields[1].Name != "other" || entry.Fields[1].Type != "Other" {
+		t.Fatalf("record = %#v", entry)
+	}
+	for i, field := range entry.Fields {
+		assertLocation(field.Name, field.Source, field.Line, 20+i)
+	}
+	assertParents("record implements", entry.Implements, []string{"First<Target, Other>"}, []int{22})
+	if len(entry.Methods) != 1 || !entry.Methods[0].Constructor {
+		t.Fatalf("compact constructor = %#v", entry.Methods)
+	}
+	assertLocation("compact constructor", entry.Methods[0].Source, entry.Methods[0].Line, 23)
+	annotation := types[2]
+	assertLocation("annotation", annotation.Source, annotation.Line, 25)
+	if len(annotation.Methods) != 1 || annotation.Methods[0].ReturnType != "Target" {
+		t.Fatalf("annotation methods = %#v", annotation.Methods)
+	}
+	assertLocation("annotation method", annotation.Methods[0].Source, annotation.Methods[0].Line, 26)
+	nested := types[3]
+	assertLocation("nested interface", nested.Source, nested.Line, 28)
+	assertParents("interface extends", nested.Extends, []string{"First<Target, Other>", "Second"}, []int{29, 30})
 }
 
 func TestParseImportsAndNestedTypes(t *testing.T) {
@@ -237,7 +350,7 @@ func TestParseCompatibilityFixture(t *testing.T) {
 	}
 	salesUser := byName["com.acme.sales.User"]
 	if salesUser.Visibility != model.Public || len(salesUser.Implements) != 1 ||
-		salesUser.Implements[0] != "Identifiable<String>" {
+		salesUser.Implements[0].Name != "Identifiable<String>" {
 		t.Fatalf("annotated class = %#v", salesUser)
 	}
 	lineItem := byName["com.acme.sales.Order.LineItem"]

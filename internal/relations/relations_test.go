@@ -181,3 +181,46 @@ func TestBuildCompatibilityFixtureRelations(t *testing.T) {
 		}
 	}
 }
+
+func TestEvidencePreservesOverloadsAndDeduplicatesGenericReferences(t *testing.T) {
+	const path = "Service.java"
+	types, err := java.ParseSource(path, []byte(`package sample;
+class Target {}
+class Service {
+    Target load(Target input) { return null; }
+    Target load(Target input, int limit) { return null; }
+    java.util.Map<Target, Target> values;
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[Kind][]Evidence{
+		Field: {{Member: "values", Type: "java.util.Map<Target, Target>", Source: path, Line: 6}},
+		Parameter: {
+			{Member: "input of load(Target)", Type: "Target", Source: path, Line: 4},
+			{Member: "input of load(Target, int)", Type: "Target", Source: path, Line: 5},
+		},
+		Return: {
+			{Member: "load(Target)", Type: "Target", Source: path, Line: 4},
+			{Member: "load(Target, int)", Type: "Target", Source: path, Line: 5},
+		},
+	}
+	got := BuildWithEvidence(types)
+	if len(got) != len(want) {
+		t.Fatalf("relations = %#v", got)
+	}
+	for _, relation := range got {
+		if relation.From != "sample.Service" || relation.To != "sample.Target" {
+			t.Fatalf("unexpected resolution: %#v", relation)
+		}
+		evidence := want[relation.Kind]
+		if len(relation.Evidence) != len(evidence) {
+			t.Fatalf("%s evidence = %#v, want %#v", relation.Kind, relation.Evidence, evidence)
+		}
+		for i := range evidence {
+			if relation.Evidence[i] != evidence[i] {
+				t.Errorf("%s evidence %d = %#v, want %#v", relation.Kind, i, relation.Evidence[i], evidence[i])
+			}
+		}
+	}
+}

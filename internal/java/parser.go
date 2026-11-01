@@ -76,28 +76,29 @@ func parseType(node *sitter.Node, source []byte, pkg, path string, imports []mod
 		NonSealed:  hasModifier(node, source, "non-sealed"),
 		Imports:    append([]model.Import(nil), imports...),
 		Source:     path,
+		Line:       int(node.StartPosition().Row) + 1,
 	}
 	if typeParameters := node.ChildByFieldName("type_parameters"); typeParameters != nil {
 		t.TypeParameters = typeText(typeParameters, source)
 	}
 	if superclass := node.ChildByFieldName("superclass"); superclass != nil {
-		t.Extends = append(t.Extends, superTypes(superclass, source, "extends")...)
+		t.Extends = append(t.Extends, superTypes(superclass, source, path)...)
 	}
 	if interfaces := node.ChildByFieldName("interfaces"); interfaces != nil {
-		t.Implements = append(t.Implements, superTypes(interfaces, source, "implements", "extends")...)
+		t.Implements = append(t.Implements, superTypes(interfaces, source, path)...)
 	}
 	if t.Kind == model.Interface {
 		for i := uint(0); i < node.NamedChildCount(); i++ {
 			child := node.NamedChild(i)
 			if child.Kind() == "extends_interfaces" {
-				t.Extends = append(t.Extends, superTypes(child, source, "extends")...)
+				t.Extends = append(t.Extends, superTypes(child, source, path)...)
 			}
 		}
 	}
 
 	if t.Kind == model.Record {
 		for _, p := range parseParameters(node.ChildByFieldName("parameters"), source) {
-			t.Fields = append(t.Fields, model.Field{Name: p.Name, Type: p.Type, Visibility: model.Private})
+			t.Fields = append(t.Fields, model.Field{Name: p.Name, Type: p.Type, Visibility: model.Private, Source: path, Line: p.Line})
 		}
 	}
 	parseBody(&t, bodyNode, source)
@@ -126,7 +127,7 @@ func parseBody(t *model.Type, body *sitter.Node, source []byte) {
 		case "method_declaration":
 			t.Methods = append(t.Methods, parseMethod(t, child, source, false))
 		case "annotation_type_element_declaration":
-			t.Methods = append(t.Methods, parseAnnotationElement(child, source))
+			t.Methods = append(t.Methods, parseAnnotationElement(t, child, source))
 		case "constructor_declaration", "compact_constructor_declaration":
 			t.Methods = append(t.Methods, parseMethod(t, child, source, true))
 		case "enum_body_declarations":
@@ -150,8 +151,13 @@ func nestedTypeDeclarations(body *sitter.Node) []*sitter.Node {
 	return result
 }
 
-func parseAnnotationElement(node *sitter.Node, source []byte) model.Method {
-	method := model.Method{Visibility: model.Public, Abstract: true}
+func parseAnnotationElement(t *model.Type, node *sitter.Node, source []byte) model.Method {
+	method := model.Method{
+		Visibility: model.Public,
+		Abstract:   true,
+		Source:     t.Source,
+		Line:       int(node.StartPosition().Row) + 1,
+	}
 	if name := node.ChildByFieldName("name"); name != nil {
 		method.Name = name.Utf8Text(source)
 	}
@@ -194,6 +200,8 @@ func parseFields(t *model.Type, node *sitter.Node, source []byte) {
 			Type:       declaredType,
 			Visibility: visibility,
 			Static:     isStatic,
+			Source:     t.Source,
+			Line:       int(node.StartPosition().Row) + 1,
 		})
 	}
 }
@@ -215,6 +223,8 @@ func parseMethod(t *model.Type, node *sitter.Node, source []byte, constructor bo
 		Static:      hasModifier(node, source, "static"),
 		Abstract:    hasModifier(node, source, "abstract") || (t.Kind == model.Interface && !hasModifier(node, source, "default") && !hasModifier(node, source, "static") && !hasModifier(node, source, "private")),
 		Parameters:  parseParameters(node.ChildByFieldName("parameters"), source),
+		Source:      t.Source,
+		Line:        int(node.StartPosition().Row) + 1,
 	}
 	if !constructor {
 		if returnType := node.ChildByFieldName("type"); returnType != nil {
@@ -254,6 +264,7 @@ func parseParameters(parameters *sitter.Node, source []byte) []model.Parameter {
 		result = append(result, model.Parameter{
 			Name: nameNode.Utf8Text(source),
 			Type: paramType,
+			Line: int(param.StartPosition().Row) + 1,
 		})
 	}
 	return result
@@ -332,47 +343,24 @@ func modifierWords(node *sitter.Node, source []byte) map[string]bool {
 	return result
 }
 
-func superTypes(node *sitter.Node, source []byte, prefixes ...string) []string {
-	text := strings.TrimSpace(node.Utf8Text(source))
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(text, prefix) {
-			text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
-			break
-		}
-	}
-	var result []string
-	for _, item := range splitTopLevel(text, ',') {
-		if value := strings.TrimSpace(item); value != "" {
-			result = append(result, value)
+func superTypes(node *sitter.Node, source []byte, path string) []model.TypeReference {
+	var result []model.TypeReference
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		switch child.Kind() {
+		case "type_list":
+			result = append(result, superTypes(child, source, path)...)
+		case "line_comment", "block_comment":
+			continue
+		default:
+			result = append(result, model.TypeReference{
+				Name:   strings.TrimSpace(child.Utf8Text(source)),
+				Source: path,
+				Line:   int(child.StartPosition().Row) + 1,
+			})
 		}
 	}
 	return result
-}
-
-func splitTopLevel(text string, separator rune) []string {
-	var result []string
-	start, angle, square, paren := 0, 0, 0, 0
-	for i, r := range text {
-		switch r {
-		case '<':
-			angle++
-		case '>':
-			angle--
-		case '[':
-			square++
-		case ']':
-			square--
-		case '(':
-			paren++
-		case ')':
-			paren--
-		}
-		if r == separator && angle == 0 && square == 0 && paren == 0 {
-			result = append(result, text[start:i])
-			start = i + 1
-		}
-	}
-	return append(result, text[start:])
 }
 
 func typeText(node *sitter.Node, source []byte) string {

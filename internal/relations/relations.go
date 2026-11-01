@@ -1,6 +1,7 @@
 package relations
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"unicode"
@@ -24,6 +25,16 @@ type Relation struct {
 	Kind         Kind
 	Label        string
 	Multiplicity string
+	Evidence     []Evidence
+}
+
+// Evidence identifies a declaration responsible for a resolved relationship.
+type Evidence struct {
+	Member   string
+	Type     string
+	Source   string
+	Line     int
+	Inferred bool
 }
 
 type Index struct {
@@ -131,49 +142,113 @@ func (i *Index) Type(name string) (model.Type, bool) {
 }
 
 func Build(types []model.Type) []Relation {
+	return build(types, false)
+}
+
+// BuildWithEvidence preserves every distinct declaration behind each edge.
+// Ordinary diagram generation avoids allocating this additional metadata.
+func BuildWithEvidence(types []model.Type) []Relation {
+	return build(types, true)
+}
+
+func build(types []model.Type, explain bool) []Relation {
 	index := NewIndex(types)
 	unique := map[string]Relation{}
-	add := func(owner model.Type, raw string, kind Kind, label, multiplicity string) {
+	store := func(r Relation, evidence Evidence) {
+		key := relationKey(r)
+		if explain {
+			previous := unique[key]
+			r.Evidence = previous.Evidence
+			for _, existing := range r.Evidence {
+				if existing == evidence {
+					return
+				}
+			}
+			r.Evidence = append(r.Evidence, evidence)
+		}
+		unique[key] = r
+	}
+	add := func(owner model.Type, raw string, kind Kind, label, multiplicity string, evidence Evidence) {
 		for _, ref := range References(raw) {
 			target, ok := index.Resolve(owner, ref)
 			if !ok || target == owner.QualifiedName() {
 				continue
 			}
-			relation := Relation{
+			store(Relation{
 				From: owner.QualifiedName(), To: target, Kind: kind,
 				Label: label, Multiplicity: multiplicity,
-			}
-			key := strings.Join([]string{relation.From, relation.To, string(kind), label, multiplicity}, "\x00")
-			unique[key] = relation
+			}, evidence)
 		}
 	}
 	for _, t := range types {
-		for _, parent := range t.Extends {
-			if target, ok := index.Resolve(t, parent); ok && target != t.QualifiedName() {
-				r := Relation{From: t.QualifiedName(), To: target, Kind: Inheritance}
-				unique[relationKey(r)] = r
-			}
-		}
-		for _, parent := range t.Implements {
-			if target, ok := index.Resolve(t, parent); ok && target != t.QualifiedName() {
-				r := Relation{From: t.QualifiedName(), To: target, Kind: Implementation}
-				unique[relationKey(r)] = r
+		for _, parents := range []struct {
+			refs []model.TypeReference
+			kind Kind
+		}{{t.Extends, Inheritance}, {t.Implements, Implementation}} {
+			for _, parent := range parents.refs {
+				if target, ok := index.Resolve(t, parent.Name); ok && target != t.QualifiedName() {
+					store(Relation{From: t.QualifiedName(), To: target, Kind: parents.kind}, Evidence{
+						Type: parent.Name, Source: parent.Source, Line: parent.Line, Inferred: parent.Inferred,
+					})
+				}
 			}
 		}
 		for _, field := range t.Fields {
-			add(t, field.Type, Field, field.Name, Multiplicity(field.Type))
+			add(t, field.Type, Field, field.Name, Multiplicity(field.Type), Evidence{
+				Member: field.Name, Type: field.Type, Source: field.Source, Line: field.Line,
+			})
 		}
 		for _, method := range t.Methods {
+			var member string
+			if explain {
+				var signature strings.Builder
+				signature.WriteString(method.Name)
+				signature.WriteByte('(')
+				for i, parameter := range method.Parameters {
+					if i > 0 {
+						signature.WriteString(", ")
+					}
+					signature.WriteString(parameter.Type)
+				}
+				signature.WriteByte(')')
+				member = signature.String()
+			}
 			for _, parameter := range method.Parameters {
-				add(t, parameter.Type, Parameter, method.Name+"("+parameter.Name+")", Multiplicity(parameter.Type))
+				parameterMember := ""
+				if explain {
+					parameterMember = parameter.Name + " of " + member
+				}
+				add(t, parameter.Type, Parameter, method.Name+"("+parameter.Name+")", Multiplicity(parameter.Type), Evidence{
+					Member: parameterMember, Type: parameter.Type, Source: method.Source, Line: parameter.Line,
+				})
 			}
 			if !method.Constructor {
-				add(t, method.ReturnType, Return, method.Name, Multiplicity(method.ReturnType))
+				add(t, method.ReturnType, Return, method.Name, Multiplicity(method.ReturnType), Evidence{
+					Member: member, Type: method.ReturnType, Source: method.Source, Line: method.Line,
+				})
 			}
 		}
 	}
 	result := make([]Relation, 0, len(unique))
 	for _, relation := range unique {
+		if explain {
+			sort.Slice(relation.Evidence, func(a, b int) bool {
+				left, right := relation.Evidence[a], relation.Evidence[b]
+				if left.Source != right.Source {
+					return left.Source < right.Source
+				}
+				if left.Line != right.Line {
+					return left.Line < right.Line
+				}
+				if left.Member != right.Member {
+					return left.Member < right.Member
+				}
+				if left.Type != right.Type {
+					return left.Type < right.Type
+				}
+				return !left.Inferred && right.Inferred
+			})
+		}
 		result = append(result, relation)
 	}
 	sort.Slice(result, func(a, b int) bool {
@@ -185,6 +260,55 @@ func Build(types []model.Type) []Relation {
 
 func relationKey(r Relation) string {
 	return strings.Join([]string{r.From, r.To, string(r.Kind), r.Label, r.Multiplicity}, "\x00")
+}
+
+// Explain formats resolved edges and their declaration evidence as plain text.
+func Explain(relations []Relation) string {
+	var b strings.Builder
+	b.WriteString("Relationship explanations:\n")
+	if len(relations) == 0 {
+		b.WriteString("  No relationships are displayed.\n")
+	}
+	for _, relation := range relations {
+		fmt.Fprintf(&b, "%s -> %s [%s", relation.From, relation.To, relation.Kind)
+		if relation.Label != "" {
+			fmt.Fprintf(&b, ", label=%q", relation.Label)
+		}
+		if relation.Multiplicity != "" {
+			fmt.Fprintf(&b, ", multiplicity=%s", relation.Multiplicity)
+		}
+		b.WriteString("]\n")
+		for _, evidence := range relation.Evidence {
+			source := evidence.Source
+			if source == "" {
+				source = "<unknown>"
+			}
+			fmt.Fprintf(&b, "  %s", source)
+			if evidence.Line > 0 {
+				fmt.Fprintf(&b, ":%d", evidence.Line)
+			}
+			b.WriteString(": ")
+			declaredType := strings.Join(strings.Fields(evidence.Type), " ")
+			switch relation.Kind {
+			case Inheritance:
+				fmt.Fprintf(&b, "extends/embeds %s", declaredType)
+			case Implementation:
+				if evidence.Inferred {
+					fmt.Fprintf(&b, "inferred implementation: method set satisfies %s", declaredType)
+				} else {
+					fmt.Fprintf(&b, "implements %s", declaredType)
+				}
+			case Field:
+				fmt.Fprintf(&b, "field %s has type %s", evidence.Member, declaredType)
+			case Parameter:
+				fmt.Fprintf(&b, "parameter %s has type %s", evidence.Member, declaredType)
+			case Return:
+				fmt.Fprintf(&b, "return of %s has type %s", evidence.Member, declaredType)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 func References(text string) []string {

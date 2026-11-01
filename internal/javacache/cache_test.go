@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/golang"
+	"github.com/Mino829/umlgen/internal/relations"
 )
 
 func TestParseFileCachesAndInvalidatesContent(t *testing.T) {
@@ -165,5 +166,48 @@ func writeSource(t *testing.T, path, source string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCacheRebindsExplanationLocationsForIdenticalFiles(t *testing.T) {
+	t.Setenv(cacheDirectoryEnv, filepath.Join(t.TempDir(), "cache"))
+	dir := t.TempDir()
+	const content = `package sample;
+class Target {}
+interface Contract {}
+class Service extends Target implements Contract {
+    Target target;
+    Target load(
+        Target input) { return null; }
+}`
+	cache, err := Open("explain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLines := map[relations.Kind]int{
+		relations.Inheritance: 4, relations.Implementation: 4,
+		relations.Field: 5, relations.Parameter: 7, relations.Return: 6,
+	}
+	for i, name := range []string{"First.java", "Second.java"} {
+		path := filepath.Join(dir, name)
+		writeSource(t, path, content)
+		result, err := cache.ParseFile(path)
+		if err != nil || result.Hit != (i == 1) {
+			t.Fatalf("%s: hit=%v err=%v", name, result.Hit, err)
+		}
+		got := relations.BuildWithEvidence(result.Types)
+		if len(got) != len(wantLines) {
+			t.Fatalf("%s relations = %#v", name, got)
+		}
+		for _, relation := range got {
+			if len(relation.Evidence) != 1 {
+				t.Fatalf("%s evidence = %#v", name, relation.Evidence)
+			}
+			evidence := relation.Evidence[0]
+			if evidence.Source != path || evidence.Line != wantLines[relation.Kind] {
+				t.Errorf("%s %s location = %s:%d, want %s:%d", name, relation.Kind,
+					evidence.Source, evidence.Line, path, wantLines[relation.Kind])
+			}
+		}
 	}
 }

@@ -730,3 +730,64 @@ func TestExcludePackageWithVariousFormats(t *testing.T) {
 		})
 	}
 }
+
+func TestExplainLocationsAndDiagramSelection(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("UMLGEN_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	source := filepath.Join(dir, "Service.java")
+	writeJava(t, dir, "Service.java", `package sample;
+class Base {}
+interface Contract {}
+class Target {}
+class Service extends Base implements Contract {
+    Target primary;
+    Target load(
+        Target input) { return null; }
+    Target load(Target input, int limit) { return null; }
+}
+class Other { Target ignored; }
+`)
+	run := func(name string, extra ...string) (string, []byte) {
+		t.Helper()
+		path := filepath.Join(dir, name+".puml")
+		args := append([]string{"class", dir, "--quiet", "--output", path}, extra...)
+		var stdout, stderr bytes.Buffer
+		code, err := Run(args, &stdout, &stderr)
+		if err != nil || code != exitOK {
+			t.Fatalf("%s: code=%d err=%v stderr=%s", name, code, err, stderr.String())
+		}
+		diagram, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stdout.String(), diagram
+	}
+	_, ordinary := run("ordinary")
+	explained, withExplain := run("explained", "--explain")
+	if !bytes.Equal(ordinary, withExplain) {
+		t.Fatal("--explain changed the PlantUML diagram")
+	}
+	for _, line := range []int{5, 6, 7, 8, 9, 11} {
+		if !strings.Contains(explained, fmt.Sprintf("%s:%d:", source, line)) {
+			t.Errorf("missing declaration at line %d:\n%s", line, explained)
+		}
+	}
+	for _, member := range []string{"load(Target)", "load(Target, int)", "primary", "ignored"} {
+		if !strings.Contains(explained, member) {
+			t.Errorf("missing member %q:\n%s", member, explained)
+		}
+	}
+	filtered, _ := run("filtered", "--explain", "--focus", "Service", "--direction", "out", "--relations", "field")
+	if !strings.Contains(filtered, "sample.Service -> sample.Target [field") {
+		t.Fatalf("missing selected relation:\n%s", filtered)
+	}
+	for _, excluded := range []string{"sample.Other", "[return", "[parameter", "[inheritance", "[implementation"} {
+		if strings.Contains(filtered, excluded) {
+			t.Errorf("explained an excluded relation %q:\n%s", excluded, filtered)
+		}
+	}
+	hidden, _ := run("hidden", "--explain", "--no-relations")
+	if strings.Contains(hidden, " -> ") || strings.Contains(hidden, source) {
+		t.Fatalf("explained relationships hidden from the diagram:\n%s", hidden)
+	}
+}
