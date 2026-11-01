@@ -1,0 +1,19 @@
+@startuml
+title Release #13
+
+class "Bootstrap" as T_Bootstrap {
+}
+class "Service" as T_com_acme_api_Service #palegreen {
+  -repository: com.acme.store.Repository
+}
+interface "UseCase" as T_com_acme_api_UseCase {
+}
+interface "Repository" as T_com_acme_store_Repository #lightcoral {
+}
+class "Service" as T_org_example_api_Service #lightyellow {
+}
+
+  T_com_acme_api_Service --> "1" T_com_acme_store_Repository : field repository
+  T_com_acme_api_UseCase <|.. T_com_acme_api_Service
+
+@enduml
