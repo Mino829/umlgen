@@ -140,6 +140,10 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, format, pumlPath string) (st
 	// mistaken for the result of this invocation.
 	_ = os.Remove(outPath)
 
+	// A wrapper's descendants can keep the output pipes open after it exits or
+	// is killed. Bound that drain so CombinedOutput cannot defeat the deadline.
+	cmd.WaitDelay = 100 * time.Millisecond
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -153,6 +157,9 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, format, pumlPath string) (st
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("renderer output path %q is a directory", outPath)
+	}
+	if info.Size() == 0 {
+		return "", fmt.Errorf("renderer produced empty output file %q", outPath)
 	}
 	return outPath, nil
 }
@@ -197,8 +204,12 @@ func renderServer(ctx context.Context, format, pumlPath, serverURL string) (stri
 	}
 	defer outFile.Close()
 
-	if _, err := io.Copy(outFile, resp.Body); err != nil {
+	size, err := io.Copy(outFile, resp.Body)
+	if err != nil {
 		return "", fmt.Errorf("failed to write output file: %w", err)
+	}
+	if size == 0 {
+		return "", fmt.Errorf("renderer produced empty output file %q", outPath)
 	}
 	return outPath, nil
 }
