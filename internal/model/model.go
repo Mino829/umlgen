@@ -62,6 +62,8 @@ type Type struct {
 	Source         string `json:"-"`
 	Line           int
 	Change         ChangeKind
+	// ImplementationMethods is derived by Go finalization only when explaining.
+	ImplementationMethods []ImplementationMethod `json:"-"`
 }
 
 func (t Type) QualifiedName() string {
@@ -85,6 +87,14 @@ type TypeReference struct {
 	Source   string `json:"-"`
 	Line     int
 	Inferred bool
+}
+
+// ImplementationMethod locates a method used by syntactic interface matching.
+type ImplementationMethod struct {
+	Interface string
+	Signature string
+	Source    string
+	Line      int
 }
 
 type Field struct {

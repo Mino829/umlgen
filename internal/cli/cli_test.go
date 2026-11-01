@@ -853,3 +853,103 @@ func TestInvalidLayoutPreservesExistingOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestExplainDiagnosticsRespectFocusAndRelationSelection(t *testing.T) {
+	dir := t.TempDir()
+	writeJava(t, dir, "Service.java", `package sample;
+class Target {}
+class Service {
+    Target hidden;
+    Missing missing;
+    Target load(Missing parameter) { return null; }
+}`)
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{"class", dir, "--focus", "Service", "--depth", "0",
+		"--relations", "field", "--quiet", "--explain", "-o", filepath.Join(dir, "diagram.puml")}, &stdout, &stderr)
+	if code != exitOK || err != nil {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	text := stdout.String()
+	for _, want := range []string{`[field, outside-diagram]: reference="Target", target=sample.Target`,
+		`[field, unresolved]: reference="Missing"`, "4 |     Target hidden;", "5 |     Missing missing;"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing declaration diagnostic %q:\n%s", want, text)
+		}
+	}
+	for _, absent := range []string{" -> ", "[parameter,", "[return,"} {
+		if strings.Contains(text, absent) {
+			t.Errorf("explained a non-selected relationship %q:\n%s", absent, text)
+		}
+	}
+}
+
+func TestExplainRetainsAnalysisFailuresWithPartialAndAllFailedInputs(t *testing.T) {
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "Broken.java")
+	writeJava(t, dir, "Broken.java", "package sample; class Broken {")
+	for _, partial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("partial=%v", partial), func(t *testing.T) {
+			if partial {
+				writeJava(t, dir, "Service.java", "package sample; class Service { Missing dependency; }")
+			}
+			output := filepath.Join(dir, "diagram.puml")
+			var stdout, stderr bytes.Buffer
+			code, err := Run([]string{"class", dir, "--quiet", "--explain", "-o", output}, &stdout, &stderr)
+			if partial {
+				if code != exitOK || err != nil {
+					t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+				}
+				if _, err := os.Stat(output); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(stdout.String(), `reference="Missing"`) {
+					t.Fatalf("partial unresolved evidence was lost:\n%s", stdout.String())
+				}
+			} else {
+				if code != exitParse || err == nil {
+					t.Fatalf("code=%d err=%v", code, err)
+				}
+				if _, err := os.Stat(output); !os.IsNotExist(err) {
+					t.Fatalf("all-failed analysis generated a diagram: %v", err)
+				}
+			}
+			if !strings.Contains(stdout.String(), broken+" (working tree):") ||
+				!strings.Contains(stdout.String(), "Analysis failures:") {
+				t.Fatalf("analysis failure absent from explanation:\n%s", stdout.String())
+			}
+		})
+	}
+}
+
+func TestDiffExplainUsesDeletedSourceSnapshot(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "umlgen@example.test")
+	runGit(t, root, "config", "user.name", "umlgen test")
+	writeJava(t, root, "Target.java", "package sample;\nclass Target {}\n")
+	writeJava(t, root, "Service.java", "package sample;\nclass Service {\n    Target original;\n}\n")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "base")
+	deleted := filepath.Join(root, "Service.java")
+	if err := os.Remove(deleted); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(previous)
+	var stdout, stderr bytes.Buffer
+	code, err := Run([]string{"diff", "HEAD", "--quiet", "--explain", "-o", filepath.Join(root, "diff.puml")}, &stdout, &stderr)
+	if code != exitOK || err != nil {
+		t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+	}
+	for _, want := range []string{"Git base", "3 |     Target original;", "sample.Service -> sample.Target [field"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("missing deleted-source evidence %q:\n%s", want, stdout.String())
+		}
+	}
+}

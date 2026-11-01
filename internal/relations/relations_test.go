@@ -205,7 +205,7 @@ class Service {
 			{Member: "load(Target, int)", Type: "Target", Source: path, Line: 5},
 		},
 	}
-	got := BuildWithEvidence(types)
+	got := Analyze(types, nil).Relations
 	if len(got) != len(want) {
 		t.Fatalf("relations = %#v", got)
 	}
@@ -218,9 +218,51 @@ class Service {
 			t.Fatalf("%s evidence = %#v, want %#v", relation.Kind, relation.Evidence, evidence)
 		}
 		for i := range evidence {
+			evidence[i].Language = "java"
+			evidence[i].OwnerKind = model.Class
 			if relation.Evidence[i] != evidence[i] {
 				t.Errorf("%s evidence %d = %#v, want %#v", relation.Kind, i, relation.Evidence[i], evidence[i])
 			}
+		}
+	}
+}
+
+func TestAnalyzeDistinguishesHiddenDeclarationsAndUnresolvedReferences(t *testing.T) {
+	types, err := java.ParseSource("Service.java", []byte(`package sample;
+class Target {}
+class Service {
+    Target hidden;
+    Missing missing;
+    java.util.Map<Missing, Missing> repeated;
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	analysis := Analyze(types[1:], types)
+	if len(analysis.Relations) != 0 {
+		t.Fatalf("hidden or unresolved targets gained edges: %#v", analysis.Relations)
+	}
+	want := map[string]ReferenceStatus{
+		"hidden/Target":          StatusOutsideDiagram,
+		"missing/Missing":        StatusUnresolved,
+		"repeated/java.util.Map": StatusUnresolved,
+		"repeated/Missing":       StatusUnresolved,
+	}
+	if len(analysis.Diagnostics) != len(want) {
+		t.Fatalf("diagnostics = %#v", analysis.Diagnostics)
+	}
+	for _, diagnostic := range analysis.Diagnostics {
+		key := diagnostic.Evidence.Member + "/" + diagnostic.Reference
+		status, ok := want[key]
+		if !ok || diagnostic.Status != status || diagnostic.From != "sample.Service" || diagnostic.Kind != Field {
+			t.Errorf("unexpected diagnostic: %#v", diagnostic)
+		}
+		if diagnostic.Status == StatusOutsideDiagram && diagnostic.Target != "sample.Target" {
+			t.Errorf("wrong known declaration: %#v", diagnostic)
+		}
+		if diagnostic.Evidence.Language != "java" || diagnostic.Evidence.OwnerKind != model.Class ||
+			diagnostic.Evidence.Source != "Service.java" || diagnostic.Evidence.Line < 4 {
+			t.Errorf("missing declaration provenance: %#v", diagnostic)
 		}
 	}
 }

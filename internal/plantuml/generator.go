@@ -158,21 +158,6 @@ func Generate(project model.Project, opts Options) string {
 	return b.String()
 }
 
-// Explain describes only the relationships selected for this diagram.
-func Explain(project model.Project, opts Options) string {
-	if !opts.ShowRelations {
-		return relations.Explain(nil)
-	}
-	all := relations.BuildWithEvidence(project.Types)
-	selected := all[:0]
-	for _, relation := range all {
-		if relationEnabled(relation.Kind, opts) {
-			selected = append(selected, relation)
-		}
-	}
-	return relations.Explain(selected)
-}
-
 func writeType(b *strings.Builder, t model.Type, alias, indent string, opts Options) {
 	declaration, stereotype := typeDeclaration(t)
 	fmt.Fprintf(b, "%s%s %q as %s%s%s {\n", indent, declaration, t.DisplayName(), alias, stereotype, changeColor(t.Change))
@@ -348,7 +333,7 @@ func aliasesFor(types []model.Type) map[string]string {
 func relationLines(types []model.Type, aliases map[string]string, opts Options) []string {
 	var result []string
 	for _, relation := range relations.Build(types) {
-		if !relationEnabled(relation.Kind, opts) {
+		if !opts.IncludesRelation(relation.Kind) {
 			continue
 		}
 		from, to := aliases[relation.From], aliases[relation.To]
@@ -375,7 +360,11 @@ func relationLines(types []model.Type, aliases map[string]string, opts Options) 
 	return result
 }
 
-func relationEnabled(kind relations.Kind, opts Options) bool {
+// IncludesRelation is the shared selection policy for diagram and explanations.
+func (opts Options) IncludesRelation(kind relations.Kind) bool {
+	if !opts.ShowRelations {
+		return false
+	}
 	switch kind {
 	case relations.Inheritance:
 		return opts.Inheritance

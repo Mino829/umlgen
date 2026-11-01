@@ -298,9 +298,20 @@ func moduleName(content string) string {
 }
 
 func Finalize(types []model.Type) []model.Type {
+	return finalize(types, false)
+}
+
+// FinalizeWithEvidence also records the declarations supporting syntactic
+// interface matches; it does not perform compiler-level verification.
+func FinalizeWithEvidence(types []model.Type) []model.Type {
+	return finalize(types, true)
+}
+
+func finalize(types []model.Type, withEvidence bool) []model.Type {
 	merged := make([]model.Type, 0, len(types))
 	indexes := map[string]int{}
 	for _, current := range types {
+		current.ImplementationMethods = nil
 		key := current.QualifiedName()
 		if index, ok := indexes[key]; ok {
 			mergeType(&merged[index], current)
@@ -309,7 +320,7 @@ func Finalize(types []model.Type) []model.Type {
 		indexes[key] = len(merged)
 		merged = append(merged, current)
 	}
-	inferImplementations(merged)
+	inferImplementations(merged, withEvidence)
 	SortTypes(merged)
 	return merged
 }
@@ -343,7 +354,7 @@ func mergeType(target *model.Type, source model.Type) {
 	}
 }
 
-func inferImplementations(types []model.Type) {
+func inferImplementations(types []model.Type, withEvidence bool) {
 	index := relations.NewIndex(types)
 	for typeIndex := range types {
 		candidate := &types[typeIndex]
@@ -371,10 +382,19 @@ func inferImplementations(types []model.Type) {
 			// In UML, a struct represents both T and *T
 			valueMethods := methodSetForType(*candidate, index, map[string]bool{}, false)
 			pointerMethods := methodSetForType(*candidate, index, map[string]bool{}, true)
-			if implements(valueMethods, required) || implements(pointerMethods, required) {
-				candidate.Implements = appendUnique(candidate.Implements, model.TypeReference{
-					Name: contract.QualifiedName(), Source: source, Line: line, Inferred: true,
-				})
+			matchedMethods := valueMethods
+			if !implements(valueMethods, required) {
+				if !implements(pointerMethods, required) {
+					continue
+				}
+				matchedMethods = pointerMethods
+			}
+			candidate.Implements = appendUnique(candidate.Implements, model.TypeReference{
+				Name: contract.QualifiedName(), Source: source, Line: line, Inferred: true,
+			})
+			if withEvidence {
+				candidate.ImplementationMethods = appendImplementationMethods(candidate.ImplementationMethods,
+					contract.QualifiedName(), matchedMethods, required)
 			}
 		}
 	}
@@ -418,6 +438,21 @@ func implements(methods, required []model.Method) bool {
 		}
 	}
 	return true
+}
+
+func appendImplementationMethods(evidence []model.ImplementationMethod, contract string, methods, required []model.Method) []model.ImplementationMethod {
+	available := make(map[string]int, len(methods))
+	for index, method := range methods {
+		available[methodSignature(method)] = index
+	}
+	for _, requirement := range required {
+		signature := methodSignature(requirement)
+		method := &methods[available[signature]]
+		evidence = append(evidence, model.ImplementationMethod{
+			Interface: contract, Signature: signature, Source: method.Source, Line: method.Line,
+		})
+	}
+	return evidence
 }
 
 func methodSignature(method model.Method) string {

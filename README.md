@@ -62,6 +62,7 @@ umlgen class ./src --include com.example.service
 - **[PR差分図の使い方](docs/pr-diff.md)** - Pull Requestでの活用法
 - **[GitHub Actions 連携](docs/github-actions.md)** - CI/CDでの自動生成
 - **[パフォーマンス](docs/performance.md)** - ベンチマーク結果
+- **[開発方針と説明機能の完了条件](docs/development-direction.md)** - 学習者の理解を最優先にした拡張順序
 
 ## 💡 主な機能
 
@@ -315,7 +316,7 @@ umlgen class ./src \
 
 ### 関係線の根拠を確認する
 
-`--explain`は、生成した関係線の種類、解決先の完全修飾名、根拠となった型・メンバー、ソースファイルと1始まりの宣言行番号を標準出力へ表示します。Java／Goに対応し、通常の`.puml`や画像の内容は変更しません。
+`--explain`は、生成した関係線の種類・意味、解決先、根拠となった型・メンバー、ソースファイルと1始まりの宣言行番号を標準出力へ表示します。開発版では宣言のソース抜粋と解析状況も表示します。Java／Goに対応し、通常の`.puml`や画像の内容は変更しません。
 
 ```bash
 # 図を生成しながら、関係線の理由も読む
@@ -334,9 +335,32 @@ umlgen diff main...HEAD --explain
 
 たとえば`UserService`に`UserRepository`型の`repository`フィールドがある場合、`field`関係の説明にフィールド名・宣言された型・そのファイルと行番号が表示されます。オーバーロードなどで1本の関係線に複数の根拠がある場合は、すべての宣言位置を列挙します。
 
-説明対象は`--focus`、`--direction`、`--relations`などで絞った後の図に合わせます。`--no-relations`や差分プレースホルダでは、説明する関係線もありません。`--hide-fields`や`--hide-methods`はメンバー表示のみの設定なので、図に残る関係線の根拠は説明されます。`--quiet`でも、明示的に要求した説明は出力します。
+説明対象は`--focus`、`--direction`、`--relations`などで絞った後の図に合わせます。`--no-relations`や差分プレースホルダでは関係線と参照の診断を表示せず、解析範囲と解析失敗だけを表示します。`--hide-fields`や`--hide-methods`はメンバー表示のみの設定なので、図に残る関係線の根拠は説明されます。`--quiet`でも、明示的に要求した説明は出力します。
 
-行番号は宣言の開始位置です。引数は各引数宣言、戻り値はメソッド宣言を指します。Goの暗黙実装は`inferred implementation`と区別して型宣言を示し、型宣言が解析対象にない場合はメソッド宣言を示します。削除ファイルの説明は、差分の比較元に保存されたコードの行番号です。出力形式は人が読むためのテキストで、JSON形式は提供していません。
+行番号は宣言の開始位置です。引数は各引数宣言、戻り値はメソッド宣言を指します。抜粋はその位置から最大3行で、宣言全体とは限りません。解析に渡した同じソースを使い、作業ツリーは`working tree`、削除ファイルのGit比較元は`Git base`と表示します。表示時にファイルを読み直さず、本文を解析キャッシュへ保存しません。
+
+Goの埋め込みはJavaのクラス継承と区別します。暗黙のインターフェース実装では、候補の型宣言に加え、一致した各メソッドのシグネチャと宣言位置・抜粋を示します。別ファイルや埋め込み由来のメソッドも対象です。ただし判定は構文ベースで、Goコンパイラーによる検証済みとは表示しません。
+
+```bash
+# 学習用fixtureで宣言と図の根拠を読み比べる
+go run ./cmd/umlgen class testdata/java/compatibility/project --explain --quiet
+
+# Goの暗黙実装を支えるメソッドを読む
+go run ./cmd/umlgen class testdata/go/compatibility \
+  --relations implementation --explain --quiet
+
+# 型だけに絞ったとき、図の外の既知の型と未解決参照を区別する
+go run ./cmd/umlgen class ./src --focus UserService --depth 0 --explain --quiet
+```
+
+解析状況は関係線とは別に読みます。
+
+- `Analysis scope`: 対象パス、選択ファイル数、言語、include／exclude条件。対象外・外部依存のソースを網羅的に読んだとは主張しません。
+- `Analysis failures`: 実際に読み込み・解析に失敗したファイルとエラー。一部失敗時も表示し、全件解析失敗時は従来どおり終了コード3のまま状況を読めます。
+- `Unresolved references`: 解析した宣言から解決できなかった参照。型が存在しない、依存がない、外部ライブラリだから、といった原因を推測して断定しません。
+- `Known references outside diagram`: 解析済みですが、パッケージ条件やfocusで図の外になった既知の型。未解決参照とは別です。
+
+出力形式は人が読むためのテキストです。公開JSON APIや機械向けの安定した出力スキーマはまだ提供していません。
 
 ## Git差分からクラス図を生成
 

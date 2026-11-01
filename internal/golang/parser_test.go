@@ -2,6 +2,7 @@ package golang
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
@@ -419,5 +420,92 @@ func TestInferredImplementationUsesMethodLocationWithoutDeclaration(t *testing.T
 				t.Fatalf("synthetic declaration line = %d, want 0", candidate.Line)
 			}
 		})
+	}
+}
+
+func TestFinalizeWithEvidenceUsesMatchedMethodDeclarations(t *testing.T) {
+	var parsed []model.Type
+	for _, file := range []struct {
+		path   string
+		source string
+	}{
+		{
+			path: "contract.go",
+			source: "package sample\n" +
+				"type Contract interface {\n" +
+				" Find(id int) string\n" +
+				" Save(value string) error\n" +
+				"}\n",
+		},
+		{
+			path: "candidate_methods.go",
+			source: "package sample\n" +
+				"//line redirected.go:900\n" +
+				"func (c Candidate) Save(value string) error { return nil }\n" +
+				"func (c Candidate) Unused() {}\n",
+		},
+		{
+			path: "embedded_methods.go",
+			source: "package sample\n" +
+				"//line redirected.go:800\n" +
+				"func (e *Embedded) Find(id int) string { return \"\" }\n",
+		},
+		{
+			path: "candidate.go",
+			source: "package sample\n" +
+				"type Embedded struct{}\n" +
+				"type Candidate struct { Embedded }\n",
+		},
+	} {
+		types, err := ParseSource(file.path, []byte(file.source))
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed = append(parsed, types...)
+	}
+
+	ordinary := Finalize(parsed)
+	explained := FinalizeWithEvidence(parsed)
+	withoutEvidence := append([]model.Type(nil), explained...)
+	var candidate, contract model.Type
+	for index, typ := range explained {
+		withoutEvidence[index].ImplementationMethods = nil
+		if typ.Name == "Candidate" {
+			candidate = typ
+		}
+		if typ.Name == "Contract" {
+			contract = typ
+		}
+	}
+	if !reflect.DeepEqual(withoutEvidence, ordinary) {
+		t.Fatalf("evidence finalization changed ordinary model:\n got %#v\nwant %#v", withoutEvidence, ordinary)
+	}
+	wantReference := model.TypeReference{
+		Name: contract.QualifiedName(), Source: "candidate.go", Line: 3, Inferred: true,
+	}
+	if !reflect.DeepEqual(candidate.Implements, []model.TypeReference{wantReference}) {
+		t.Fatalf("Candidate implementations = %#v, want %#v", candidate.Implements, wantReference)
+	}
+	wantMethods := []model.ImplementationMethod{
+		{Interface: contract.QualifiedName(), Signature: "Find(int)string", Source: "embedded_methods.go", Line: 3},
+		{Interface: contract.QualifiedName(), Signature: "Save(string)error", Source: "candidate_methods.go", Line: 3},
+	}
+	if !reflect.DeepEqual(candidate.ImplementationMethods, wantMethods) {
+		t.Fatalf("Candidate method evidence = %#v, want %#v", candidate.ImplementationMethods, wantMethods)
+	}
+
+	// Derived evidence must be rebuilt, including after an explanation result is
+	// reused as input, and must not survive a return to ordinary finalization.
+	stale := append([]model.Type(nil), explained...)
+	for index := range stale {
+		stale[index].ImplementationMethods = []model.ImplementationMethod{
+			{Interface: "stale.Interface", Signature: "Old()", Source: "old.go", Line: 99},
+		}
+	}
+	if rebuilt := FinalizeWithEvidence(stale); !reflect.DeepEqual(rebuilt, explained) {
+		t.Fatalf("rebuilt evidence = %#v, want %#v", rebuilt, explained)
+	}
+	if cleared := Finalize(stale); !reflect.DeepEqual(cleared, ordinary) {
+		t.Fatalf("ordinary finalization retained derived evidence: %#v", cleared)
 	}
 }
