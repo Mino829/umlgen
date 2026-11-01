@@ -41,7 +41,7 @@ func TestParseAndFinalizeCompatibilityFixture(t *testing.T) {
 	}
 
 	repository := byName["example.com/shop/service.Repository"]
-	if repository.Kind != model.Interface || len(repository.Extends) != 1 || repository.Extends[0] != "Finder" {
+	if repository.Kind != model.Interface || len(repository.Extends) != 1 || repository.Extends[0].Name != "Finder" {
 		t.Fatalf("repository = %#v", repository)
 	}
 	memory := byName["example.com/shop/service.MemoryRepository"]
@@ -49,7 +49,7 @@ func TestParseAndFinalizeCompatibilityFixture(t *testing.T) {
 		t.Fatalf("memory repository implementations = %#v", memory.Implements)
 	}
 	service := byName["example.com/shop/service.UserService"]
-	if len(service.Extends) != 1 || service.Extends[0] != "BaseService" {
+	if len(service.Extends) != 1 || service.Extends[0].Name != "BaseService" {
 		t.Fatalf("service embedding = %#v", service.Extends)
 	}
 	if !contains(service.Implements, "example.com/shop/service.Repository") {
@@ -57,9 +57,9 @@ func TestParseAndFinalizeCompatibilityFixture(t *testing.T) {
 	}
 }
 
-func contains(values []string, want string) bool {
+func contains(values []model.TypeReference, want string) bool {
 	for _, value := range values {
-		if value == want {
+		if value.Name == want {
 			return true
 		}
 	}
@@ -74,17 +74,60 @@ func TestParseSourceReportsSyntaxError(t *testing.T) {
 }
 
 func TestMethodsFromSeparateFilesAreMerged(t *testing.T) {
-	declaration, err := ParseSource("user.go", []byte("package sample\ntype User struct{}"))
+	declaration, err := ParseSource("user.go", []byte("package sample\n\ntype User struct {\nProfile *Profile\n}"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	methods, err := ParseSource("user_methods.go", []byte("package sample\nfunc (u *User) Name() string { return \"\" }"))
+	methods, err := ParseSource("user_methods.go", []byte("package sample\n//line redirected.go:800\nfunc (u *User) Name(\nprofile *Profile,\n) *Profile { return profile }"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	types := Finalize(append(declaration, methods...))
-	if len(types) != 1 || len(types[0].Methods) != 1 || types[0].Methods[0].Name != "Name" {
-		t.Fatalf("types = %#v", types)
+	otherMethods, err := ParseSource("user_save.go", []byte("package sample\nfunc (u *User) Save() {}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if methods[0].Line != 0 || otherMethods[0].Line != 0 {
+		t.Fatal("method-only synthetic types must not claim a declaration line")
+	}
+	for _, test := range []struct {
+		name  string
+		parts [][]model.Type
+	}{
+		{name: "declaration first", parts: [][]model.Type{declaration, methods, otherMethods}},
+		{name: "methods first", parts: [][]model.Type{methods, otherMethods, declaration}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var parsed []model.Type
+			for _, part := range test.parts {
+				parsed = append(parsed, part...)
+			}
+			types := Finalize(parsed)
+			if len(types) != 1 || len(types[0].Methods) != 2 {
+				t.Fatalf("types = %#v", types)
+			}
+			user := types[0]
+			if user.Source != "user.go" || user.Line != 3 {
+				t.Fatalf("declaration = %s:%d, want user.go:3", user.Source, user.Line)
+			}
+			if len(user.Fields) != 1 || user.Fields[0].Source != "user.go" || user.Fields[0].Line != 4 {
+				t.Fatalf("fields = %#v", user.Fields)
+			}
+			byName := map[string]model.Method{}
+			for _, method := range user.Methods {
+				byName[method.Name] = method
+			}
+			name := byName["Name"]
+			if name.Source != "user_methods.go" || name.Line != 3 {
+				t.Fatalf("Name declaration = %s:%d, want user_methods.go:3", name.Source, name.Line)
+			}
+			if len(name.Parameters) != 1 || name.Parameters[0].Line != 4 {
+				t.Fatalf("Name parameters = %#v", name.Parameters)
+			}
+			save := byName["Save"]
+			if save.Source != "user_save.go" || save.Line != 2 {
+				t.Fatalf("Save declaration = %s:%d, want user_save.go:2", save.Source, save.Line)
+			}
+		})
 	}
 }
 
@@ -96,7 +139,7 @@ func TestEmbeddedInterfaceMethodsAreRequired(t *testing.T) {
 		},
 		{
 			Package: "sample", Name: "Repository", Kind: model.Interface,
-			Extends: []string{"Finder"},
+			Extends: []model.TypeReference{{Name: "Finder"}},
 			Methods: []model.Method{{Name: "Save", ReturnType: "error"}},
 		},
 		{
@@ -239,5 +282,142 @@ func (m *MyStruct) PointerMethod() {}
 	}
 	if !pointerMethod.PointerReceiver {
 		t.Fatal("PointerMethod should be a pointer receiver")
+	}
+}
+
+func TestPhysicalDeclarationAndReferenceLocations(t *testing.T) {
+	const path = "locations.go"
+	source := []byte(`package sample
+//line redirected.go:900
+type Base interface {
+	Find(
+		item *Item,
+	) *Item
+}
+type Contract interface {
+	Base
+}
+type Embedded struct{}
+type Candidate struct {
+	Embedded
+	*Other
+	Item *Item
+}
+func (c Candidate) Find(
+	item *Item,
+) *Item { return item }
+type Alias *Item
+type Unnamed interface {
+	Take(
+		*Item,
+	)
+}
+`)
+	parsed, err := ParseSource(path, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]model.Type{}
+	for _, typ := range Finalize(parsed) {
+		byName[typ.Name] = typ
+	}
+	for name, line := range map[string]int{
+		"Base": 3, "Contract": 8, "Embedded": 11, "Candidate": 12, "Alias": 20, "Unnamed": 21,
+	} {
+		typ := byName[name]
+		if typ.Source != path || typ.Line != line {
+			t.Errorf("%s declaration = %s:%d, want %s:%d", name, typ.Source, typ.Line, path, line)
+		}
+	}
+	base := byName["Base"]
+	if len(base.Methods) != 1 || base.Methods[0].Source != path || base.Methods[0].Line != 4 {
+		t.Fatalf("Base methods = %#v", base.Methods)
+	}
+	if len(base.Methods[0].Parameters) != 1 || base.Methods[0].Parameters[0].Line != 5 {
+		t.Fatalf("Base.Find parameters = %#v", base.Methods[0].Parameters)
+	}
+	contract := byName["Contract"]
+	if len(contract.Extends) != 1 || contract.Extends[0] != (model.TypeReference{Name: "Base", Source: path, Line: 9}) {
+		t.Fatalf("Contract parents = %#v", contract.Extends)
+	}
+	candidate := byName["Candidate"]
+	if len(candidate.Extends) != 2 ||
+		candidate.Extends[0] != (model.TypeReference{Name: "Embedded", Source: path, Line: 13}) ||
+		candidate.Extends[1] != (model.TypeReference{Name: "*Other", Source: path, Line: 14}) {
+		t.Fatalf("Candidate parents = %#v", candidate.Extends)
+	}
+	if len(candidate.Fields) != 1 || candidate.Fields[0].Source != path || candidate.Fields[0].Line != 15 {
+		t.Fatalf("Candidate fields = %#v", candidate.Fields)
+	}
+	if len(candidate.Methods) != 1 || candidate.Methods[0].Source != path || candidate.Methods[0].Line != 17 {
+		t.Fatalf("Candidate methods = %#v", candidate.Methods)
+	}
+	if len(candidate.Methods[0].Parameters) != 1 || candidate.Methods[0].Parameters[0].Line != 18 {
+		t.Fatalf("Candidate.Find parameters = %#v", candidate.Methods[0].Parameters)
+	}
+	if len(candidate.Implements) != 2 ||
+		candidate.Implements[0] != (model.TypeReference{Name: base.QualifiedName(), Source: path, Line: 12, Inferred: true}) ||
+		candidate.Implements[1] != (model.TypeReference{Name: contract.QualifiedName(), Source: path, Line: 12, Inferred: true}) {
+		t.Fatalf("Candidate implementations = %#v", candidate.Implements)
+	}
+	alias := byName["Alias"]
+	if len(alias.Fields) != 1 || alias.Fields[0].Source != path || alias.Fields[0].Line != 20 {
+		t.Fatalf("Alias fields = %#v", alias.Fields)
+	}
+	unnamed := byName["Unnamed"]
+	if len(unnamed.Methods) != 1 || unnamed.Methods[0].Source != path || unnamed.Methods[0].Line != 22 {
+		t.Fatalf("Unnamed methods = %#v", unnamed.Methods)
+	}
+	if len(unnamed.Methods[0].Parameters) != 1 || unnamed.Methods[0].Parameters[0].Line != 23 {
+		t.Fatalf("Unnamed.Take parameters = %#v", unnamed.Methods[0].Parameters)
+	}
+}
+
+func TestInferredImplementationUsesMethodLocationWithoutDeclaration(t *testing.T) {
+	contracts, err := ParseSource("contract.go", []byte("package sample\ntype Contract interface { Find() }"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	methods, err := ParseSource("candidate_methods.go", []byte("package sample\n//line redirected.go:500\nfunc (c Candidate) Find() {}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declarations, err := ParseSource("candidate.go", []byte("package sample\n\ntype Candidate struct{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name         string
+		declarations []model.Type
+		source       string
+		line         int
+	}{
+		{name: "method only", source: "candidate_methods.go", line: 3},
+		{name: "real declaration", declarations: declarations, source: "candidate.go", line: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parsed := append([]model.Type(nil), methods...)
+			parsed = append(parsed, contracts...)
+			parsed = append(parsed, test.declarations...)
+			types := Finalize(parsed)
+			var candidate, contract model.Type
+			for _, typ := range types {
+				if typ.Name == "Candidate" {
+					candidate = typ
+				}
+				if typ.Name == "Contract" {
+					contract = typ
+				}
+			}
+			want := model.TypeReference{
+				Name: contract.QualifiedName(), Source: test.source, Line: test.line, Inferred: true,
+			}
+			if len(candidate.Implements) != 1 || candidate.Implements[0] != want {
+				t.Fatalf("Candidate implementations = %#v, want %#v", candidate.Implements, want)
+			}
+			if test.declarations == nil && candidate.Line != 0 {
+				t.Fatalf("synthetic declaration line = %d, want 0", candidate.Line)
+			}
+		})
 	}
 }

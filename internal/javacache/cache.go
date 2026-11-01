@@ -15,7 +15,7 @@ import (
 
 const (
 	cacheDirectoryEnv = "UMLGEN_CACHE_DIR"
-	schemaVersion     = "java-tree-sitter-v1"
+	schemaVersion     = "java-tree-sitter-v2"
 	markerFile        = ".umlgen-cache"
 	markerContent     = "umlgen cache\n"
 )
@@ -149,17 +149,28 @@ func (c *Cache) load(path, sourcePath string) ([]model.Type, error) {
 		return nil, fmt.Errorf("discard invalid cache entry: %w", err)
 	}
 	for i := range cached.Types {
-		cached.Types[i].Source = sourcePath
+		t := &cached.Types[i]
+		t.Source = sourcePath
+		for j := range t.Fields {
+			t.Fields[j].Source = sourcePath
+		}
+		for j := range t.Methods {
+			t.Methods[j].Source = sourcePath
+		}
+		for j := range t.Extends {
+			t.Extends[j].Source = sourcePath
+		}
+		for j := range t.Implements {
+			t.Implements[j].Source = sourcePath
+		}
 	}
 	return cached.Types, nil
 }
 
 func (c *Cache) store(path string, types []model.Type) error {
-	cachedTypes := append([]model.Type(nil), types...)
-	for i := range cachedTypes {
-		cachedTypes[i].Source = ""
-	}
-	payload, err := json.Marshal(entry{Types: cachedTypes})
+	// Source paths are transient (json:"-"); the same content may be parsed
+	// from another file, so load rebinds every declaration to the current path.
+	payload, err := json.Marshal(entry{Types: types})
 	if err != nil {
 		return fmt.Errorf("encode cache entry: %w", err)
 	}

@@ -57,9 +57,10 @@ type Type struct {
 	EnumValues     []string
 	Fields         []Field
 	Methods        []Method
-	Extends        []string
-	Implements     []string
-	Source         string
+	Extends        []TypeReference
+	Implements     []TypeReference
+	Source         string `json:"-"`
+	Line           int
 	Change         ChangeKind
 }
 
@@ -78,11 +79,21 @@ func (t Type) DisplayName() string {
 	return strings.Join(parts, ".") + t.TypeParameters
 }
 
+// TypeReference locates an explicit parent or an inferred Go implementation.
+type TypeReference struct {
+	Name     string
+	Source   string `json:"-"`
+	Line     int
+	Inferred bool
+}
+
 type Field struct {
 	Name       string
 	Type       string
 	Visibility Visibility
 	Static     bool
+	Source     string `json:"-"`
+	Line       int
 }
 
 type Method struct {
@@ -94,9 +105,12 @@ type Method struct {
 	Static          bool
 	Abstract        bool
 	PointerReceiver bool
+	Source          string `json:"-"`
+	Line            int
 }
 
 type Parameter struct {
 	Name string
 	Type string
+	Line int
 }

@@ -201,6 +201,7 @@ type classOptions struct {
 	hideFields, hideMethods, hidePrivate bool
 	noRelations, showRelationLabels      bool
 	noCache                              bool
+	explain                              bool
 	rendererType                         string
 	serverURL                            string
 	renderTimeout                        time.Duration
@@ -257,6 +258,7 @@ func runClassMode(
 	fs.BoolVar(&o.noRelations, "no-relations", false, "")
 	fs.BoolVar(&o.showRelationLabels, "show-relation-labels", false, "")
 	fs.BoolVar(&o.noCache, "no-cache", false, "")
+	fs.BoolVar(&o.explain, "explain", false, "")
 	fs.StringVar(&o.title, "title", "", "")
 	fs.StringVar(&o.rendererType, "renderer", "", "")
 	fs.StringVar(&o.serverURL, "server-url", "", "")
@@ -271,11 +273,11 @@ func runClassMode(
 		return exitArgs, normalizeErr
 	}
 	if err := fs.Parse(normalized); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printClassHelp(stdout)
+			return exitOK, nil
+		}
 		return exitArgs, cleanFlagError(err)
-	}
-	if has(args, "-h") || has(args, "--help") {
-		printClassHelp(stdout)
-		return exitOK, nil
 	}
 	if o.verbose && o.quiet {
 		return exitArgs, errors.New("--verbose and --quiet cannot be used together")
@@ -578,19 +580,20 @@ func runClassMode(
 	if filepath.Ext(pumlPath) == "" {
 		pumlPath += ".puml"
 	}
+	opts := plantuml.Options{
+		Title: o.title, ShowFields: cfg.Members.Fields, ShowMethods: cfg.Members.Methods,
+		ShowPrivate: cfg.Visibility.Private, ShowPublic: cfg.Visibility.Public,
+		ShowProtected: cfg.Visibility.Protected, ShowPackage: cfg.Visibility.PackagePrivate,
+		ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
+		Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
+		ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
+		ShowRelationLabels: o.showRelationLabels,
+	}
 	var content string
 	if noChanges {
 		content = placeholderDiagram(o.title)
 	} else {
-		content = plantuml.Generate(model.Project{Types: types}, plantuml.Options{
-			Title: o.title, ShowFields: cfg.Members.Fields, ShowMethods: cfg.Members.Methods,
-			ShowPrivate: cfg.Visibility.Private, ShowPublic: cfg.Visibility.Public,
-			ShowProtected: cfg.Visibility.Protected, ShowPackage: cfg.Visibility.PackagePrivate,
-			ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
-			Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
-			ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
-			ShowRelationLabels: o.showRelationLabels,
-		})
+		content = plantuml.Generate(model.Project{Types: types}, opts)
 	}
 	if err := os.MkdirAll(filepath.Dir(pumlPath), 0o755); err != nil {
 		return exitOutput, fmt.Errorf("failed to create output directory: %s", filepath.Dir(pumlPath))
@@ -609,6 +612,13 @@ func runClassMode(
 		if warnings > 0 {
 			fmt.Fprintf(stdout, "%d warning(s)\n", warnings)
 		}
+	}
+	if o.explain {
+		explainedTypes := types
+		if noChanges {
+			explainedTypes = nil
+		}
+		fmt.Fprint(stdout, plantuml.Explain(model.Project{Types: explainedTypes}, opts))
 	}
 	if cfg.Output.Format == "svg" || cfg.Output.Format == "png" {
 		renderCfg := renderer.Config{
@@ -802,7 +812,7 @@ Examples:
   umlgen diff main...HEAD --depth 2 --show-relation-labels
 
 Changed types are colored green (added), yellow (modified), or red (deleted).
-Class command flags such as --depth, --direction, --output, and --format are supported.
+Class command flags such as --depth, --direction, --output, --format, and --explain are supported.
 `)
 }
 
@@ -828,6 +838,7 @@ Flags:
                             label field, parameter, and return relations
       --no-relations        hide relationships
       --no-cache            parse source without reading or writing the cache
+      --explain             explain displayed relationships with source file and line
   -o, --output string       output file path
       --renderer string     PlantUML renderer: auto, local, jar, or server
       --render-timeout duration  rendering timeout (default 30s)
