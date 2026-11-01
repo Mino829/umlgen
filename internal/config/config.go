@@ -37,6 +37,11 @@ type Config struct {
 		ParameterDependency bool `yaml:"parameter_dependency"`
 		ReturnDependency    bool `yaml:"return_dependency"`
 	} `yaml:"relations"`
+	Layout struct {
+		PackageGrouping string            `yaml:"package_grouping"`
+		Direction       string            `yaml:"direction"`
+		SkinParams      map[string]string `yaml:"skinparams"`
+	} `yaml:"layout"`
 	Renderer struct {
 		Type      string        `yaml:"type"`
 		ServerURL string        `yaml:"server_url"`
@@ -60,6 +65,8 @@ func Defaults() Config {
 	c.Relations.FieldDependency = true
 	c.Relations.ParameterDependency = true
 	c.Relations.ReturnDependency = true
+	c.Layout.PackageGrouping = "flat"
+	c.Layout.Direction = "top-to-bottom"
 	c.Renderer.Type = "auto"
 	c.Renderer.Timeout = 30 * time.Second
 	return c
@@ -136,6 +143,11 @@ relations:
   field_dependency: true
   parameter_dependency: true
   return_dependency: true
+
+layout:
+  package_grouping: flat
+  direction: top-to-bottom
+  skinparams: {}
 
 renderer:
   type: auto

@@ -202,6 +202,8 @@ type classOptions struct {
 	noRelations, showRelationLabels      bool
 	noCache                              bool
 	explain                              bool
+	packageGrouping, layoutDirection     string
+	skinParams                           stringList
 	rendererType                         string
 	serverURL                            string
 	renderTimeout                        time.Duration
@@ -259,6 +261,9 @@ func runClassMode(
 	fs.BoolVar(&o.showRelationLabels, "show-relation-labels", false, "")
 	fs.BoolVar(&o.noCache, "no-cache", false, "")
 	fs.BoolVar(&o.explain, "explain", false, "")
+	fs.StringVar(&o.packageGrouping, "package-grouping", "", "")
+	fs.StringVar(&o.layoutDirection, "layout-direction", "", "")
+	fs.Var(&o.skinParams, "skinparam", "")
 	fs.StringVar(&o.title, "title", "", "")
 	fs.StringVar(&o.rendererType, "renderer", "", "")
 	fs.StringVar(&o.serverURL, "server-url", "", "")
@@ -343,6 +348,22 @@ func runClassMode(
 	if o.formatSet {
 		cfg.Output.Format = strings.ToLower(o.format)
 	}
+	if o.packageGrouping != "" {
+		cfg.Layout.PackageGrouping = o.packageGrouping
+	}
+	if o.layoutDirection != "" {
+		cfg.Layout.Direction = o.layoutDirection
+	}
+	for _, setting := range o.skinParams {
+		key, value, ok := strings.Cut(setting, "=")
+		if !ok || strings.ContainsAny(setting, "\r\n") {
+			return exitArgs, errors.New("--skinparam requires a single-line key=value")
+		}
+		if cfg.Layout.SkinParams == nil {
+			cfg.Layout.SkinParams = make(map[string]string)
+		}
+		cfg.Layout.SkinParams[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
 	if o.rendererTypeSet {
 		cfg.Renderer.Type = strings.ToLower(o.rendererType)
 	}
@@ -377,6 +398,20 @@ func runClassMode(
 	}
 	if cfg.Output.Format != "plantuml" && cfg.Output.Format != "svg" && cfg.Output.Format != "png" {
 		return exitArgs, fmt.Errorf("unsupported format: %s\nSupported formats: plantuml, svg, png", cfg.Output.Format)
+	}
+	opts := plantuml.Options{
+		Title: o.title, ShowFields: cfg.Members.Fields, ShowMethods: cfg.Members.Methods,
+		ShowPrivate: cfg.Visibility.Private, ShowPublic: cfg.Visibility.Public,
+		ShowProtected: cfg.Visibility.Protected, ShowPackage: cfg.Visibility.PackagePrivate,
+		ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
+		Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
+		ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
+		ShowRelationLabels: o.showRelationLabels,
+		PackageGrouping:    cfg.Layout.PackageGrouping, LayoutDirection: cfg.Layout.Direction,
+		SkinParams: cfg.Layout.SkinParams,
+	}
+	if err := opts.ValidateLayout(); err != nil {
+		return exitArgs, err
 	}
 	targets := cfg.Source
 	if fs.NArg() == 1 {
@@ -450,6 +485,9 @@ func runClassMode(
 		cacheSettings.Renderer.Type = ""
 		cacheSettings.Renderer.ServerURL = ""
 		cacheSettings.Renderer.Timeout = 0
+		cacheSettings.Layout.PackageGrouping = ""
+		cacheSettings.Layout.Direction = ""
+		cacheSettings.Layout.SkinParams = nil
 		parseCache, err = javacache.OpenFor(
 			Version, sourceParser.Name(), sourceParser.CacheSchema(), cacheSettings, sourceParser.ParseSource,
 		)
@@ -580,18 +618,9 @@ func runClassMode(
 	if filepath.Ext(pumlPath) == "" {
 		pumlPath += ".puml"
 	}
-	opts := plantuml.Options{
-		Title: o.title, ShowFields: cfg.Members.Fields, ShowMethods: cfg.Members.Methods,
-		ShowPrivate: cfg.Visibility.Private, ShowPublic: cfg.Visibility.Public,
-		ShowProtected: cfg.Visibility.Protected, ShowPackage: cfg.Visibility.PackagePrivate,
-		ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
-		Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
-		ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
-		ShowRelationLabels: o.showRelationLabels,
-	}
 	var content string
 	if noChanges {
-		content = placeholderDiagram(o.title)
+		content = plantuml.Placeholder(o.title, opts)
 	} else {
 		content = plantuml.Generate(model.Project{Types: types}, opts)
 	}
@@ -641,14 +670,6 @@ func runClassMode(
 	return exitOK, nil
 }
 
-func placeholderDiagram(title string) string {
-	if title == "" {
-		title = "Pull request class diagram"
-	}
-	title = strings.ReplaceAll(strings.ReplaceAll(title, "\n", " "), "\r", " ")
-	return fmt.Sprintf("@startuml\ntitle %s\nnote \"No displayable changed types in the selected range\" as NoChanges\n@enduml\n", title)
-}
-
 func normalizeClassArgs(args []string) ([]string, error) {
 	valueFlags := map[string]bool{
 		"--output": true, "-o": true, "--format": true, "-f": true,
@@ -656,6 +677,7 @@ func normalizeClassArgs(args []string) ([]string, error) {
 		"--focus": true, "--depth": true, "--direction": true, "--relations": true,
 		"--language": true,
 		"--renderer": true, "--server-url": true, "--render-timeout": true,
+		"--package-grouping": true, "--layout-direction": true, "--skinparam": true,
 	}
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
@@ -833,6 +855,9 @@ Flags:
       --focus string        include a type and its related types
       --depth int           relationship distance from --focus (default 1)
       --direction string    relation direction: in, out, or both (default both)
+      --package-grouping string  package wrappers: flat, hierarchical, or none (default flat)
+      --layout-direction string  top-to-bottom or left-to-right (default top-to-bottom)
+      --skinparam key=value  safe PlantUML styling (repeatable)
       --relations string    relation kinds to show (comma-separated)
       --show-relation-labels
                             label field, parameter, and return relations

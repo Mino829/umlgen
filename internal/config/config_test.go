@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -121,5 +122,84 @@ func TestLoadNormalizesRendererType(t *testing.T) {
 	}
 	if cfg.Renderer.Type != "server" {
 		t.Fatalf("renderer type = %q", cfg.Renderer.Type)
+	}
+}
+
+func TestLoadPartialLayout(t *testing.T) {
+	tests := []struct {
+		name            string
+		input           string
+		packageGrouping string
+		direction       string
+		skinParams      map[string]string
+	}{
+		{
+			name:            "grouping",
+			input:           "layout:\n  package_grouping: hierarchical\n",
+			packageGrouping: "hierarchical",
+			direction:       "top-to-bottom",
+		},
+		{
+			name:            "direction",
+			input:           "layout:\n  direction: left-to-right\n",
+			packageGrouping: "flat",
+			direction:       "left-to-right",
+		},
+		{
+			name: "skinparams",
+			input: `layout:
+  skinparams:
+    linetype: ortho
+    shadowing: false
+    classAttributeIconSize: 0
+`,
+			packageGrouping: "flat",
+			direction:       "top-to-bottom",
+			skinParams: map[string]string{
+				"linetype":               "ortho",
+				"shadowing":              "false",
+				"classAttributeIconSize": "0",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), ".umlgen.yaml")
+			if err := os.WriteFile(path, []byte(tt.input), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, _, err := Load(path, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Layout.PackageGrouping != tt.packageGrouping || cfg.Layout.Direction != tt.direction {
+				t.Fatalf("layout = %#v", cfg.Layout)
+			}
+			if !reflect.DeepEqual(cfg.Layout.SkinParams, tt.skinParams) {
+				t.Fatalf("skinparams = %#v, want %#v", cfg.Layout.SkinParams, tt.skinParams)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsLayoutYAMLTypeErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"layout scalar", "layout: flat\n"},
+		{"skinparam mapping", "layout:\n  skinparams:\n    linetype: {value: ortho}\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), ".umlgen.yaml")
+			if err := os.WriteFile(path, []byte(tt.input), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := Load(path, true)
+			if err == nil {
+				t.Fatal("expected YAML type error")
+			}
+		})
 	}
 }
