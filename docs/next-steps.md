@@ -30,7 +30,11 @@
 
 既存の`--explain`を拡張する学習者向けの関係説明を開発ブランチで実装済み（未マージ）。関係の意味、解析時のソース抜粋、Goの暗黙実装を支えるメソッド、範囲・失敗・未解決・既知の非表示参照を扱う。実CLIとテストの確認結果は[`development-direction.md`](development-direction.md)に記録。レビュー後は関係線の変更と根拠の変化を扱うチーム向け機能を検討し、watch／導入改善はその後に進める。リリースの実施は別途判断する。
 
-図の拡張計画の前提修正 **P1-01（Goキャッシュのmodule文脈分離）** と **P1-02（ファイル単位の解析結果・import位置）** は開発版で実装済み。Java／Goの`SourceUnit`は型0件でもpackage節・import・物理位置・診断を保持し、キャッシュはファイルscopeを復元してから現在のmoduleへ再束縛する。実CLIで既存図と説明のcold／warm／`--no-cache`一致、Javaのgolden、型0件のcache hit、削除ファイルのGit比較元を確認。`go test ./...`、`go vet ./...`成功。次の独立した実装単位は **P1-03（PackageIDと依存根拠の集約）**。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。パッケージ図自体は未実装。
+図の拡張計画の **P1-01（Goキャッシュのmodule文脈分離）**、**P1-02（ファイル単位の解析結果・import位置）**、**P1-03（PackageIDと依存根拠の集約）** は開発版で実装済み。
+
+`internal/packagegraph`は、文脈を分離したpackage ID、型宣言／import別の根拠・件数、内部／外部／未解決／曖昧候補を保持する。Javaの所有型・wildcardの曖昧性、Goのファイル別aliasと実package名を扱い、推定実装先と通常のalias参照も混同しない。実ファイルの解析で全3modeのcold／warm／キャッシュ非使用一致、既存class CLIの図・説明とJava golden一致を確認。`go test ./...`、`go vet ./...`成功。
+
+次の独立した実装単位は **P1-04（循環検出とpackage範囲抽出）**。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。パッケージ図生成・`package`コマンド自体はまだ未実装。
 
 ## 進め方
 

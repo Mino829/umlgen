@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **図の拡張は設計案・未実装。P1-01（文脈分離）・P1-02（ファイル解析モデル）は開発版で実装済み**。P1-03以降のpackage graph・パッケージ図はまだ含まない。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01・02の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
+- 状態: **図の拡張は設計案・未実装。P1-01〜03（文脈分離・ファイル解析モデル・package graph集約）は開発版で実装済み**。循環検出、パッケージ図生成、`package`コマンドはまだ含まない。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01〜03の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -100,12 +100,13 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 | 現行モデル | 保持するもの | 拡張時の不足 |
 | --- | --- | --- |
 | `SourceUnit` | 言語、物理パス、SHA-256、ファイルspan、package節、import、型、構文／非対応診断、実行時PackagePath | ソース本文・AST・意味解析IDなし。パスとmodule文脈はキャッシュ対象外 |
-| `Project` | クラス図向け`Types []Type` | unitはparser/cacheが返す。package graph・関数・module依存はまだない |
+| `Project` | クラス図向け`Types []Type` | package graphは別の`packagegraph.Graph`で保持する。関数・module依存はまだない |
 | `Type` | package/name/enclosing/kind、imports、fields、methods、extends/implements、変更区分 | ソース本文・本体・意味解析IDなし。`Source`はキャッシュJSON対象外 |
 | `Method` / `Parameter` | 名前、型文字列、修飾子、レシーバー情報、開始位置 | 自由関数、呼び出し、文、例外、CFGなし。戻り値も型文字列中心 |
-| `Import` | 名前、alias、wildcard、static、物理span。所属ファイルは所有SourceUnit | 所有型／packageの解決・候補集合はまだない |
+| `Import` | 名前、alias、wildcard、static、物理span。所属ファイルは所有SourceUnit | package所有先・曖昧候補は`packagegraph`の解析結果に保持し、構文記録へ混ぜない |
 | `TypeReference` | 名前、Source/Line、Inferred | 名前束縛の候補集合や分析文脈なし |
 | 関係・根拠・診断 | From/To、種類、label、多重度、宣言位置、推定、未解決／図の外 | 型関係以外の語彙や、実行順序・遷移のモデルなし |
+| `packagegraph.Graph` | 文脈付きPackageID、内部／外部package、型関係・import別の集約辺、元ファイル・位置、未解決／曖昧候補 | 循環、図生成、CLI、コンパイラーによる意味解析はまだない |
 
 `relations.Build`は軽量な関係生成、`Analyze`は根拠と診断を含む処理である。対象は継承、実装、フィールド、引数、戻り値の5種類。型文字列から参照名を抽出し、既知の型、同じpackage、明示import、wildcard等で解決する。**importそのものは関係線ではなく、ローカル変数や式での利用も含まない。**
 
@@ -176,7 +177,7 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 
 #### 二つの依存を混同しない
 
-**提案:** `--dependency-source declared-types|imports|both`を設け、既定は`declared-types`にする。
+**P1-03の内部APIは実装済み:** `declared-types|imports|both`を分け、未指定は`declared-types`とする。**CLIは提案のまま:** 後続P1-06で`--dependency-source`へ接続する。
 
 - `declared-types`: 継承／実装／フィールド／引数／戻り値として参照され、対象packageを解決できた型関係を集約する。現在のクラス図と対応付けやすい。ただしメソッド本体内の依存を含む「全依存」ではない。
 - `imports`: ソースに書かれたimport宣言の関係を表示する。未使用かどうかや実行時の利用は主張しない。Goのblank importは初期化副作用の宣言であり、型参照がなくても残す。[S3]
@@ -188,7 +189,7 @@ Goではimport文字列を宣言されたimport pathとして保持し、alias�
 
 #### 集約と循環
 
-- ノードIDは言語、解析root／module文脈、package識別子から作る。Javaの無名packageはsource rootで区別し、Goはpackage節だけで同一視しない。表示名が同じでも異なるmoduleを勝手に統合しない。
+- ノードIDは言語、解析root／module文脈、canonical package名から作る。P1-03の`Source.Context`は呼び出し側が実際のroot／module識別子を明示する。Javaの無名packageはsource rootで区別し、Goはpackage節だけで同一視しない。表示名が同じでも異なる文脈を勝手に統合しない。
 - 型なしのGoファイル、Javaのpackage宣言だけのファイルも`SourceUnit`で保持する。Javaのmodule宣言はpackageではなく、初回は未対応診断として保持する。
 - 型依存は一意な型関係レコード、importは元ファイルの宣言位置で数える。Typeへ複製された同じimportを型数だけ数えない。根拠一覧と集約件数は対応する。
 - 同一package内の関係はpackage間の辺・循環から除き、必要なら内部依存件数として説明する。階層の親子関係を依存の辺にしない。
@@ -309,10 +310,10 @@ flowchart TD
 
 | 導入段階 | モデル | 最低限の情報・不変条件 |
 | --- | --- | --- |
-| Phase 1（P1-02実装済み） | `SourceUnit` | 言語、物理パスと内容hash、ファイルspan、package節、実行時PackagePath、import一覧、既存Types、診断。型が0でも残る。独立したroot/module IDは後続設計 |
-| Phase 1 | `PackageID` / `Package` | 言語＋文脈＋canonical名、表示名、所属ファイル／型。aliasから独立 |
-| Phase 1（構文記録はP1-02実装済み） | `Import`／将来の解決結果 | 名前、alias/static/wildcard、Goのdot/blank、所有unit、物理span。対象候補・解決状態はP1-03で扱う |
-| Phase 1 | `PackageDependency` | From/To、型関係／importの種別、重複排除キー、件数、根拠参照。構文上の自己辺と表示方針を分離 |
+| Phase 1（P1-02実装済み） | `SourceUnit` | 言語、物理パスと内容hash、ファイルspan、package節、実行時PackagePath、import一覧、既存Types、診断。型が0でも残る。root/module識別子はgraph入力の`Source.Context`で渡す |
+| Phase 1（P1-03実装済み） | `packagegraph.PackageID` / `Package` | 言語＋明示文脈＋canonical名、内部／外部種別、所属ファイルとhash。aliasから独立 |
+| Phase 1（P1-02・03実装済み） | `Import`／package解決結果 | 名前、alias/static/wildcard、Goのdot/blank、所有unit、物理span。解決先は集約辺、未解決・曖昧候補はgraph診断に保持 |
+| Phase 1（P1-03実装済み） | `packagegraph.Dependency` | From/To、元の型関係レコードと全根拠、位置付きimport宣言。件数は各sliceの長さで別々に数える。同一package辺は除外 |
 | Phase 2 | `CallableID` / `Callable` | package、所有型／receiver、名前、signature、本体位置、関数種別。自由関数・overloadを識別 |
 | Phase 2 | `CallSite` / `CallGraph` | 呼び出し元、位置、receiver／引数式、候補先集合、直接／virtual／interface／async／deferred等、未解決理由 |
 | Phase 2 | 構造化本体領域 | 順序、条件分岐、ループ、例外領域、各callsiteの所属。実行経路とは区別 |
@@ -531,7 +532,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 9. 最初の実装: パッケージ図MVPのIssue分割
 
-初回調査で分割したIssue候補と実装状況。P1-01・02は開発版で実装・検証済み、P1-03以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
+初回調査で分割したIssue候補と実装状況。P1-01〜03は開発版で実装・検証済み、P1-04以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
 
 ### P1-01: Goの解析キャッシュをmodule文脈から分離する
 
@@ -579,14 +580,32 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ### P1-03: PackageIDと依存根拠の集約器を実装する
 
-- [ ] 新規候補: `internal/packagegraph/graph.go`、`internal/packagegraph/resolve.go`。既存`model.Type`、`relations`を入力として再利用する。
-- [ ] package identity、内部／外部／未解決、declared-types/imports/bothの契約を実装する。
-- [ ] Javaは既知の所有型からpackageへ解決し、nested/static/wildcardを文字列の末尾削除で処理しない。曖昧なresolver結果を確定辺に採用しない。
-- [ ] 型関係件数とimport宣言件数を分離し、位置付きの根拠へ対応付ける。同一package辺をpackage間graphから除く。
-- [ ] 受入: importだけの依存、importなしの完全修飾型、同一package参照、同名型、外部・未解決、複数型へのimport複製、同じ辺の複数根拠で正しい辺・件数になる。
-- [ ] 受入: Goの同じaliasがファイルごとに別importを指す場合や、import path末尾と実package名が異なる場合に誤束縛しない。
+- [x] 新規: `internal/packagegraph/graph.go`、`build.go`、`resolve.go`、`java.go`、`go.go`と対応テスト。既存`model.Type`、`relations`の分類・多重度・根拠収集を再利用する。
+- [x] package identity、内部／外部／未解決、declared-types/imports/bothの契約を実装する。
+- [x] Javaは既知の所有型からpackageへ解決し、nested/static/wildcardを文字列の末尾削除で処理しない。曖昧なresolver結果を確定辺に採用しない。
+- [x] 型関係件数とimport宣言件数を分離し、位置付きの根拠へ対応付ける。同一package辺をpackage間graphから除く。
+- [x] 受入: importだけの依存、importなしの完全修飾型、同一package参照、同名型、外部・未解決、複数型へのimport複製、同じ辺の複数根拠で正しい辺・件数になる。
+- [x] 受入: Goの同じaliasがファイルごとに別importを指す場合や、import path末尾と実package名が異なる場合に誤束縛しない。
 
-依存: P1-02。declared-typesは現行5種の宣言関係に限定し、本体内利用は扱わないと説明する。
+依存: P1-02。内部APIとして実装済み。CLI・図生成・SCCはこの実装単位に含めない。
+
+実装契約:
+
+- `Build([]Source, DependencySource)`は、文脈付きの`SourceUnit`から決定的にソートした`Graph`を返す。入力モデルを変更せず、同一文脈・パスの同一snapshotは重複排除する。異なるhashの混在、未束縛のGo、文脈不足、異言語混在、不正modeは成功結果にしない。
+- `PackageID{Language, Context, Name}`の文脈は呼び出し側が明示する。Goは現在のmoduleに束縛した`PackagePath`、Javaはpackage節をcanonical名に使う。型0件も内部packageとして保持し、構文失敗とmodule宣言のみのunitは診断に残してpackageを捏造しない。
+- 型関係は端点・種類・label・多重度で一意にし、同じ関係を支える複数の宣言根拠を保持する。importは元ファイル・物理spanで数え、型数倍へ増やさない。元ファイルとhash、型宣言の行、importのbyte spanへ辿れる。同一package内の辺は除外する。
+- Javaは既知の型から通常／ネスト型／static importの所有packageを取得する。所有typeとpackageの双方があり得るwildcard、複数の候補、未知のimportが残す代替候補を確定辺にしない。enclosing／同一ファイルの宣言、明示import、他ファイルの同一package宣言、on-demand importの優先順位を区別する。未知の外部package名を末尾削除で作らない。
+- Goはファイル別aliasを使用し、省略aliasは解析済みのpackage節でのみ束縛する。外部の既定package名をパス末尾から推測せず、blankは型名を束縛しない。未知のdot importや同じimport pathの別文脈が残る場合、既知候補を保持して不確実性を残す。
+- Goの外部import pathは宣言されたパスとして外部ノードにできる。明示aliasで修飾された型参照もそのパスへ集約できるが、実際の存在・型・build互換は未検証である。
+- `declared-types`は既存の継承／実装／フィールド／引数／戻り値の宣言関係だけを扱い、関数本体を解析しない。`Build`自体はGoの暗黙実装を新たに推定せず、渡された推定実装レコードの`Inferred`と対応メソッド根拠を保持する。推定先のcanonical名を通常のfile alias参照へ流用しない。
+- 既存クラス図のresolverは維持する。`relations.AnalyzeWithResolver`で宣言走査・多重度・根拠収集を共有し、package解析だけが候補集合を扱うresolverを使う。
+
+2026-11-02の検証:
+
+- `go test ./...`、`go vet ./...`成功。型・importの別件数、複数根拠、全5種の宣言関係、同一package辺除外、文脈の分離、別ファイルalias、曖昧候補と解析失敗を回帰テストで確認。
+- 実ファイルを解析する一時runnerでJava／Goの`declared-types`／`imports`／`both`を実行し、cold／warm／キャッシュ非使用でpackage ID・辺・根拠・診断が一致。Javaの未使用import、Goの型なしblank import、パス末尾とpackage節の異なる参照も確認。
+- Goの推定interface完全名とfile aliasが同じ綴りになる回帰ケースを修正前のテストで再現。修正後は実ファイルの別moduleを使い、フィールドと推定実装の依存先が分離され、実装宣言・対応メソッドの根拠が残ることを確認。
+- 既存`class` CLIのJava／Go fixtureでcold／warm／`--no-cache`の説明・PlantUML一致、`--explain`なしの図との一致、Java goldenとの一致を確認。一時runner・fixture・cacheは検証後に削除。
 
 ### P1-04: 循環検出とpackage範囲抽出を追加する
 
