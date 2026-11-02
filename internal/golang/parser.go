@@ -294,13 +294,13 @@ func visibility(name string) model.Visibility {
 // BindContext binds one file's syntax declarations to its current module and
 // directory. It must run after cache storage so module paths are never persisted.
 func BindContext(unit *model.SourceUnit) {
-	unit.PackagePath = packagePath(unit.Path, unit.Package.Name)
+	unit.PackagePath, unit.PackageContext = packagePath(unit.Path, unit.Package.Name)
 	for i := range unit.Types {
 		unit.Types[i].Package = unit.PackagePath
 	}
 }
 
-func packagePath(sourcePath, packageName string) string {
+func packagePath(sourcePath, packageName string) (string, string) {
 	directory := filepath.Dir(sourcePath)
 	absolute, err := filepath.Abs(directory)
 	if err == nil {
@@ -315,16 +315,16 @@ func packagePath(sourcePath, packageName string) string {
 			}
 			relative, relErr := filepath.Rel(current, directory)
 			if relErr != nil || relative == "." {
-				return module
+				return module, current
 			}
-			return strings.TrimSuffix(module, "/") + "/" + filepath.ToSlash(relative)
+			return strings.TrimSuffix(module, "/") + "/" + filepath.ToSlash(relative), current
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
 			break
 		}
 	}
-	return packageName
+	return packageName, directory
 }
 
 func moduleName(content string) string {

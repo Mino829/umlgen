@@ -758,17 +758,21 @@ func TestBindContextRebindsUnitsIncludingFilesWithoutTypes(t *testing.T) {
 				}
 			}
 			for _, binding := range []struct {
-				path string
-				want string
+				path    string
+				want    string
+				context string
 			}{
-				{path: filepath.Join(first, "nested", "file.go"), want: "example.com/first/nested"},
-				{path: filepath.Join(second, "file.go"), want: "example.com/second"},
-				{path: filepath.Join(root, "standalone.go"), want: "declared"},
+				{path: filepath.Join(first, "nested", "file.go"), want: "example.com/first/nested", context: first},
+				{path: filepath.Join(second, "file.go"), want: "example.com/second", context: second},
+				{path: filepath.Join(root, "standalone.go"), want: "declared", context: root},
 			} {
 				unit.RebindPath(binding.path)
 				BindContext(unit)
 				if unit.Package.Name != "declared" || unit.PackagePath != binding.want {
 					t.Fatalf("bound package = %#v, package path = %q, want %q", unit.Package, unit.PackagePath, binding.want)
+				}
+				if unit.PackageContext != binding.context {
+					t.Fatalf("package context = %q, want %q", unit.PackageContext, binding.context)
 				}
 				for _, typ := range unit.Types {
 					if typ.Package != binding.want {

@@ -215,11 +215,13 @@ func writePackageLegend(b *strings.Builder, view packagegraph.View, cycles []pac
 		}
 		b.WriteString("Cycle analysis precedes focus/external hiding; omitted edges may hide the cycle\n")
 	}
-	unresolved, ambiguous, failed, unsupported := 0, 0, 0, 0
+	unresolved, ambiguous, failed, unreadable, unsupported := 0, 0, 0, 0, 0
 	for _, diagnostic := range view.Graph.Diagnostics {
 		switch diagnostic.Code {
 		case "syntax-error":
 			failed++
+		case "source-read-error":
+			unreadable++
 		case "unsupported-module-declaration":
 			unsupported++
 		default:
@@ -230,7 +232,7 @@ func writePackageLegend(b *strings.Builder, view packagegraph.View, cycles []pac
 			}
 		}
 	}
-	fmt.Fprintf(b, "Selected-scope diagnostics: unresolved=%d; ambiguous=%d; syntax failures=%d; unsupported=%d\n", unresolved, ambiguous, failed, unsupported)
+	fmt.Fprintf(b, "Selected-scope diagnostics: unresolved=%d; ambiguous=%d; syntax failures=%d; read failures=%d; unsupported=%d\n", unresolved, ambiguous, failed, unreadable, unsupported)
 	b.WriteString("Incomplete/unresolved analysis is not evidence of absent dependencies\n")
 	b.WriteString("Solid arrows have declaration/import proof; dashed arrows are inferred-only\n")
 	b.WriteString("Source model only: not compilation, Go import-cycle validation, or runtime behavior\n")

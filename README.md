@@ -1,8 +1,10 @@
 # umlgen
 
-**ソースコードからクラス図を自動生成するCLIツール**
+**Java／Goのソースコードからクラス図・パッケージ依存図を生成するCLIツール**
 
-umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLクラス図を生成します。ローカルで完結するので、ソースコードが外部に送信されることはありません。
+umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名等を含む生成済みPlantUMLを外部送信します。
+
+`package`コマンドは未リリースの開発版です。現在の配布版の機能とは区別してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -269,6 +271,54 @@ layout:
 
 これらの設定は`--focus`と`diff`でも共通です。差分プレースホルダにも配置方向とskinparamが適用されます。レイアウト設定だけの変更では、解析キャッシュを無効化しません。
 
+## パッケージ依存図（開発版）
+
+`class --package-grouping`は型を囲む枠の設定です。`package`は**package自体を端点**にして、利用側→依存先の関係を集約します。
+
+```bash
+# Javaの宣言型からpackage間依存を生成
+umlgen package ./src/main/java
+
+# Goの型関係とimportを別々に数え、外部import pathも表示
+umlgen package . --language go --dependency-source both --external show --explain
+
+# package近傍を2hopまで表示。配置方向とは別の指定
+umlgen package ./src --focus com.example.service --depth 2 --direction out \
+  --layout-direction left-to-right
+
+# 循環グループに属するpackageのみ表示
+umlgen package ./src --cycles only --format svg --renderer local
+```
+
+| `--dependency-source` | 表す根拠 |
+| --- | --- |
+| `declared-types`（既定） | 継承、実装、フィールド、引数、戻り値として解決できた型関係 |
+| `imports` | 元ファイルに書かれたimport宣言。Goのblank／dot importや型0件ファイルも対象 |
+| `both` | 上記を別々に集約。辺の`types`は一意な型関係レコード数、`imports`は元の宣言数 |
+
+既定出力は`package-diagram.puml`です。`output.file`を省略または`null`にした設定では、`class-diagram.puml`を上書きしません。明示した`output.file`はコマンド共通です。`--output`／`--format plantuml|svg|png`、キャッシュ、レンダラー設定も利用できます。
+
+```yaml
+diagrams:
+  package:
+    dependency_source: declared-types
+    external: hide
+    cycles: mark
+```
+
+- 優先順位はCLI明示値→YAML→既定値。YAMLのsource／outputは設定ファイル基準、CLIのパスはcwd基準です。`--exclude`は設定リストを置き換えます。
+- `--include`とpackage名の除外は解決済みgraphへ適用します。非表示にした既知のpackageを外部・未解決へ再分類しません。
+- `--external hide|show`の既定は`hide`。Goの外部import pathは識別できますが、存在・型・build互換性は未検証です。Javaで所有packageが分からないimportは未解決として残します。
+- `--cycles off|mark|only`の既定は`mark`。通常宣言／importで成立する循環と、推定実装を必要とする候補循環を区別します。循環は関係選択後・focus／外部非表示前の解析範囲で判定し、`off`では判定しません。
+- `--focus`は一意なcanonical package名を指定します。同名別文脈があれば、エラーに示す`絶対rootパス::package名`を使います。Javaは解析root、Goは最寄りのmodule root（moduleなしでは所在ディレクトリ）で区別します。`--depth 0`は指定packageだけです。
+- `--relations inheritance,implementation,field,parameter,return`は型関係だけを絞ります。`imports`との併用は引数エラー、`both`ではimport宣言を消しません。
+- `--explain`は型／importの位置・hash・解析時のソース抜粋、失敗・未解決・既知の非表示対象、推定実装メソッド、表示前の循環範囲を説明します。通常図は変わらず、未指定時には詳細抜粋用のソース本文を保持しません。
+- YAMLのclass専用visibility／members／relations／package_grouping／classAttributeIconSizeはpackage図へ適用しません。class専用CLI flagは拒否します。package用skinparamは`linetype`／`shadowing`のみです。新しい`diagrams`内の未知キー・namespace・型も設定エラーです。
+
+部分解析失敗は警告と診断を残し、成功した入力から生成します。全件失敗は終了コード3で既存出力を保持します。関数本体・外部依存のソース・Java classpath・Go build tagsは解析せず、循環はコンパイル可否や実行時の呼び出し順を表しません。表示上の「依存0件」をリポジトリ全体の依存なしと解釈しないでください。package差分は未対応です。
+
+全フラグは`umlgen package --help`で確認できます。
+
 ## 解析キャッシュ
 
 Java／Goファイルの解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。
@@ -427,7 +477,8 @@ exclude:
   - generated
 
 output:
-  file: docs/class-diagram.puml
+  # 省略時はclass-diagram.puml／package-diagram.puml
+  # file: diagrams/model.puml
   format: plantuml
 
 visibility:
@@ -456,6 +507,12 @@ renderer:
   type: auto
   server_url: ""
   timeout: 30s
+
+diagrams:
+  package:
+    dependency_source: declared-types
+    external: hide
+    cycles: mark
 ```
 
 `language`は`auto`、`java`、`go`から選択できます。`auto`は対象ファイルと`go.mod`、`pom.xml`、Gradle設定から判定します。JavaとGoが混在して判定できない場合は、`--language`または設定ファイルで明示してください。
@@ -464,7 +521,7 @@ renderer:
 
 ## SVG／PNG出力
 
-SVG・PNG出力にはPlantUMLレンダラーが必要です。デフォルトでは`plantuml`コマンドを探し、見つからなければ`PLANTUML_JAR`を使います。`renderer`を`server`に設定した場合のみ、PlantUML Serverを利用します（ソースコードがサーバーに送信されます）。
+SVG・PNG出力にはPlantUMLレンダラーが必要です。デフォルトでは`plantuml`コマンドを探し、見つからなければ`PLANTUML_JAR`を使います。`renderer`を`server`に設定した場合のみ、生成済みPlantUMLをPlantUML Serverへ送信します。機密な型名・package名等を含み得ます。
 
 macOS：
 
@@ -483,7 +540,7 @@ umlgen class ./src --format png
 ```yaml
 renderer:
   type: auto       # auto, local, jar, server
-  server_url: ""   # server使用時のみ（ソースが外部に送信されます）
+  server_url: ""   # server使用時のみ（生成済みPlantUMLを外部送信）
   timeout: 30s
 ```
 
@@ -522,7 +579,7 @@ git push origin v0.2.0
 | 2 | CLI引数または設定エラー |
 | 3 | すべてのソースファイルの解析に失敗 |
 | 4 | 出力エラー |
-| 5 | SVGレンダリングエラー（`.puml`は保持） |
+| 5 | SVG／PNGレンダリングエラー（`.puml`は保持） |
 
 ## 現在の解析範囲
 

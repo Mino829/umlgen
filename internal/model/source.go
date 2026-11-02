@@ -46,6 +46,9 @@ type SourceUnit struct {
 	Types       []Type
 	Diagnostics []SourceDiagnostic
 	PackagePath string `json:"-"`
+	// PackageContext is the transient Go module root, or the containing directory
+	// when no module exists. The CLI carries Java source-root context separately.
+	PackageContext string `json:"-"`
 }
 
 func NewSourceUnit(language, path string, source []byte) *SourceUnit {
