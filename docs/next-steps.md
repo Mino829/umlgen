@@ -34,7 +34,9 @@
 
 `internal/packagegraph`は、文脈を分離したpackage ID、型宣言／import別の根拠・件数、内部／外部／未解決／曖昧候補を保持する。Javaの所有型・wildcardの曖昧性、Goのファイル別aliasと実package名を扱い、推定実装先と通常のalias参照も混同しない。実ファイルの解析で全3modeのcold／warm／キャッシュ非使用一致、既存class CLIの図・説明とJava golden一致を確認。`go test ./...`、`go vet ./...`成功。
 
-**P1-04（循環検出とpackage範囲抽出）** も開発版で実装済み。通常根拠／推定根拠を区別するSCC、関係選択後のin/out/bothとhop探索、cycles-only・外部非表示を扱う。focusで隠れた循環と失敗診断を保持し、表示graphだけから解析結果を再分類しない。実Java／GoソースのAPI実行、`go test ./...`、`go vet ./...`で確認。次は **P1-05（package PlantUML生成）**。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。`package`コマンドはまだ未実装。
+**P1-04（循環検出とpackage範囲抽出）** と **P1-05（package PlantUML生成）** も開発版で実装済み。通常／推定根拠を区別するSCC、関係選択後のin/out/bothとhop、cycles-only・外部非表示、focusで隠れた循環を保持する。図は別の生成APIでpackage端点・種類別件数・循環とscopeの凡例を描き、同名別文脈と未信頼文字列を安全に表示する。実Java／Goソースから17シナリオのSVG／PNGと文書の実出力例をPlantUML 1.2026.6で生成・確認。`go test ./...`、`go vet ./...`、既存class CLIのcold／warm／`--no-cache`とJava golden一致も確認した。
+
+次は **P1-06（`package`コマンドとYAML接続）**。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。現在は内部APIのみで、`umlgen package`コマンドはまだ実行できない。
 
 ## 進め方
 

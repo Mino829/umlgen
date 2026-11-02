@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **図の拡張は設計案。P1-01〜04（解析モデル・package graph集約・循環／範囲解析）は開発版で実装済み**。パッケージ図生成、`package`コマンドはまだ含まない。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01〜04の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
+- 状態: **全体は開発計画。P1-01〜05（解析モデル・package graph・循環／範囲解析・PlantUML生成）は開発版で実装済み**。`package`コマンドとYAML接続はまだ含まない。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01〜05の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -106,7 +106,7 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 | `Import` | 名前、alias、wildcard、static、物理span。所属ファイルは所有SourceUnit | package所有先・曖昧候補は`packagegraph`の解析結果に保持し、構文記録へ混ぜない |
 | `TypeReference` | 名前、Source/Line、Inferred | 名前束縛の候補集合や分析文脈なし |
 | 関係・根拠・診断 | From/To、種類、label、多重度、宣言位置、推定、未解決／図の外 | 型関係以外の語彙や、実行順序・遷移のモデルなし |
-| `packagegraph.Graph` / `View` | 文脈付きPackageID、集約辺、宣言／候補SCC、focus前の解析範囲と表示射影、元位置・診断 | 図生成、CLI、コンパイラーによる意味解析はまだない |
+| `packagegraph.Graph` / `View` | 文脈付きPackageID、集約辺、宣言／候補SCC、focus前の解析範囲と表示射影、元位置・診断 | CLI、コンパイラーによる意味解析はまだない。図生成は`plantuml.GeneratePackage`へ分離 |
 
 `relations.Build`は軽量な関係生成、`Analyze`は根拠と診断を含む処理である。対象は継承、実装、フィールド、引数、戻り値の5種類。型文字列から参照名を抽出し、既知の型、同じpackage、明示import、wildcard等で解決する。**importそのものは関係線ではなく、ローカル変数や式での利用も含まない。**
 
@@ -124,10 +124,12 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 [plantuml/generator.go](../internal/plantuml/generator.go)の`Generate`は型ノードを出し、`relations.Build`からクラス図の線を出す。`Options`もメンバー表示、型関係、package wrapper、レイアウトを含むクラス図中心の設計であり、汎用グラフIRではない。
 
 - flat／hierarchical／noneは**型を囲む枠**の違い。hierarchicalはJavaのドットやGoのパス構造を扱うが、packageノード同士の依存には変換しない。
-- ソート、alias衝突回避、titleのサニタイズ、限定されたskinparamは再利用候補。現行の`P_n`等の表示用aliasは永続的なPackageIDにしない。
+- クラス図の生成経路は維持し、package図はP1-05の`GeneratePackage(View, PackageOptions)`で別生成する。安全なpreamble・layout検証を再利用し、packageの名前・titleは指示やリンクにならない文字escapeを行う。`PKG_n`等の図上aliasは永続的なPackageIDにしない。
 - `IncludesRelation`等、一部の表示判定は生成オプションに結び付いている。新しい図の解析がクラス図用オプションへ依存しないようにする。
 
 [renderer/renderer.go](../internal/renderer/renderer.go)はモデルに依存せず、生成済みPlantUMLをSVG/PNGへ変換する。`auto`はローカル実行→JARで、サーバーへ自動フォールバックしない。タイムアウト、プロセス終了待ち、出力欠落・空ファイルの検査を再利用できる。PlantUMLの図種別・バージョンによる構文差は別途検証が必要で、全UML表記への完全準拠は主張しない。[S10]
+
+P1-05の内部APIでは、実際のPlantUML 1.2026.6でpackage図のSVG／PNGを検証済み。`package`コマンドはP1-06で接続するため、現行CLIで新コマンドを実行できるという意味ではない。
 
 ### 2.7 Git差分とキャッシュ
 
@@ -462,7 +464,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 8. 開発ロードマップと移行条件
 
-各MVPは対応範囲内で完結した機能とし、未対応を隠すno-opや仮の成功結果を残さない。以下は全て今後の実装計画である。
+各MVPは対応範囲内で完結した機能とし、未対応を隠すno-opや仮の成功結果を残さない。以下は各Phaseの目標と移行条件であり、個別実装の完了状況は9節に記録する。P1-01〜05の内部APIが実装済みでも、CLI等を含むPhase 1A全体の完了とは扱わない。
 
 ### Phase 1A: 独立したパッケージ図MVP
 
@@ -532,7 +534,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 9. 最初の実装: パッケージ図MVPのIssue分割
 
-初回調査で分割したIssue候補と実装状況。P1-01〜04は開発版で実装・検証済み、P1-05以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
+初回調査で分割したIssue候補と実装状況。P1-01〜05は開発版で実装・検証済み、P1-06以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
 
 ### P1-01: Goの解析キャッシュをmodule文脈から分離する
 
@@ -634,13 +636,30 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ### P1-05: パッケージ図用PlantUML generatorを追加する
 
-- [ ] 新規候補: `internal/plantuml/package.go`。型generatorは変更を最小限にする。
-- [ ] packageノード、依存矢印、種別別件数、循環注記、範囲・不確実性の凡例を生成する。
-- [ ] 安定ソート、衝突しない表示alias、名前・titleのescapingを再利用／限定抽出する。
-- [ ] 受入: 同じ表示名の別PackageID、ネストpackage、引用符・改行、空graph、外部表示の切替で誤結合やPlantUML指示注入が起きない。
-- [ ] 実PlantUMLでSVG/PNGを生成し、package名・端点・辺種別・凡例が描かれることを確認する。出力文字列のコピーだけを検証するテストにしない。
+- [x] 新規: `internal/plantuml/package.go`と対応テスト。既存クラス図generatorの生成規約は変更しない。
+- [x] packageノード、依存矢印、種別別件数、循環注記、範囲・不確実性の凡例を生成する。
+- [x] 安定ソート、衝突しない表示alias、名前・titleのescapingを再利用／限定抽出する。
+- [x] 受入: 同じ表示名の別PackageID、ネストpackage、引用符・改行、空graph、外部表示の切替で誤結合やPlantUML指示注入が起きない。
+- [x] 実PlantUMLでSVG/PNGを生成し、package名・端点・辺種別・凡例が描かれることを確認する。出力文字列のコピーだけを検証するテストにしない。
 
-依存: P1-03、循環表示部分はP1-04。
+依存: P1-03、循環表示部分はP1-04。内部APIとして実装済み。
+
+実装契約:
+
+- `GeneratePackage(View, PackageOptions)`は選択済みの表示graphからPlantUMLを返す。表示graphでSCCを再計算せず、元の解析範囲に属するdeclared／candidateの注記と選択前後の件数を表示する。
+- 各PackageIDへ衝突しないaliasを付け、同じ表示名の別文脈は言語・文脈を併記する。`a.b`と`a.b.c`等も別ノードで、未解析の親package・階層依存を追加しない。
+- 辺は`types`と`imports`を別々に表示し、推定だけの型関係数も示す。独立した通常宣言／import根拠がある辺は実線、推定だけの辺は破線にする。
+- 解析scope、表示／非表示件数、型関係選択、focusのID・hop、外部表示、循環mode、SCCメンバー集合、未解決／曖昧／構文失敗／非対応の件数と静的解析上の限界を凡例へ残す。SCCメンバーを呼び出し順や循環経路として表示しない。
+- 空の表示結果も凡例とnoteを生成し、不完全な解析を「依存なし」の成功断定へ置き換えない。focusで辺が全て隠れた場合も元の候補循環を注記する。
+- 未信頼の名前・文脈・titleの句読点をPlantUMLのUnicode text escapeへ変換し、制御文字・改行を空白へ正規化する。quote、preprocessor、Creoleリンク／画像、HTML tagとして解釈させない。外部送信やrendererの暗黙server選択は追加しない。
+- package用skinparamは`linetype`／`shadowing`のみ。class専用設定や不正値はエラーにし、安全な配置方向・preamble生成だけを既存処理から再利用する。入力を変更せず、ソート済み解析metadataはread-onlyで利用する。
+
+2026-11-02の検証:
+
+- `go test ./...`、`go vet ./...`成功。同名別文脈の端点、型／import件数、通常／推定辺、ネスト名、外部表示、空graph、入力不変性、順序非依存、指示注入・不正設定を検証。
+- 実ファイルのJava／GoをBuild→Analyze→GeneratePackage→既存local rendererへ渡し、PlantUML 1.2026.6で17シナリオのSVG／PNGを生成。循環、候補、focus、方向・hop、型関係選択、外部表示、cycles-only／off、空の失敗結果、同名別文脈、不正構文を含む名前を確認。
+- SVGをXML解析し、端点名・別件数・scope・候補循環・失敗情報・literalな不正文字列を確認。画像／リンク要素が生成されないことを確認し、PNGもデコードして実際の表示を確認。長いSCC／focus情報は行分割して凡例幅を抑えた。
+- 10節の実API生成例もSVG／PNGへ変換。既存`class` CLIのJava／Go fixtureでcold／warm／`--no-cache`の図・説明一致とJava golden一致を確認。一時runner・画像・fixture・cacheは検証後に削除済み。
 
 ### P1-06: `package`コマンドとYAML設定を接続する
 
@@ -674,24 +693,37 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 10. パッケージ図のPlantUML出力例
 
-**提案する出力の手書き例。`umlgen package`で生成した結果ではない。** 依存方向は利用側→依存先。型関係とimport件数は別単位である。この例はPlantUML 1.2026.6でSVG変換に成功し、3つのpackageラベルを確認した。aliasや最終的な凡例文言は実装時に固定する。
+**P1-05の実API生成例。`umlgen package`コマンドの出力ではない。** Javaの`app.App`が`dep.Target`をimportしフィールドで参照し、`isolated`に独立した型がある入力を、`Build(..., Both)`→`Analyze`→`GeneratePackage`で生成した。依存方向は利用側→依存先。PlantUML 1.2026.6でこの出力のSVG／PNGを確認した。
 
 ```plantuml
 @startuml
+title Package dependency example
 left to right direction
-package "com.acme.app" as P_app {
+
+package "app" as PKG_0 {
 }
-package "com.acme.sales" as P_sales {
+package "dep" as PKG_1 {
 }
-package "com.acme.shared" as P_shared {
+package "isolated" as PKG_2 {
 }
-P_app ..> P_sales : declared-types: 2
-P_app ..> P_shared : imports: 1
-P_sales ..> P_shared : declared-types: 1
-note bottom of P_app
-  source graph; not runtime calls
-  counts are unique relations / import declarations
-end note
+PKG_0 --> PKG_1 : types=1; imports=1
+
+legend bottom
+Dependencies: both; types = declaration relations, imports = source declarations
+Selected analysis scope: 3 packages, 1 dependencies
+Visible: 3 packages, 1 dependencies; hidden: 0 packages, 0 dependencies
+Type relation selection: all
+External import paths: hidden; existence/types/build compatibility unverified
+Cycles in selected analysis scope: declared=0; candidate=0
+Cycle groups are SCC member sets, not ordered call paths
+Cycle analysis precedes focus/external hiding; omitted edges may hide the cycle
+Selected-scope diagnostics: unresolved=0; ambiguous=0; syntax failures=0; unsupported=0
+Incomplete/unresolved analysis is not evidence of absent dependencies
+Solid arrows have declaration/import proof; dashed arrows are inferred-only
+Source model only: not compilation, Go import-cycle validation, or runtime behavior
+Build tags/classpath and unselected sources are not evaluated
+endlegend
+
 @enduml
 ```
 
