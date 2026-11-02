@@ -18,7 +18,7 @@ import (
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
-const SchemaVersion = "go-ast-v2"
+const SchemaVersion = "go-ast-v3"
 
 func ParseFile(path string) ([]model.Type, error) {
 	source, err := os.ReadFile(path)
@@ -28,6 +28,8 @@ func ParseFile(path string) ([]model.Type, error) {
 	return ParseSource(path, source)
 }
 
+// ParseSource returns content-dependent declarations. BindContext must run before
+// package filtering, finalization or relation analysis.
 func ParseSource(path string, source []byte) ([]model.Type, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, source, parser.AllErrors)
@@ -35,7 +37,7 @@ func ParseSource(path string, source []byte) ([]model.Type, error) {
 		return nil, fmt.Errorf("Go syntax error: %w", err)
 	}
 
-	pkg := packagePath(path, file.Name.Name)
+	pkg := file.Name.Name
 	imports := parseImports(file)
 	var types []model.Type
 	byName := map[string]int{}
@@ -258,6 +260,18 @@ func visibility(name string) model.Visibility {
 		break
 	}
 	return model.Private
+}
+
+// BindContext binds one file's syntax declarations to its current module and
+// directory. It must run after cache storage so module paths are never persisted.
+func BindContext(path string, types []model.Type) {
+	if len(types) == 0 {
+		return
+	}
+	pkg := packagePath(path, types[0].Package)
+	for i := range types {
+		types[i].Package = pkg
+	}
 }
 
 func packagePath(sourcePath, packageName string) string {

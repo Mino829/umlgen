@@ -20,6 +20,9 @@ type Parser interface {
 	CacheSchema() string
 	ParseFile(string) ([]model.Type, error)
 	ParseSource(string, []byte) ([]model.Type, error)
+	// BindContext applies filesystem context to one file's syntax declarations.
+	// Call after cache storage and before filtering or Finalize.
+	BindContext(string, []model.Type)
 	Finalize([]model.Type, bool) []model.Type
 }
 
@@ -151,6 +154,7 @@ func (javaParser) ParseFile(path string) ([]model.Type, error) {
 func (javaParser) ParseSource(path string, source []byte) ([]model.Type, error) {
 	return java.ParseSource(path, source)
 }
+func (javaParser) BindContext(_ string, _ []model.Type) {}
 func (javaParser) Finalize(types []model.Type, _ bool) []model.Type {
 	java.SortTypes(types)
 	return types
@@ -169,6 +173,9 @@ func (goParser) ParseFile(path string) ([]model.Type, error) {
 }
 func (goParser) ParseSource(path string, source []byte) ([]model.Type, error) {
 	return golang.ParseSource(path, source)
+}
+func (goParser) BindContext(path string, types []model.Type) {
+	golang.BindContext(path, types)
 }
 func (goParser) Finalize(types []model.Type, explain bool) []model.Type {
 	if explain {

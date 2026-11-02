@@ -572,6 +572,114 @@ func TestParseCacheHitsAndInvalidates(t *testing.T) {
 	}
 }
 
+func TestGoCacheRebindsModuleContext(t *testing.T) {
+	sharedCache := filepath.Join(t.TempDir(), "cache")
+	firstRoot, secondRoot, standalone := t.TempDir(), t.TempDir(), t.TempDir()
+	const declarations = `package domain
+type Target struct{}
+type Contract interface { Find() *Target }
+type User struct { Target *Target }
+`
+	const methods = `package domain
+func (u *User) Find() *Target { return u.Target }
+`
+	for i, scenario := range []struct {
+		name, root, module, directory, wantPackage string
+	}{
+		{"initial module", firstRoot, "example.com/a", "domain", "example.com/a/domain"},
+		{"different module", secondRoot, "example.com/b", "domain", "example.com/b/domain"},
+		{"changed go.mod", secondRoot, "example.com/renamed", "domain", "example.com/renamed/domain"},
+		{"moved directory", secondRoot, "example.com/renamed", "moved", "example.com/renamed/moved"},
+		{"no module", standalone, "", "domain", "domain"},
+		{"removed go.mod", firstRoot, "", "domain", "domain"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if scenario.module != "" {
+				writeJava(t, scenario.root, "go.mod", "module "+scenario.module+"\n\ngo 1.25\n")
+			} else if err := os.Remove(filepath.Join(scenario.root, "go.mod")); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(scenario.root, scenario.directory)
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeJava(t, dir, "user.go", declarations)
+			writeJava(t, dir, "methods.go", methods)
+			out := filepath.Join(t.TempDir(), "diagram.puml")
+			run := func(extra ...string) (string, []byte) {
+				t.Helper()
+				args := append([]string{
+					"class", dir, "--language", "go", "--output", out,
+					"--include", scenario.wantPackage,
+				}, extra...)
+				var stdout, stderr bytes.Buffer
+				code, err := Run(args, &stdout, &stderr)
+				if err != nil || code != exitOK || stderr.Len() != 0 {
+					t.Fatalf("code=%d err=%v stderr=%s", code, err, stderr.String())
+				}
+				diagram, err := os.ReadFile(out)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return stdout.String(), diagram
+			}
+
+			t.Setenv("UMLGEN_CACHE_DIR", sharedCache)
+			stats, ordinary := run("--verbose")
+			wantStats := "Cache hits: 2, misses: 0"
+			if i == 0 {
+				wantStats = "Cache hits: 0, misses: 2"
+			}
+			if !strings.Contains(stats, wantStats) {
+				t.Fatalf("expected %s:\n%s", wantStats, stats)
+			}
+			explanation, diagram := run("--quiet", "--explain")
+			for _, want := range []string{
+				scenario.wantPackage + ".User -> " + scenario.wantPackage + ".Target [field",
+				scenario.wantPackage + ".User -> " + scenario.wantPackage + ".Contract [implementation",
+				filepath.Join(dir, "methods.go") + ":2:",
+				"func (u *User) Find() *Target { return u.Target }",
+			} {
+				if !strings.Contains(explanation, want) {
+					t.Fatalf("missing %q:\n%s", want, explanation)
+				}
+			}
+			if !bytes.Equal(diagram, ordinary) {
+				t.Fatal("--explain changed the diagram")
+			}
+			if i == 0 {
+				entries, err := filepath.Glob(filepath.Join(sharedCache, "go", "*.json"))
+				if err != nil || len(entries) != 2 {
+					t.Fatalf("cache entries=%v err=%v", entries, err)
+				}
+				for _, entry := range entries {
+					data, err := os.ReadFile(entry)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if strings.Contains(string(data), scenario.module) ||
+						strings.Contains(string(data), dir) ||
+						strings.Contains(string(data), "return u.Target") {
+						t.Fatalf("cache persisted module context, source path or body:\n%s", data)
+					}
+				}
+			}
+			for _, mode := range []string{"warm", "cold", "disabled"} {
+				extra := []string{"--quiet", "--explain"}
+				if mode == "cold" {
+					t.Setenv("UMLGEN_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+				} else if mode == "disabled" {
+					extra = append(extra, "--no-cache")
+				}
+				gotExplanation, gotDiagram := run(extra...)
+				if explanation != gotExplanation || !bytes.Equal(diagram, gotDiagram) {
+					t.Fatalf("%s changed explanation or diagram:\n%s", mode, gotExplanation)
+				}
+			}
+		})
+	}
+}
+
 func TestCacheCleanCommand(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("UMLGEN_CACHE_DIR", root)

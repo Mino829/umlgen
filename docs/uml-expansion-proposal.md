@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **設計案。図の拡張は未実装**。本作業は調査と本書の作成のみで、実装コードを変更しない。
-- 調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。開発ブランチに存在する機能を、mainへのマージ済み・リリース済みとは扱わない。
+- 状態: **図の拡張は設計案・未実装。前提修正P1-01は開発版で実装済み**。P1-02以降のファイルモデル・パッケージ図はまだ含まない。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -59,7 +59,7 @@ docs/ examples/ scripts/ .github/workflows/
 | パッケージ表示 | グルーピング、階層レイアウト | packageの枠の中に型を配置する。関係は型同士で、パッケージ間へ集約していない |
 | Goのinterface実装 | 暗黙実装を可視化 | パースした型・メソッドの構文的シグネチャ照合。`go/types`による判定ではない |
 | Git差分 | 追加・変更・削除を色分け | 基本単位は変更ファイル内の型。比較先コミットの完全な型・辺モデルを作る方式ではない |
-| キャッシュ | ソース変更に応じて再解析 | 内容ハッシュ中心。Goのmoduleパス等の外部文脈がキーに含まれず、後述の再利用問題がある |
+| キャッシュ | ソース変更に応じて再解析 | 内容ハッシュ中心。Goのmodule文脈はP1-01で構文キャッシュから分離し、取得後に現在の配置へ再束縛する |
 | 外部送信 | ローカル解析を中心とした説明 | 解析のためにソース全体を送信する経路はない。ただし明示的な`--renderer server`は**生成したPlantUML**を送信する。機密な型名等も含み得る |
 | 性能 | キャッシュによる高速化 | 既存の参考値は特定環境・単一Javaソースの計測。全言語・全コマンドの速度保証ではない |
 
@@ -85,7 +85,7 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 - 型宣言、structのフィールド・埋め込み、interfaceのメソッド・埋め込み、レシーバー付きメソッドのシグネチャを抽出する。
 - **レシーバーのない関数はスキップする。`main`、`init`、通常のパッケージ関数と、その本体・呼び出しは現在のモデルにない。** 型がない関数だけのファイルは型ノードを生まない。
 - 非struct/interfaceの型もクラス図向けの型へ投影し、合成フィールド`value`を使う。型aliasと定義型の意味上の区別は保持しない。
-- importにはaliasを保持する。パッケージの完全名は、ソースの祖先から`go.mod`を探し、module名と相対ディレクトリで構成する。見つからない場合はpackage節へフォールバックする。
+- importにはaliasを保持する。`ParseSource`／`ParseFile`はpackage節の名前を返し、キャッシュ保存後の`BindContext`がソースの祖先から`go.mod`を探してmodule名と相対ディレクトリで完全名を構成する。見つからない場合はpackage節へフォールバックする。
 - `go.work`、replace、実際のビルド対象、依存パッケージの型情報をロードしない。`_test.go`は言語側の対象から除外するが、GOOS/GOARCHやbuild tagsによる選別はない。
 - `Finalize`で同じ完全名の型・別ファイルのメソッドを統合する。importも型へ統合されるため、**ファイルごとのaliasスコープは厳密には残らない**。
 - interface実装は、解析済み型のメソッド名・引数型文字列・戻り値型文字列を比較する。ポインタレシーバーと埋め込みを考慮するが、型alias、ジェネリクス、type set、曖昧な昇格等を含むコンパイラーの完全な判定ではない。空の要件集合は推定対象から外す。
@@ -141,9 +141,9 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 
 [javacache/cache.go](../internal/javacache/cache.go)は名前にJavaを含むが両言語で使う。parser schema、バージョン、解析設定からsignatureを作り、signatureとソース内容のSHA-256をキーにする。図の表示・renderer等はCLI側で解析キーから除外する。ASTやソース本文は保存せず、宣言をJSON保存し、読み込み時にSourceのパスを戻す。
 
-**現状の問題（実CLIで再現）:** 同じ`package domain; type User ...`のバイト列を、`module example.com/a`と`module example.com/b`へ配置し、共通の空キャッシュでA→Bの順に実行した。Bはcache hitになり`example.com/a.User`を出した。Bを`--no-cache`で実行すると正しく`example.com/b.User`になった。ファイル内容のキーにmodule文脈がなく、読み込み時にも`Type.Package`を再計算しないためである。
+**初回調査で再現した問題（P1-01で修正済み）:** 同じ`package domain; type User ...`のバイト列を、`module example.com/a`と`module example.com/b`へ配置し、共通の空キャッシュでA→Bの順に実行した。Bはcache hitになり`example.com/a.User`を出した。Bを`--no-cache`で実行すると正しく`example.com/b.User`になった。ファイル内容のキーにmodule文脈がなく、読み込み時にも`Type.Package`を再計算しないためだった。
 
-**提案:** パッケージ図より先に、構文キャッシュとpackage文脈の責務を分ける。schemaを上げるだけでは、将来の`go.mod`変更や別rootへの再利用は解決しない。ファイル単位のpackage/import情報もキャッシュ対象にし、本文やASTそのものは永続化しない。詳細は5.5節、Issue P1-01を参照。
+**P1-01実装済み:** 構文キャッシュとpackage文脈の責務を分離し、取得後に現在のmoduleへ再束縛する。Go schemaは`go-ast-v3`に更新。本文やASTは永続化しない。ファイル単位のpackage/import情報の導入は別のP1-02で扱う。詳細は5.5節、9節P1-01を参照。
 
 ### 2.8 CLI・設定・探索・focusの制約
 
@@ -346,7 +346,7 @@ flowchart TD
 
 ### 5.5 キャッシュと性能
 
-**Phase 1での推奨:** ソース内容依存の構文データをキャッシュし、moduleパス等の文脈は各実行で決定・再束縛する。Goのpackage pathを使うfinalizeと関係解析は再束縛後に行う。従来の最終`Type.Package`を、別rootでそのまま再利用しない。
+**P1-01実装済み:** ソース内容依存の構文データをキャッシュし、moduleパス等の文脈は各実行で決定・再束縛する。CLIは通常解析・cache hit・削除ファイルのいずれも、packageフィルター、finalize、関係解析より前に`BindContext`を適用する。従来の最終`Type.Package`を、別rootでそのまま再利用しない。削除ファイルのmodule探索は従来どおり現在の作業ツリーを使い、Phase 1Bの完全snapshot比較へ変更しない。
 
 文脈を含む解析結果をキャッシュする必要が生じた場合は、別のキーへroot/module識別子、`go.mod`/`go.sum`/`go.work`・replace、build flags、Go version、Javaのsource root/classpath・言語レベル、frontend版、依存宣言のfingerprintを含める。必要な入力だけを段階ごとに選び、全環境変数や絶対パスを無差別にhashしない。外部依存の変更時は呼び出し元やSCCも無効化対象になり得る。
 
@@ -530,17 +530,25 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 9. 最初の実装: パッケージ図MVPのIssue分割
 
-以下は**実装開始時に作成するIssue候補**。チェックは未実施を表す。本書の作成でコード変更やIssue作成を行ったという意味ではない。既存ファイルを優先し、新モジュール名は候補としている。
+初回調査で分割したIssue候補と実装状況。P1-01は開発版で実装・検証済み、P1-02以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
 
 ### P1-01: Goの解析キャッシュをmodule文脈から分離する
 
-- [ ] 対象: `internal/javacache/cache.go`、`internal/golang/parser.go`、`internal/language/language.go`、`internal/cli/cli.go`と対応する既存テスト。
-- [ ] 内容依存の構文情報と、source root／moduleから求めるpackage pathを分ける。新しい文脈で再束縛してからfinalizeする。
-- [ ] parser/cache schemaを更新し、既存entryを安全にmissにする。
-- [ ] 受入: 同一バイト列を別moduleでwarm利用、同一rootの`go.mod`変更、moduleのないroot、別ディレクトリへの移動で、cold/warm/no-cacheが一致する。
-- [ ] 受入: Javaの既存解析結果、Source再束縛、説明のsnapshotを壊さず、ソース本文を新たに保存しない。
+- [x] 対象: `internal/javacache/cache.go`、`internal/golang/parser.go`、`internal/language/language.go`、`internal/cli/cli.go`と対応する既存テスト。
+- [x] 内容依存の構文情報と、source root／moduleから求めるpackage pathを分ける。新しい文脈で再束縛してからfinalizeする。
+- [x] parser/cache schemaを更新し、既存entryを安全にmissにする。
+- [x] 受入: 同一バイト列を別moduleでwarm利用、同一rootの`go.mod`変更、moduleのないroot、別ディレクトリへの移動で、cold/warm/no-cacheが一致する。
+- [x] 受入: Javaの既存解析結果、Source再束縛、説明のsnapshotを壊さず、ソース本文を新たに保存しない。
 
-依存: なし。**最初に着手するIssue**。現在の誤動作の回帰ケースを保持してから修正する。
+依存: なし。最初の実装単位として完了。修正前に実CLIと`TestGoCacheRebindsModuleContext`で再現し、修正後に回帰テストの成功を確認。
+
+2026-11-02の検証:
+
+- `go test ./...`、`go vet ./...`成功。
+- 実CLIで別module、module名変更、ディレクトリ移動、moduleなし、`go.mod`削除後のwarm利用を確認。各ケースでcold／warm／`--no-cache`の説明とPlantUMLが一致し、`--explain`なしの図とも一致。
+- 修正前のGoキャッシュを修正版CLIがmissにし、次のmoduleでは新しい構文エントリーをhitにして正しいpackageパスを出すことを確認。
+- Javaのcold／warm／`--no-cache`で説明・図・宣言位置を確認。Java／Goの`diff HEAD --explain`で削除ファイルのGit比較元の抜粋・関係線・削除色を確認し、各キャッシュモードの説明と図が一致。
+- 永続キャッシュへmodule由来のpackageパス・ソースパス・本文を保存しないことを回帰テストで確認。ファイルモデル・import位置・新しい図はこの変更に含めない。
 
 ### P1-02: ファイル単位の解析結果とimport位置を導入する
 

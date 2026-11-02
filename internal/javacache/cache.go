@@ -40,6 +40,8 @@ func Open(version string, settings any) (*Cache, error) {
 	return OpenFor(version, "java", schemaVersion, settings, java.ParseSource)
 }
 
+// OpenFor caches content-dependent syntax only. The caller must apply filesystem
+// context after ParseFile or ParseSource returns, never inside parse.
 func OpenFor(
 	version, language, parserSchema string,
 	settings any,

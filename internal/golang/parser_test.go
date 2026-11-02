@@ -25,6 +25,7 @@ func TestParseAndFinalizeCompatibilityFixture(t *testing.T) {
 		if parseErr != nil {
 			t.Fatalf("ParseFile(%s): %v", file, parseErr)
 		}
+		BindContext(file, types)
 		parsed = append(parsed, types...)
 	}
 	types := Finalize(parsed)

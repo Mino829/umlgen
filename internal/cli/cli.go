@@ -578,6 +578,7 @@ func runClassMode(
 			}
 			continue
 		}
+		sourceParser.BindContext(file, found)
 		if o.explain {
 			knownTypes = append(knownTypes, found...)
 		}
@@ -619,6 +620,7 @@ func runClassMode(
 				}
 				continue
 			}
+			sourceParser.BindContext(deleted.Path, found)
 			if o.explain {
 				knownTypes = append(knownTypes, found...)
 			}

@@ -96,6 +96,14 @@ func TestCacheInvalidatesVersionAndSettings(t *testing.T) {
 	if result, parseErr := newSettings.ParseFile(source); parseErr != nil || result.Hit {
 		t.Fatalf("settings result = %#v, err = %v", result, parseErr)
 	}
+
+	newSchema, err := OpenFor("1.0.0", "java", "new-parser-schema", map[string]bool{"private": true}, initial.parse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, parseErr := newSchema.ParseFile(source); parseErr != nil || result.Hit {
+		t.Fatalf("schema result = %#v, err = %v", result, parseErr)
+	}
 }
 
 func TestCorruptEntryIsReparsed(t *testing.T) {
