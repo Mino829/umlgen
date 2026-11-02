@@ -12,9 +12,12 @@ import (
 	"github.com/Mino829/umlgen/internal/model"
 )
 
+// SchemaVersion identifies the persisted Java source-unit syntax model.
+const SchemaVersion = "java-tree-sitter-v3"
+
 // ParseFile parses Java source with the official Tree-sitter Java grammar and
 // converts declaration nodes into umlgen's language-neutral model.
-func ParseFile(path string) ([]model.Type, error) {
+func ParseFile(path string) (*model.SourceUnit, error) {
 	source, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -24,37 +27,49 @@ func ParseFile(path string) ([]model.Type, error) {
 
 // ParseSource parses Java source supplied by the caller. It is also used for
 // deleted files loaded from Git history by the diff command.
-func ParseSource(path string, source []byte) ([]model.Type, error) {
+func ParseSource(path string, source []byte) (*model.SourceUnit, error) {
+	unit := model.NewSourceUnit("java", path, source)
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(sitter.NewLanguage(tree_sitter_java.Language())); err != nil {
-		return nil, fmt.Errorf("initialize Java parser: %w", err)
+		return unit, fmt.Errorf("initialize Java parser: %w", err)
 	}
 	tree := parser.Parse(source, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("Tree-sitter returned no syntax tree")
+		return unit, fmt.Errorf("Tree-sitter returned no syntax tree")
 	}
 	defer tree.Close()
 	root := tree.RootNode()
+	unit.Package = packageDeclaration(root, source)
+	unit.Imports = importDeclarations(root, source)
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		child := root.NamedChild(i)
+		if child.Kind() == "module_declaration" {
+			unit.Diagnostics = append(unit.Diagnostics, model.SourceDiagnostic{
+				Code: "unsupported-module-declaration", Span: nodeSpan(child),
+			})
+		}
+	}
 	if root.HasError() {
-		return nil, syntaxError(root, source)
+		span, err := syntaxError(root, source)
+		unit.Diagnostics = append(unit.Diagnostics, model.SourceDiagnostic{Code: "syntax-error", Span: span})
+		return unit, err
 	}
 
-	pkg := packageName(root, source)
-	imports := importDeclarations(root, source)
 	var types []model.Type
 	for i := uint(0); i < root.NamedChildCount(); i++ {
 		child := root.NamedChild(i)
 		if !isTypeDeclaration(child.Kind()) {
 			continue
 		}
-		found, err := parseType(child, source, pkg, path, imports, nil)
+		found, err := parseType(child, source, unit.Package.Name, path, unit.Imports, nil)
 		if err != nil {
-			return nil, err
+			return unit, err
 		}
 		types = append(types, found...)
 	}
-	return types, nil
+	unit.Types = types
+	return unit, nil
 }
 
 func parseType(node *sitter.Node, source []byte, pkg, path string, imports []model.Import, enclosing []string) ([]model.Type, error) {
@@ -74,7 +89,7 @@ func parseType(node *sitter.Node, source []byte, pkg, path string, imports []mod
 		Final:      hasModifier(node, source, "final"),
 		Sealed:     hasModifier(node, source, "sealed"),
 		NonSealed:  hasModifier(node, source, "non-sealed"),
-		Imports:    append([]model.Import(nil), imports...),
+		Imports:    imports,
 		Source:     path,
 		Line:       int(node.StartPosition().Row) + 1,
 	}
@@ -270,7 +285,7 @@ func parseParameters(parameters *sitter.Node, source []byte) []model.Parameter {
 	return result
 }
 
-func packageName(root *sitter.Node, source []byte) string {
+func packageDeclaration(root *sitter.Node, source []byte) model.PackageDeclaration {
 	for i := uint(0); i < root.NamedChildCount(); i++ {
 		child := root.NamedChild(i)
 		if child.Kind() != "package_declaration" {
@@ -279,11 +294,11 @@ func packageName(root *sitter.Node, source []byte) string {
 		for j := uint(0); j < child.NamedChildCount(); j++ {
 			part := child.NamedChild(j)
 			if part.Kind() == "identifier" || part.Kind() == "scoped_identifier" {
-				return part.Utf8Text(source)
+				return model.PackageDeclaration{Name: qualifiedIdentifier(part, source), Span: nodeSpan(child)}
 			}
 		}
 	}
-	return ""
+	return model.PackageDeclaration{}
 }
 
 func importDeclarations(root *sitter.Node, source []byte) []model.Import {
@@ -293,21 +308,47 @@ func importDeclarations(root *sitter.Node, source []byte) []model.Import {
 		if child.Kind() != "import_declaration" {
 			continue
 		}
-		text := strings.TrimSpace(child.Utf8Text(source))
-		text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "import"), ";"))
-		item := model.Import{}
-		if strings.HasPrefix(text, "static ") {
-			item.Static = true
-			text = strings.TrimSpace(strings.TrimPrefix(text, "static "))
+		item := model.Import{Span: nodeSpan(child)}
+		for j := uint(0); j < child.ChildCount(); j++ {
+			part := child.Child(j)
+			switch part.Kind() {
+			case "static":
+				item.Static = true
+			case "asterisk":
+				item.Wildcard = true
+			case "identifier", "scoped_identifier":
+				item.Name = qualifiedIdentifier(part, source)
+			}
 		}
-		if strings.HasSuffix(text, ".*") {
-			item.Wildcard = true
-			text = strings.TrimSuffix(text, ".*")
-		}
-		item.Name = text
 		result = append(result, item)
 	}
 	return result
+}
+
+// Qualified names are assembled from identifier nodes so comments and spacing
+// around separators never become part of an import or package name.
+func qualifiedIdentifier(node *sitter.Node, source []byte) string {
+	var name strings.Builder
+	appendQualifiedIdentifier(&name, node, source)
+	return name.String()
+}
+
+func appendQualifiedIdentifier(name *strings.Builder, node *sitter.Node, source []byte) {
+	if node.Kind() != "scoped_identifier" {
+		name.WriteString(node.Utf8Text(source))
+		return
+	}
+	appendQualifiedIdentifier(name, node.ChildByFieldName("scope"), source)
+	name.WriteByte('.')
+	appendQualifiedIdentifier(name, node.ChildByFieldName("name"), source)
+}
+
+func nodeSpan(node *sitter.Node) model.SourceSpan {
+	start, end := node.StartPosition(), node.EndPosition()
+	return model.SourceSpan{
+		Start: model.SourcePosition{Offset: int(node.StartByte()), Line: int(start.Row) + 1, Column: int(start.Column) + 1},
+		End:   model.SourcePosition{Offset: int(node.EndByte()), Line: int(end.Row) + 1, Column: int(end.Column) + 1},
+	}
 }
 
 func declarationVisibility(node *sitter.Node, source []byte, fallback model.Visibility) model.Visibility {
@@ -399,7 +440,7 @@ func isTypeDeclaration(kind string) bool {
 	}
 }
 
-func syntaxError(root *sitter.Node, source []byte) error {
+func syntaxError(root *sitter.Node, source []byte) (model.SourceSpan, error) {
 	var find func(*sitter.Node) *sitter.Node
 	find = func(node *sitter.Node) *sitter.Node {
 		if node.IsError() || node.IsMissing() {
@@ -417,9 +458,9 @@ func syntaxError(root *sitter.Node, source []byte) error {
 		if len(snippet) > 80 {
 			snippet = snippet[:80] + "..."
 		}
-		return fmt.Errorf("Java syntax error at line %d near %q", bad.StartPosition().Row+1, snippet)
+		return nodeSpan(bad), fmt.Errorf("Java syntax error at line %d near %q", bad.StartPosition().Row+1, snippet)
 	}
-	return fmt.Errorf("Java syntax error")
+	return nodeSpan(root), fmt.Errorf("Java syntax error")
 }
 
 func SortTypes(types []model.Type) {

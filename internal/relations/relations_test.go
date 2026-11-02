@@ -124,11 +124,11 @@ func TestBuildCompatibilityFixtureRelations(t *testing.T) {
 	}
 	var types []model.Type
 	for _, file := range files {
-		found, parseErr := java.ParseFile(file)
+		unit, parseErr := java.ParseFile(file)
 		if parseErr != nil {
 			t.Fatalf("ParseFile(%s): %v", file, parseErr)
 		}
-		types = append(types, found...)
+		types = append(types, unit.Types...)
 	}
 
 	got := Build(types)
@@ -184,7 +184,7 @@ func TestBuildCompatibilityFixtureRelations(t *testing.T) {
 
 func TestEvidencePreservesOverloadsAndDeduplicatesGenericReferences(t *testing.T) {
 	const path = "Service.java"
-	types, err := java.ParseSource(path, []byte(`package sample;
+	unit, err := java.ParseSource(path, []byte(`package sample;
 class Target {}
 class Service {
     Target load(Target input) { return null; }
@@ -205,7 +205,7 @@ class Service {
 			{Member: "load(Target, int)", Type: "Target", Source: path, Line: 5},
 		},
 	}
-	got := Analyze(types, nil).Relations
+	got := Analyze(unit.Types, nil).Relations
 	if len(got) != len(want) {
 		t.Fatalf("relations = %#v", got)
 	}
@@ -228,7 +228,7 @@ class Service {
 }
 
 func TestAnalyzeDistinguishesHiddenDeclarationsAndUnresolvedReferences(t *testing.T) {
-	types, err := java.ParseSource("Service.java", []byte(`package sample;
+	unit, err := java.ParseSource("Service.java", []byte(`package sample;
 class Target {}
 class Service {
     Target hidden;
@@ -238,7 +238,7 @@ class Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	analysis := Analyze(types[1:], types)
+	analysis := Analyze(unit.Types[1:], unit.Types)
 	if len(analysis.Relations) != 0 {
 		t.Fatalf("hidden or unresolved targets gained edges: %#v", analysis.Relations)
 	}

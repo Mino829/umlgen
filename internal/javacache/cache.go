@@ -15,7 +15,6 @@ import (
 
 const (
 	cacheDirectoryEnv = "UMLGEN_CACHE_DIR"
-	schemaVersion     = "java-tree-sitter-v2"
 	markerFile        = ".umlgen-cache"
 	markerContent     = "umlgen cache\n"
 )
@@ -23,27 +22,25 @@ const (
 type Cache struct {
 	dir       string
 	signature []byte
-	parse     func(string, []byte) ([]model.Type, error)
+	parse     func(string, []byte) (*model.SourceUnit, error)
 }
 
 type Result struct {
-	Types      []model.Type
+	Unit       *model.SourceUnit
 	Hit        bool
 	CacheError error
 }
 
-type entry struct {
-	Types []model.Type `json:"types"`
-}
-
 func Open(version string, settings any) (*Cache, error) {
-	return OpenFor(version, "java", schemaVersion, settings, java.ParseSource)
+	return OpenFor(version, "java", java.SchemaVersion, settings, java.ParseSource)
 }
 
+// OpenFor caches content-dependent syntax only. The caller must apply filesystem
+// context after ParseFile or ParseSource returns, never inside parse.
 func OpenFor(
 	version, language, parserSchema string,
 	settings any,
-	parse func(string, []byte) ([]model.Type, error),
+	parse func(string, []byte) (*model.SourceUnit, error),
 ) (*Cache, error) {
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
@@ -119,16 +116,16 @@ func (c *Cache) ParseSource(path string, source []byte) (Result, error) {
 	cachePath := filepath.Join(c.dir, c.key(source)+".json")
 	cached, cacheErr := c.load(cachePath, path)
 	if cacheErr == nil && cached != nil {
-		return Result{Types: cached, Hit: true}, nil
+		return Result{Unit: cached, Hit: true}, nil
 	}
 
-	types, parseErr := c.parse(path, source)
+	unit, parseErr := c.parse(path, source)
 	if parseErr != nil {
-		return Result{}, parseErr
+		return Result{Unit: unit}, parseErr
 	}
-	storeErr := c.store(cachePath, types)
+	storeErr := c.store(cachePath, unit)
 	return Result{
-		Types:      types,
+		Unit:       unit,
 		CacheError: errors.Join(cacheErr, storeErr),
 	}, nil
 }
@@ -141,7 +138,7 @@ func (c *Cache) key(source []byte) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func (c *Cache) load(path, sourcePath string) ([]model.Type, error) {
+func (c *Cache) load(path, sourcePath string) (*model.SourceUnit, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -149,33 +146,21 @@ func (c *Cache) load(path, sourcePath string) ([]model.Type, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read cache entry: %w", err)
 	}
-	var cached entry
+	var cached model.SourceUnit
 	if err := json.Unmarshal(data, &cached); err != nil {
 		return nil, fmt.Errorf("discard invalid cache entry: %w", err)
 	}
-	for i := range cached.Types {
-		t := &cached.Types[i]
-		t.Source = sourcePath
-		for j := range t.Fields {
-			t.Fields[j].Source = sourcePath
-		}
-		for j := range t.Methods {
-			t.Methods[j].Source = sourcePath
-		}
-		for j := range t.Extends {
-			t.Extends[j].Source = sourcePath
-		}
-		for j := range t.Implements {
-			t.Implements[j].Source = sourcePath
-		}
+	if cached.Language == "" || cached.ContentHash == "" {
+		return nil, fmt.Errorf("discard invalid cache entry: missing source unit metadata")
 	}
-	return cached.Types, nil
+	cached.RebindPath(sourcePath)
+	return &cached, nil
 }
 
-func (c *Cache) store(path string, types []model.Type) error {
-	// Source paths are transient (json:"-"); the same content may be parsed
-	// from another file, so load rebinds every declaration to the current path.
-	payload, err := json.Marshal(entry{Types: types})
+func (c *Cache) store(path string, unit *model.SourceUnit) error {
+	// Paths and package context are transient. Imports are stored once per file,
+	// including files without types; load restores every declaration's scope.
+	payload, err := json.Marshal(unit)
 	if err != nil {
 		return fmt.Errorf("encode cache entry: %w", err)
 	}

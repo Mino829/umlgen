@@ -3,10 +3,13 @@ package javacache
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/golang"
+	"github.com/Mino829/umlgen/internal/java"
+	"github.com/Mino829/umlgen/internal/model"
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
@@ -20,7 +23,7 @@ func TestParseFileCachesAndInvalidatesContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, err := cache.ParseFile(source)
-	if err != nil || first.Hit || len(first.Types) != 1 || first.Types[0].Name != "First" {
+	if err != nil || first.Hit || len(first.Unit.Types) != 1 || first.Unit.Types[0].Name != "First" {
 		t.Fatalf("first = %#v, err = %v", first, err)
 	}
 	entries, err := filepath.Glob(filepath.Join(os.Getenv(cacheDirectoryEnv), "java", "*.json"))
@@ -35,13 +38,13 @@ func TestParseFileCachesAndInvalidatesContent(t *testing.T) {
 		t.Fatalf("cache contains source path or source text: %s", payload)
 	}
 	second, err := cache.ParseFile(source)
-	if err != nil || !second.Hit || second.Types[0].Source != source {
+	if err != nil || !second.Hit || second.Unit.Types[0].Source != source {
 		t.Fatalf("second = %#v, err = %v", second, err)
 	}
 
 	writeSource(t, source, "package sample; class Second {}")
 	changed, err := cache.ParseFile(source)
-	if err != nil || changed.Hit || changed.Types[0].Name != "Second" {
+	if err != nil || changed.Hit || changed.Unit.Types[0].Name != "Second" {
 		t.Fatalf("changed = %#v, err = %v", changed, err)
 	}
 }
@@ -56,11 +59,11 @@ func TestOpenForCachesGoSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, err := cache.ParseFile(source)
-	if err != nil || first.Hit || len(first.Types) != 1 || first.Types[0].Name != "User" {
+	if err != nil || first.Hit || len(first.Unit.Types) != 1 || first.Unit.Types[0].Name != "User" {
 		t.Fatalf("first = %#v, err = %v", first, err)
 	}
 	second, err := cache.ParseFile(source)
-	if err != nil || !second.Hit || second.Types[0].Source != source {
+	if err != nil || !second.Hit || second.Unit.Types[0].Source != source {
 		t.Fatalf("second = %#v, err = %v", second, err)
 	}
 }
@@ -96,6 +99,14 @@ func TestCacheInvalidatesVersionAndSettings(t *testing.T) {
 	if result, parseErr := newSettings.ParseFile(source); parseErr != nil || result.Hit {
 		t.Fatalf("settings result = %#v, err = %v", result, parseErr)
 	}
+
+	newSchema, err := OpenFor("1.0.0", "java", "new-parser-schema", map[string]bool{"private": true}, initial.parse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, parseErr := newSchema.ParseFile(source); parseErr != nil || result.Hit {
+		t.Fatalf("schema result = %#v, err = %v", result, parseErr)
+	}
 }
 
 func TestCorruptEntryIsReparsed(t *testing.T) {
@@ -119,7 +130,7 @@ func TestCorruptEntryIsReparsed(t *testing.T) {
 	}
 
 	result, err := cache.ParseFile(source)
-	if err != nil || result.Hit || result.CacheError == nil || len(result.Types) != 1 {
+	if err != nil || result.Hit || result.CacheError == nil || len(result.Unit.Types) != 1 {
 		t.Fatalf("result = %#v, err = %v", result, err)
 	}
 	result, err = cache.ParseFile(source)
@@ -195,7 +206,7 @@ class Service extends Target implements Contract {
 		if err != nil || result.Hit != (i == 1) {
 			t.Fatalf("%s: hit=%v err=%v", name, result.Hit, err)
 		}
-		got := relations.Analyze(result.Types, nil).Relations
+		got := relations.Analyze(result.Unit.Types, nil).Relations
 		if len(got) != len(wantLines) {
 			t.Fatalf("%s relations = %#v", name, got)
 		}
@@ -222,15 +233,74 @@ func TestCapturedSourceAndCurrentFileDoNotShareStaleCacheContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, err := cache.ParseSource(path, captured)
-	if err != nil || snapshot.Hit || len(snapshot.Types) != 1 || snapshot.Types[0].Name != "Captured" {
+	if err != nil || snapshot.Hit || len(snapshot.Unit.Types) != 1 || snapshot.Unit.Types[0].Name != "Captured" {
 		t.Fatalf("snapshot = %#v err=%v", snapshot, err)
 	}
 	current, err := cache.ParseFile(path)
-	if err != nil || current.Hit || len(current.Types) != 1 || current.Types[0].Name != "Current" {
+	if err != nil || current.Hit || len(current.Unit.Types) != 1 || current.Unit.Types[0].Name != "Current" {
 		t.Fatalf("current = %#v err=%v", current, err)
 	}
 	warm, err := cache.ParseSource(path, captured)
-	if err != nil || !warm.Hit || len(warm.Types) != 1 || warm.Types[0].Name != "Captured" {
+	if err != nil || !warm.Hit || len(warm.Unit.Types) != 1 || warm.Unit.Types[0].Name != "Captured" {
 		t.Fatalf("warm snapshot = %#v err=%v", warm, err)
+	}
+}
+
+func TestSourceUnitCachePreservesFileScopeAtAnotherPath(t *testing.T) {
+	for _, scenario := range []struct {
+		name, language, schema, source string
+		parse                          func(string, []byte) (*model.SourceUnit, error)
+	}{
+		{
+			name: "Go functions only", language: "go", schema: golang.SchemaVersion,
+			source: "package demo\r\nimport alias \"example.com/dependency\"\r\nfunc Run() { /* source body must not persist */ }",
+			parse:  golang.ParseSource,
+		},
+		{
+			name: "Java package only", language: "java", schema: java.SchemaVersion,
+			source: "package demo;\r\nimport example.dependency.Outer.Inner;",
+			parse:  java.ParseSource,
+		},
+		{
+			name: "Java multiple types", language: "java", schema: java.SchemaVersion,
+			source: "package demo;\nimport example.dependency.Target;\nclass A { Target value; }\nclass B {}",
+			parse:  java.ParseSource,
+		},
+		{
+			name: "Java module diagnostic", language: "java", schema: java.SchemaVersion,
+			source: "open module demo { requires java.base; }",
+			parse:  java.ParseSource,
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Setenv(cacheDirectoryEnv, filepath.Join(t.TempDir(), "cache"))
+			cache, err := OpenFor("source-units", scenario.language, scenario.schema, nil, scenario.parse)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := []byte(scenario.source)
+			firstPath := filepath.Join(t.TempDir(), "first")
+			first, err := cache.ParseSource(firstPath, source)
+			if err != nil || first.Hit {
+				t.Fatalf("initial=%#v err=%v", first, err)
+			}
+			secondPath := filepath.Join(t.TempDir(), "second")
+			want, err := scenario.parse(secondPath, source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := cache.ParseSource(secondPath, source)
+			if err != nil || !second.Hit || second.CacheError != nil {
+				t.Fatalf("cached=%#v err=%v", second, err)
+			}
+			if !reflect.DeepEqual(second.Unit, want) {
+				t.Fatalf("cached unit differs from current-path syntax:\n got %#v\nwant %#v", second.Unit, want)
+			}
+			for _, typ := range second.Unit.Types {
+				if typ.Source != secondPath || !reflect.DeepEqual(typ.Imports, second.Unit.Imports) {
+					t.Fatalf("lost declaration file scope: %#v", typ)
+				}
+			}
+		})
 	}
 }

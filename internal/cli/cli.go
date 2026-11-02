@@ -531,7 +531,7 @@ func runClassMode(
 		if o.verbose {
 			fmt.Fprintf(stdout, "Parsing: %s\n", file)
 		}
-		var found []model.Type
+		var unit *model.SourceUnit
 		var parseErr error
 		var source []byte
 		if o.explain {
@@ -543,9 +543,9 @@ func runClassMode(
 		if parseErr == nil {
 			if parseCache == nil {
 				if o.explain {
-					found, parseErr = sourceParser.ParseSource(file, source)
+					unit, parseErr = sourceParser.ParseSource(file, source)
 				} else {
-					found, parseErr = sourceParser.ParseFile(file)
+					unit, parseErr = sourceParser.ParseFile(file)
 				}
 			} else {
 				var result javacache.Result
@@ -554,7 +554,7 @@ func runClassMode(
 				} else {
 					result, parseErr = parseCache.ParseFile(file)
 				}
-				found = result.Types
+				unit = result.Unit
 				if result.Hit {
 					cacheHits++
 				} else {
@@ -578,6 +578,8 @@ func runClassMode(
 			}
 			continue
 		}
+		sourceParser.BindContext(unit)
+		found := unit.Types
 		if o.explain {
 			knownTypes = append(knownTypes, found...)
 		}
@@ -607,7 +609,7 @@ func runClassMode(
 				explanation.Scope.Files++
 				explanation.Sources[deleted.Path] = explain.Source{Content: deleted.Content, Origin: "Git base"}
 			}
-			found, parseErr := sourceParser.ParseSource(deleted.Path, deleted.Content)
+			unit, parseErr := sourceParser.ParseSource(deleted.Path, deleted.Content)
 			if parseErr != nil {
 				warnings++
 				changedParseFailures++
@@ -619,6 +621,8 @@ func runClassMode(
 				}
 				continue
 			}
+			sourceParser.BindContext(unit)
+			found := unit.Types
 			if o.explain {
 				knownTypes = append(knownTypes, found...)
 			}

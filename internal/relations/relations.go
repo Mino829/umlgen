@@ -166,20 +166,35 @@ func (i *Index) Type(name string) (model.Type, bool) {
 }
 
 func Build(types []model.Type) []Relation {
-	return build(types, nil, false).Relations
+	return build(types, nil, false, nil).Relations
 }
 
 // Analyze collects declaration evidence and distinguishes unresolved references
 // from known declarations hidden by the diagram's selection.
 func Analyze(types, known []model.Type) Analysis {
-	return build(types, known, true)
+	return build(types, known, true, nil)
 }
 
-func build(types, known []model.Type, explain bool) Analysis {
-	index := NewIndex(types)
-	knownIndex := index
+// AnalyzeWithResolver reuses declaration relation semantics with a scoped name
+// resolver. The boolean identifies inferred parent references, whose canonical
+// names must not capture ordinary file-local selectors. Ambiguity is rejected.
+func AnalyzeWithResolver(types []model.Type, resolve func(model.Type, string, bool) (string, bool)) Analysis {
+	return build(types, nil, true, resolve)
+}
+
+func build(types, known []model.Type, explain bool, resolve func(model.Type, string, bool) (string, bool)) Analysis {
+	if resolve == nil {
+		index := NewIndex(types)
+		resolve = func(owner model.Type, reference string, _ bool) (string, bool) {
+			return index.Resolve(owner, reference)
+		}
+	}
+	knownResolve := resolve
 	if explain && known != nil {
-		knownIndex = NewIndex(known)
+		index := NewIndex(known)
+		knownResolve = func(owner model.Type, reference string, _ bool) (string, bool) {
+			return index.Resolve(owner, reference)
+		}
 	}
 	var diagnostics []ReferenceDiagnostic
 	var seenDiagnostics map[ReferenceDiagnostic]bool
@@ -191,7 +206,7 @@ func build(types, known []model.Type, explain bool) Analysis {
 			From: owner.QualifiedName(), Kind: kind, Reference: ref,
 			Evidence: evidence, Status: StatusUnresolved,
 		}
-		if target, ok := knownIndex.Resolve(owner, ref); ok {
+		if target, ok := knownResolve(owner, ref, evidence.Inferred); ok {
 			diagnostic.Target = target
 			diagnostic.Status = StatusOutsideDiagram
 		}
@@ -223,7 +238,7 @@ func build(types, known []model.Type, explain bool) Analysis {
 			evidence = locateEvidence(owner, evidence)
 		}
 		for _, ref := range References(raw) {
-			target, ok := index.Resolve(owner, ref)
+			target, ok := resolve(owner, ref, evidence.Inferred)
 			if !ok {
 				diagnose(owner, ref, kind, evidence)
 				continue
@@ -247,12 +262,12 @@ func build(types, known []model.Type, explain bool) Analysis {
 				if explain {
 					evidence = locateEvidence(t, evidence)
 				}
-				if target, ok := index.Resolve(t, parent.Name); ok && target != t.QualifiedName() {
+				if target, ok := resolve(t, parent.Name, parent.Inferred); ok && target != t.QualifiedName() {
 					relation := Relation{From: t.QualifiedName(), To: target, Kind: parents.kind}
 					store(relation, evidence)
 					if explain && parent.Inferred {
 						for _, method := range t.ImplementationMethods {
-							if method.Interface == target {
+							if method.Interface == Base(parent.Name) {
 								store(relation, locateEvidence(t, Evidence{
 									Member: method.Signature, Type: parent.Name,
 									Source: method.Source, Line: method.Line, Inferred: true,

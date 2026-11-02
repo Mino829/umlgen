@@ -40,6 +40,9 @@ type Import struct {
 	Alias    string
 	Wildcard bool
 	Static   bool
+	// Span covers the import declaration (Java) or import spec (Go).
+	// Alias preserves Go's explicit name, including "." and "_".
+	Span SourceSpan
 }
 
 type Type struct {
@@ -53,7 +56,7 @@ type Type struct {
 	Final          bool
 	Sealed         bool
 	NonSealed      bool
-	Imports        []Import
+	Imports        []Import `json:"-"`
 	EnumValues     []string
 	Fields         []Field
 	Methods        []Method
