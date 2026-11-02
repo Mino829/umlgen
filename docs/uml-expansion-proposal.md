@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **図の拡張は設計案・未実装。P1-01〜03（文脈分離・ファイル解析モデル・package graph集約）は開発版で実装済み**。循環検出、パッケージ図生成、`package`コマンドはまだ含まない。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01〜03の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
+- 状態: **図の拡張は設計案。P1-01〜04（解析モデル・package graph集約・循環／範囲解析）は開発版で実装済み**。パッケージ図生成、`package`コマンドはまだ含まない。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01〜04の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -106,7 +106,7 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 | `Import` | 名前、alias、wildcard、static、物理span。所属ファイルは所有SourceUnit | package所有先・曖昧候補は`packagegraph`の解析結果に保持し、構文記録へ混ぜない |
 | `TypeReference` | 名前、Source/Line、Inferred | 名前束縛の候補集合や分析文脈なし |
 | 関係・根拠・診断 | From/To、種類、label、多重度、宣言位置、推定、未解決／図の外 | 型関係以外の語彙や、実行順序・遷移のモデルなし |
-| `packagegraph.Graph` | 文脈付きPackageID、内部／外部package、型関係・import別の集約辺、元ファイル・位置、未解決／曖昧候補 | 循環、図生成、CLI、コンパイラーによる意味解析はまだない |
+| `packagegraph.Graph` / `View` | 文脈付きPackageID、集約辺、宣言／候補SCC、focus前の解析範囲と表示射影、元位置・診断 | 図生成、CLI、コンパイラーによる意味解析はまだない |
 
 `relations.Build`は軽量な関係生成、`Analyze`は根拠と診断を含む処理である。対象は継承、実装、フィールド、引数、戻り値の5種類。型文字列から参照名を抽出し、既知の型、同じpackage、明示import、wildcard等で解決する。**importそのものは関係線ではなく、ローカル変数や式での利用も含まない。**
 
@@ -194,7 +194,7 @@ Goではimport文字列を宣言されたimport pathとして保持し、alias�
 - 型依存は一意な型関係レコード、importは元ファイルの宣言位置で数える。Typeへ複製された同じimportを型数だけ数えない。根拠一覧と集約件数は対応する。
 - 同一package内の関係はpackage間の辺・循環から除き、必要なら内部依存件数として説明する。階層の親子関係を依存の辺にしない。
 - 外部参照は内部ノード、既知の外部package、未解決参照を分ける。Goの明示import pathは外部ノード化できる。Javaでpackage境界が分からない名前を外部packageとして捏造しない。
-- SCC（強連結成分）で循環を検出する。構築後の計算量はO(V+E)。確定的な循環と、推定された実装関係を含む候補循環を分ける。表示を省略した辺・対象外ファイルの存在を注記し、「循環なし」をリポジトリ全体へ一般化しない。
+- P1-04でSCC（強連結成分）を検出する。SCC走査はO(V+E)、根拠分類・出力ソートの費用は別。通常の宣言／importで成立する循環と、推定実装を含めて成立する候補循環を分ける。表示を省略した辺・対象外ファイルの存在を注記し、「循環なし」をリポジトリ全体へ一般化しない。
 - Javaのpackage循環は直ちにコンパイルエラーではない。Goもbuild tags未選別の全ファイル和集合なら、実際の特定buildに成立する循環とは限らない。コンパイラーのimport-cycle判定とは別物と表示する。
 
 ### 4.2 Phase 2: シーケンス図
@@ -401,7 +401,7 @@ umlgen diff main...HEAD --diagram package
 | component / deployment | `--boundary-config`、`--manifest`等。複数manifestのmergeは対応仕様が決まるまで自動実行しない |
 | diffの追加 | `--diagram package`は完全snapshot解析ができてから。sequence等のdiffは今回のPhaseでは約束しない |
 
-packageの`depth/direction`はpackage依存グラフ上で定義する。新commandではdependency-source／relationsで選んだ辺を作ってからfocusし、循環判定対象はfocus前の選択済み解析範囲とする。`cycles only`は循環を含むpackageだけを表示し、focus等との組合せ・隠れた辺を説明する。クラス図の既存BFS挙動は同時に変更しない。
+packageの`depth/direction`はpackage依存グラフ上で定義する。P1-04の内部APIはdependency-source／relationsで選んだ辺を作ってからfocusし、循環判定対象はfocus前の選択済み解析範囲とする。`cycles only`は循環を含むpackageとfocus到達集合の共通部分を表示する。外部非表示も判定後に適用し、隠れた循環・辺があっても解析結果を再分類しない。`cycles off`はSCC処理自体を省き、「循環なし」とは解釈しない。CLI接続はP1-06で、クラス図の既存BFS挙動は変更しない。
 
 終了コードは既存の0=成功、1=一般失敗、2=引数、3=解析、4=出力、5=描画を基本にする。候補や未解決があるだけで必ず失敗とはせず、解析可能な範囲と未解決数を説明する。entryが一意でない、要求された本体を正しく表現できない等、指定された図が成立しない場合は成功図で代替しない。循環があるだけの新しいCI失敗モードは初回には足さない。
 
@@ -532,7 +532,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 9. 最初の実装: パッケージ図MVPのIssue分割
 
-初回調査で分割したIssue候補と実装状況。P1-01〜03は開発版で実装・検証済み、P1-04以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
+初回調査で分割したIssue候補と実装状況。P1-01〜04は開発版で実装・検証済み、P1-05以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
 
 ### P1-01: Goの解析キャッシュをmodule文脈から分離する
 
@@ -609,12 +609,28 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ### P1-04: 循環検出とpackage範囲抽出を追加する
 
-- [ ] 新規候補: `internal/packagegraph/cycles.go`、`internal/packagegraph/focus.go`。
-- [ ] SCC、確定／候補循環、package上のin/out/bothとhop距離を実装する。型focusと意味を混同しない。
-- [ ] 受入: 非循環、2ノード循環、複数SCC、同一package内関係、推定辺あり、範囲外ノード、孤立package、解析失敗、focusで隠れた循環を確認する。
-- [ ] 選択した依存種別・解析範囲での判定と、表示範囲の違いを診断へ残す。Java/Goのコンパイル可否の判定として報告しない。
+- [x] 新規: `internal/packagegraph/view.go`、`cycles.go`、`focus.go`と対応テスト。
+- [x] SCC、確定／候補循環、package上のin/out/bothとhop距離を実装する。型focusと意味を混同しない。
+- [x] 受入: 非循環、2ノード循環、複数SCC、同一package内関係、推定辺あり、範囲外ノード、孤立package、解析失敗、focusで隠れた循環を確認する。
+- [x] 選択した依存種別・解析範囲での判定と、表示範囲の違いを診断へ残す。Java/Goのコンパイル可否の判定として報告しない。
 
-依存: P1-03。
+依存: P1-03。内部APIとして実装済み。
+
+実装契約:
+
+- `Analyze(Graph, ViewOptions)`は`View`を返す。関係種別の選択→SCC／hop探索→cycles-only／外部非表示の順に処理する。型関係選択でimportを消さず、imports-onlyとの型関係指定はエラーにする。
+- `View.Scope`は表示前の選択済みpackage／辺数、依存種別、型関係選択、focusの完全なPackageID、hop距離・方向、外部表示・循環modeを保持する。`View.Cycles`と選択済み診断は表示で隠れても残す。
+- 通常の宣言またはimportの独立した根拠がある辺をdeclaredとして扱い、推定根拠だけの辺で閉じるSCCをcandidateとして保持する。より大きい候補SCCの中のdeclared SCCも残し、同じメンバーの重複候補は作らない。
+- Tarjan走査は再帰を使わない。推定だけの辺がなければ隣接graphとSCC処理を二重に作らず、`cycles off`ではSCC自体を省く。
+- focusは完全なPackageIDで指定し、depth=0はseedのみ。到達範囲は選択済みpackage辺のin/out/bothとhop数で決める。存在しないID、隠す設定の外部focus、負depth、不正な方向・mode・辺の端点はエラーにする。
+- 同一package辺は除外し、孤立nodeを維持する。構文失敗などの診断から架空のpackageを作らず、不完全な解析をリポジトリ全体の非循環やコンパイル可能性と説明しない。
+- 入力を変更せず、不要な根拠の複製を避けるためソート済みのネストしたmetadataはread-onlyで共有する。並び替え・絞り込みが必要なsliceだけを確保する。
+
+2026-11-02の検証:
+
+- `go test ./...`、`go vet ./...`成功。10万vertexの鎖／循環、複数SCC、通常／推定／混合／import根拠、文脈付き同名node、方向別hop、関係選択、表示前後の範囲、入力不変性を確認。
+- 実ファイルのJava相互依存とGo推定実装でdeclared／candidate SCCを区別し、focus depth=0で辺が全て隠れても元の循環結果が残ることを確認。
+- 同じ実APIシナリオでin/out/bothの1・2hop、cycles-only、外部非表示、空の型関係選択でimportが残ること、関係選択で候補循環が消えること、解析失敗と未解決診断の保持を確認。
 
 ### P1-05: パッケージ図用PlantUML generatorを追加する
 
