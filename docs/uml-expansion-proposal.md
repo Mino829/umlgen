@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **図の拡張は設計案・未実装。前提修正P1-01は開発版で実装済み**。P1-02以降のファイルモデル・パッケージ図はまだ含まない。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
+- 状態: **図の拡張は設計案・未実装。P1-01（文脈分離）・P1-02（ファイル解析モデル）は開発版で実装済み**。P1-03以降のpackage graph・パッケージ図はまだ含まない。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01・02の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -71,10 +71,10 @@ READMEは[README.md](../README.md)を参照。ここで見つけた差異の修�
 
 - class、interface、annotation、enum、record、型直下のネスト型を抽出する。メソッド内のローカル型や匿名クラスを網羅する仕組みではない。
 - package、importの名前・wildcard・static、親型、修飾子、型パラメーター、フィールド、メソッド／コンストラクターのシグネチャを保持する。
-- 型・メンバーの開始ファイル／行は保持するが、終端、列、byte範囲はない。importには位置がない。
+- 型・メンバーは既存の開始ファイル／行を保持する。P1-02の`SourceUnit`はファイル全体、package節、importに物理byte範囲・行・byte列を持つ。型・メンバー全体の終端spanはまだない。
 - enumの定数名は取れるが、初期化式や状態遷移としての意味は持たない。
 - 関数本体、呼び出し式、ローカル変数、制御構造、throws、例外経路、annotation要素の既定値は共通モデルへ保存しない。
-- importは各`Type`に複製される。型を持たない`package-info.java`等をファイル単位で表現するモデルはない。`module-info.java`のmodule関係もモデル化していない。
+- importはファイル単位で一度保持し、型は同じsliceを参照する。`package-info.java`等の型0件ファイルも`SourceUnit`として返す。`module-info.java`はmodule宣言のspanと`unsupported-module-declaration`診断を保持するが、module依存へは変換しない。
 
 Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード、継承先への名前束縛をそれだけで解決するものではない。[S2][S6][S7]
 
@@ -83,11 +83,11 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 **現状（実装確認）:** [internal/golang/parser.go](../internal/golang/parser.go)は`go/parser.ParseFile`と`parser.AllErrors`を使う。エラー時に部分的ASTからモデルを返す方式ではない。
 
 - 型宣言、structのフィールド・埋め込み、interfaceのメソッド・埋め込み、レシーバー付きメソッドのシグネチャを抽出する。
-- **レシーバーのない関数はスキップする。`main`、`init`、通常のパッケージ関数と、その本体・呼び出しは現在のモデルにない。** 型がない関数だけのファイルは型ノードを生まない。
+- **レシーバーのない関数の宣言・本体はスキップする。`main`、`init`、通常のパッケージ関数と、その本体・呼び出しは現在の型モデルにない。** 型0件の関数ファイルも、package節・importを持つ`SourceUnit`として残る。
 - 非struct/interfaceの型もクラス図向けの型へ投影し、合成フィールド`value`を使う。型aliasと定義型の意味上の区別は保持しない。
-- importにはaliasを保持する。`ParseSource`／`ParseFile`はpackage節の名前を返し、キャッシュ保存後の`BindContext`がソースの祖先から`go.mod`を探してmodule名と相対ディレクトリで完全名を構成する。見つからない場合はpackage節へフォールバックする。
+- importにはaliasを保持し、dot／blankもそのまま区別する。`ParseSource`／`ParseFile`はpackage節を含む`SourceUnit`を返し、キャッシュ保存後の`BindContext(unit)`がソースの祖先から`go.mod`を探してmodule名と相対ディレクトリで`PackagePath`と型のpackage完全名を構成する。見つからない場合はpackage節へフォールバックする。
 - `go.work`、replace、実際のビルド対象、依存パッケージの型情報をロードしない。`_test.go`は言語側の対象から除外するが、GOOS/GOARCHやbuild tagsによる選別はない。
-- `Finalize`で同じ完全名の型・別ファイルのメソッドを統合する。importも型へ統合されるため、**ファイルごとのaliasスコープは厳密には残らない**。
+- `Finalize`で同じ完全名の型・別ファイルのメソッドを統合する。クラス図の型へ投影したimportは従来どおり統合されるが、各`SourceUnit`のimportは独立して保持する。**既存クラス図resolverのファイル別alias解決はこの変更で拡張しない**。新しいpackage graphでは元のunitを使う。
 - interface実装は、解析済み型のメソッド名・引数型文字列・戻り値型文字列を比較する。ポインタレシーバーと埋め込みを考慮するが、型alias、ジェネリクス、type set、曖昧な昇格等を含むコンパイラーの完全な判定ではない。空の要件集合は推定対象から外す。
 - 型は`T`と`*T`で別ノードではない。説明要求時には一致判定に実際に使ったメソッドを記録する。
 
@@ -99,10 +99,11 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 
 | 現行モデル | 保持するもの | 拡張時の不足 |
 | --- | --- | --- |
-| `Project` | `Types []Type` | ファイル、package、関数、module単位の情報がない |
+| `SourceUnit` | 言語、物理パス、SHA-256、ファイルspan、package節、import、型、構文／非対応診断、実行時PackagePath | ソース本文・AST・意味解析IDなし。パスとmodule文脈はキャッシュ対象外 |
+| `Project` | クラス図向け`Types []Type` | unitはparser/cacheが返す。package graph・関数・module依存はまだない |
 | `Type` | package/name/enclosing/kind、imports、fields、methods、extends/implements、変更区分 | ソース本文・本体・意味解析IDなし。`Source`はキャッシュJSON対象外 |
 | `Method` / `Parameter` | 名前、型文字列、修飾子、レシーバー情報、開始位置 | 自由関数、呼び出し、文、例外、CFGなし。戻り値も型文字列中心 |
-| `Import` | 名前、alias、wildcard、static | 所属ファイル・位置・解決状態なし |
+| `Import` | 名前、alias、wildcard、static、物理span。所属ファイルは所有SourceUnit | 所有型／packageの解決・候補集合はまだない |
 | `TypeReference` | 名前、Source/Line、Inferred | 名前束縛の候補集合や分析文脈なし |
 | 関係・根拠・診断 | From/To、種類、label、多重度、宣言位置、推定、未解決／図の外 | 型関係以外の語彙や、実行順序・遷移のモデルなし |
 
@@ -139,16 +140,16 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 
 #### 解析キャッシュ
 
-[javacache/cache.go](../internal/javacache/cache.go)は名前にJavaを含むが両言語で使う。parser schema、バージョン、解析設定からsignatureを作り、signatureとソース内容のSHA-256をキーにする。図の表示・renderer等はCLI側で解析キーから除外する。ASTやソース本文は保存せず、宣言をJSON保存し、読み込み時にSourceのパスを戻す。
+[javacache/cache.go](../internal/javacache/cache.go)は名前にJavaを含むが両言語で使う。parser schema、バージョン、解析設定からsignatureを作り、signatureとソース内容のSHA-256をキーにする。図の表示・renderer等はCLI側で解析キーから除外する。P1-02では`SourceUnit`をJSON保存し、型0件もhitにする。読み込み時にunit／宣言のパスと型のファイル別import参照を復元する。AST・ソース本文・パス・実行時PackagePathは保存しない。
 
 **初回調査で再現した問題（P1-01で修正済み）:** 同じ`package domain; type User ...`のバイト列を、`module example.com/a`と`module example.com/b`へ配置し、共通の空キャッシュでA→Bの順に実行した。Bはcache hitになり`example.com/a.User`を出した。Bを`--no-cache`で実行すると正しく`example.com/b.User`になった。ファイル内容のキーにmodule文脈がなく、読み込み時にも`Type.Package`を再計算しないためだった。
 
-**P1-01実装済み:** 構文キャッシュとpackage文脈の責務を分離し、取得後に現在のmoduleへ再束縛する。Go schemaは`go-ast-v3`に更新。本文やASTは永続化しない。ファイル単位のpackage/import情報の導入は別のP1-02で扱う。詳細は5.5節、9節P1-01を参照。
+**P1-01・02実装済み:** 構文キャッシュとpackage文脈を分離し、取得後に現在のmoduleへ再束縛する。P1-01でGo schemaを`go-ast-v3`へ更新し、ファイルモデルを導入したP1-02では`go-ast-v4`／`java-tree-sitter-v3`へ更新。ファイル単位のpackage/import・物理位置を保存し、本文やASTは永続化しない。詳細は5.5節、9節を参照。
 
 ### 2.8 CLI・設定・探索・focusの制約
 
 - [cli/cli.go](../internal/cli/cli.go): `runClassMode`にフラグ、探索、解析、finalize、フィルター、差分、生成が集まる。新図のための最小の処理抽出は必要だが、全コマンドの再設計を前提にしない。
-- [language/language.go](../internal/language/language.go): parserの契約は`[]model.Type`を返す。単一実行で1言語を選ぶ設計で、混在言語横断の解決器はない。
+- [language/language.go](../internal/language/language.go): parserの契約は`*model.SourceUnit`を返す。クラス図はその`Types`を入力にする。単一実行で1言語を選ぶ設計で、混在言語横断の解決器はない。
 - [config/config.go](../internal/config/config.go): yaml.v3で既定値へ読み込む。source/outputは設定ファイル基準で解決し、CLIによる上書きパスはcwd基準。未知のYAMLキーを一律に拒否する実装ではない。
 - [scanner/scanner.go](../internal/scanner/scanner.go): 拡張子、既定の除外ディレクトリ、明示パターンで探索し、絶対パスを重複排除・ソートする。`.gitignore`や真のglob一般を解釈する機能ではなく、明示ファイル指定と再帰探索で除外の適用差もある。
 - CLIのexcludeは設定リストへの追加ではなく置き換え。include/package除外には解析後の型フィルターもある。削除ファイルは通常探索を経由しないため、全経路へ同一に適用されるとは限らない。
@@ -308,9 +309,9 @@ flowchart TD
 
 | 導入段階 | モデル | 最低限の情報・不変条件 |
 | --- | --- | --- |
-| Phase 1 | `SourceUnit` | 言語、ファイルID、物理パス、内容hash／snapshot、package節、root/module文脈、import一覧、既存Types。型が0でも残る |
+| Phase 1（P1-02実装済み） | `SourceUnit` | 言語、物理パスと内容hash、ファイルspan、package節、実行時PackagePath、import一覧、既存Types、診断。型が0でも残る。独立したroot/module IDは後続設計 |
 | Phase 1 | `PackageID` / `Package` | 言語＋文脈＋canonical名、表示名、所属ファイル／型。aliasから独立 |
-| Phase 1 | `ImportRecord` | 原文名、alias/static/wildcard/blank/dot、宣言位置、対象候補、解決状態 |
+| Phase 1（構文記録はP1-02実装済み） | `Import`／将来の解決結果 | 名前、alias/static/wildcard、Goのdot/blank、所有unit、物理span。対象候補・解決状態はP1-03で扱う |
 | Phase 1 | `PackageDependency` | From/To、型関係／importの種別、重複排除キー、件数、根拠参照。構文上の自己辺と表示方針を分離 |
 | Phase 2 | `CallableID` / `Callable` | package、所有型／receiver、名前、signature、本体位置、関数種別。自由関数・overloadを識別 |
 | Phase 2 | `CallSite` / `CallGraph` | 呼び出し元、位置、receiver／引数式、候補先集合、直接／virtual／interface／async／deferred等、未解決理由 |
@@ -323,7 +324,7 @@ flowchart TD
 
 ### 5.4 位置・根拠・不確実性
 
-**提案:** 位置はファイルID、物理パス、開始／終了byte、1始まりの行・列、snapshot種別（working tree/Git revision/config）、内容hashで保持する。columnの単位はbyteかUnicode文字かを契約で固定し、エディタ向けUTF-16変換は表示側で行う。Goの`//line`による論理位置と実ファイル位置は区別する。
+**P1-02実装済み:** ファイル・package節・importの位置は、所有`SourceUnit`の物理パスと内容hash、0始まりのbyte offset、1始まりの行・byte列で保持する。spanは開始を含み終端を含まない。CRLFも元のbyte列で数え、Goの`//line`による論理位置とは区別する。Java importは宣言全体、Go importは各spec（alias・パス）を覆う。エディタ向けUTF-16変換、独立したファイルID、snapshot種別の共通IR化は今後の設計とし、現在のworking tree／Git base区別は説明層で維持する。
 
 説明は、解析時に読んだ同じバイト列のスナップショットから作る現行方針を引き継ぐ。Git比較元の説明を現在のファイルで代用しない。ASTオブジェクトや端末向け文章をIRに保存しない。
 
@@ -350,7 +351,7 @@ flowchart TD
 
 文脈を含む解析結果をキャッシュする必要が生じた場合は、別のキーへroot/module識別子、`go.mod`/`go.sum`/`go.work`・replace、build flags、Go version、Javaのsource root/classpath・言語レベル、frontend版、依存宣言のfingerprintを含める。必要な入力だけを段階ごとに選び、全環境変数や絶対パスを無差別にhashしない。外部依存の変更時は呼び出し元やSCCも無効化対象になり得る。
 
-- キャッシュschemaはファイル情報の導入時に更新し、古いエントリーを安全にmissにする。
+- P1-02で両言語のschemaを更新し、ファイル情報のない古いエントリーを安全にmissにする。
 - 表示設定、title、renderer、focusによる見え方は構文キーへ入れない。解析範囲に影響する設定と表示だけの設定を分ける。
 - メモリーでは型ID／ファイルIDへの参照で集約し、同じimport・ソース本文を型ごとに複製しない。通常実行で詳細根拠を無駄に構築しない。
 - Package SCCはグラフ構築後に線形時間だが、名前解決、Goの型×interface照合、意味解析、PlantUMLのレイアウト費用は別。SCCだけから全体性能を保証しない。
@@ -530,7 +531,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 9. 最初の実装: パッケージ図MVPのIssue分割
 
-初回調査で分割したIssue候補と実装状況。P1-01は開発版で実装・検証済み、P1-02以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
+初回調査で分割したIssue候補と実装状況。P1-01・02は開発版で実装・検証済み、P1-03以降の未チェック項目は未実施。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
 
 ### P1-01: Goの解析キャッシュをmodule文脈から分離する
 
@@ -552,14 +553,29 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ### P1-02: ファイル単位の解析結果とimport位置を導入する
 
-- [ ] 対象: `internal/model/model.go`、両言語の`parser.go`、`internal/language/language.go`、CLI/cacheの利用箇所。新規候補: `internal/model/source.go`。
-- [ ] SourceUnit、物理source span、package節、import記録、既存Typesを一度の構文解析から返す。
-- [ ] Javaの通常／static／wildcard／ネスト型import、Goのalias／dot／blank importを区別する。ファイルscopeを保つ。
-- [ ] 受入: 型0件のGo関数ファイル、package宣言だけのJava、複数型のJava、同じ型の別ファイルGoメソッドで、情報が消失・重複しない。
-- [ ] module-info、無名package、構文エラー、CRLF、Unicode、最終改行なしの位置・診断を検証する。
-- [ ] 全callerとキャッシュを同じ契約へ移行し、不要になった内部入口を残さない。
+- [x] 対象: `internal/model/model.go`、両言語の`parser.go`、`internal/language/language.go`、CLI/cacheの利用箇所、新規`internal/model/source.go`。
+- [x] SourceUnit、物理source span、package節、import記録、既存Typesを一度の構文解析から返す。
+- [x] Javaの通常／static／wildcard／ネスト型import、Goのalias／dot／blank importを区別する。ファイルscopeを保つ。
+- [x] 受入: 型0件のGo関数ファイル、package宣言だけのJava、複数型のJava、同じ型の別ファイルGoメソッドで、情報が消失・重複しない。
+- [x] module-info、無名package、構文エラー、CRLF、Unicode、最終改行なしの位置・診断を検証する。
+- [x] 全callerとキャッシュを同じ契約へ移行し、不要になった内部入口を残さない。
 
-依存: P1-01。将来の関数本体やCFGはここへ追加しない。
+依存: P1-01。実装済み。関数本体やCFG、package graphはこの変更に含めない。
+
+実装契約:
+
+- `ParseFile`／`ParseSource`は両言語・language backendとも`*model.SourceUnit`を返し、cacheは`Result.Unit`を返す。旧型配列APIの入口は残さない。
+- ファイルの構文同一性は物理パスとSHA-256で扱う。パスとmodule由来の`PackagePath`は実行ごとに再束縛し、永続化しない。
+- unitのimport一覧はファイル内の複数型が共有し、JSONへ一度だけ保存する。Goのclass投影でimportを統合してもunitのscopeを変更せず、位置の違いだけでclass importを重複させない。
+- importの完全名を保存するが、Javaのネスト型／static memberの所有packageを文字列の末尾削除で推定しない。Goの明示aliasは`.`／`_`を含めて保存する。
+- 構文エラーでは位置付き`syntax-error`診断とerrorを返し、部分的な型を成功結果として採用・キャッシュしない。module宣言は位置付き非対応診断として内部unitに残す。CLIの終了条件・説明形式は維持する。
+
+2026-11-02の検証:
+
+- `go test ./...`、`go vet ./...`成功。package/importの正確な物理位置、別ファイルscope、class投影との分離、型0件のcache hit、別パスでのファイル情報復元を回帰テストで確認。
+- 実APIの一時runnerでGo関数のみ、Java packageのみ／複数・ネスト型／無名package／module宣言を解析し、cold／warm構文一致、位置、内容hash、import一重保存、本文・パス非保存を確認。両言語の構文エラー診断も確認。
+- 実CLIでJava／Goの代表fixtureをcold／warm／`--no-cache`で生成し、説明・PlantUMLが一致。説明なしの図とも一致し、Javaは既存goldenとも一致。
+- Java packageのみ／Go関数のみの実CLIで、cold miss→warm hitを確認。Java／Goの削除ファイル差分でGit比較元の抜粋・関係線・削除色と各cacheモードの一致を確認。
 
 ### P1-03: PackageIDと依存根拠の集約器を実装する
 

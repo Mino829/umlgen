@@ -1,8 +1,10 @@
 package golang
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
@@ -21,12 +23,12 @@ func TestParseAndFinalizeCompatibilityFixture(t *testing.T) {
 
 	var parsed []model.Type
 	for _, file := range files {
-		types, parseErr := ParseFile(file)
+		unit, parseErr := ParseFile(file)
 		if parseErr != nil {
 			t.Fatalf("ParseFile(%s): %v", file, parseErr)
 		}
-		BindContext(file, types)
-		parsed = append(parsed, types...)
+		BindContext(unit)
+		parsed = append(parsed, unit.Types...)
 	}
 	types := Finalize(parsed)
 	byName := map[string]model.Type{}
@@ -69,9 +71,47 @@ func contains(values []model.TypeReference, want string) bool {
 }
 
 func TestParseSourceReportsSyntaxError(t *testing.T) {
-	_, err := ParseSource("broken.go", []byte("package broken\ntype User struct {"))
-	if err == nil {
-		t.Fatal("expected syntax error")
+	for _, test := range []struct {
+		name   string
+		source string
+		line   int
+		column int
+		offset int
+	}{
+		{
+			name:   "physical illegal declaration",
+			source: "package broken\r\n//line virtual.go:800\r\ntype Valid struct{}\r\n@",
+			line:   4, column: 1,
+			offset: len("package broken\r\n//line virtual.go:800\r\ntype Valid struct{}\r\n"),
+		},
+		{
+			name: "incomplete declaration", source: "package broken\ntype User struct {",
+			line: 2, column: len("type User struct {") + 1,
+			offset: len("package broken\ntype User struct {"),
+		},
+		{name: "empty file", line: 1, column: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			unit, err := ParseSource("broken.go", []byte(test.source))
+			if err == nil {
+				t.Fatal("syntax error was accepted")
+			}
+			if unit == nil {
+				t.Fatalf("unit = %#v", unit)
+			}
+			if len(unit.Types) != 0 {
+				t.Fatalf("syntax failure returned partial types: %#v", unit.Types)
+			}
+			if len(unit.Diagnostics) == 0 {
+				t.Fatal("syntax failure returned no diagnostics")
+			}
+			want := model.SourcePosition{Offset: test.offset, Line: test.line, Column: test.column}
+			for _, diagnostic := range unit.Diagnostics {
+				if diagnostic.Code != "syntax-error" || diagnostic.Span.Start != want || diagnostic.Span.End != want {
+					t.Errorf("diagnostic = %#v, want syntax-error at %#v", diagnostic, want)
+				}
+			}
+		})
 	}
 }
 
@@ -88,15 +128,15 @@ func TestMethodsFromSeparateFilesAreMerged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if methods[0].Line != 0 || otherMethods[0].Line != 0 {
+	if methods.Types[0].Line != 0 || otherMethods.Types[0].Line != 0 {
 		t.Fatal("method-only synthetic types must not claim a declaration line")
 	}
 	for _, test := range []struct {
 		name  string
 		parts [][]model.Type
 	}{
-		{name: "declaration first", parts: [][]model.Type{declaration, methods, otherMethods}},
-		{name: "methods first", parts: [][]model.Type{methods, otherMethods, declaration}},
+		{name: "declaration first", parts: [][]model.Type{declaration.Types, methods.Types, otherMethods.Types}},
+		{name: "methods first", parts: [][]model.Type{methods.Types, otherMethods.Types, declaration.Types}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var parsed []model.Type
@@ -244,10 +284,11 @@ type MyStruct struct{}
 func (m MyStruct) ValueMethod() {}
 func (m *MyStruct) PointerMethod() {}
 `)
-	types, err := ParseSource("test.go", source)
+	unit, err := ParseSource("test.go", source)
 	if err != nil {
 		t.Fatal(err)
 	}
+	types := unit.Types
 
 	if len(types) != 1 {
 		t.Fatalf("Expected 1 type, got %d", len(types))
@@ -320,7 +361,7 @@ type Unnamed interface {
 		t.Fatal(err)
 	}
 	byName := map[string]model.Type{}
-	for _, typ := range Finalize(parsed) {
+	for _, typ := range Finalize(parsed.Types) {
 		byName[typ.Name] = typ
 	}
 	for name, line := range map[string]int{
@@ -395,11 +436,11 @@ func TestInferredImplementationUsesMethodLocationWithoutDeclaration(t *testing.T
 		line         int
 	}{
 		{name: "method only", source: "candidate_methods.go", line: 3},
-		{name: "real declaration", declarations: declarations, source: "candidate.go", line: 3},
+		{name: "real declaration", declarations: declarations.Types, source: "candidate.go", line: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			parsed := append([]model.Type(nil), methods...)
-			parsed = append(parsed, contracts...)
+			parsed := append([]model.Type(nil), methods.Types...)
+			parsed = append(parsed, contracts.Types...)
 			parsed = append(parsed, test.declarations...)
 			types := Finalize(parsed)
 			var candidate, contract model.Type
@@ -458,11 +499,11 @@ func TestFinalizeWithEvidenceUsesMatchedMethodDeclarations(t *testing.T) {
 				"type Candidate struct { Embedded }\n",
 		},
 	} {
-		types, err := ParseSource(file.path, []byte(file.source))
+		unit, err := ParseSource(file.path, []byte(file.source))
 		if err != nil {
 			t.Fatal(err)
 		}
-		parsed = append(parsed, types...)
+		parsed = append(parsed, unit.Types...)
 	}
 
 	ordinary := Finalize(parsed)
@@ -508,5 +549,233 @@ func TestFinalizeWithEvidenceUsesMatchedMethodDeclarations(t *testing.T) {
 	}
 	if cleared := Finalize(stale); !reflect.DeepEqual(cleared, ordinary) {
 		t.Fatalf("ordinary finalization retained derived evidence: %#v", cleared)
+	}
+}
+
+func TestFunctionsOnlySourceUnitRetainsPackageAndImports(t *testing.T) {
+	source := []byte("package sample\nimport \"fmt\"\nfunc Run() { fmt.Println(\"ok\") }\n")
+	unit, err := ParseSource("functions.go", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unit.Types) != 0 || len(unit.Diagnostics) != 0 {
+		t.Fatalf("function-only declarations = %#v, diagnostics = %#v", unit.Types, unit.Diagnostics)
+	}
+	wantPackage := model.PackageDeclaration{
+		Name: "sample",
+		Span: model.SourceSpan{
+			Start: model.SourcePosition{Offset: 0, Line: 1, Column: 1},
+			End:   model.SourcePosition{Offset: 14, Line: 1, Column: 15},
+		},
+	}
+	if unit.Package != wantPackage {
+		t.Fatalf("package = %#v, want %#v", unit.Package, wantPackage)
+	}
+	wantImports := []model.Import{{
+		Name: "fmt",
+		Span: model.SourceSpan{
+			Start: model.SourcePosition{Offset: 22, Line: 2, Column: 8},
+			End:   model.SourcePosition{Offset: 27, Line: 2, Column: 13},
+		},
+	}}
+	if !reflect.DeepEqual(unit.Imports, wantImports) {
+		t.Fatalf("imports = %#v, want %#v", unit.Imports, wantImports)
+	}
+	wantSpan := model.SourceSpan{
+		Start: model.SourcePosition{Offset: 0, Line: 1, Column: 1},
+		End:   model.SourcePosition{Offset: len(source), Line: 4, Column: 1},
+	}
+	if unit.Span != wantSpan {
+		t.Fatalf("file span = %#v, want %#v", unit.Span, wantSpan)
+	}
+}
+
+func TestSourceUnitPhysicalImportSpans(t *testing.T) {
+	source := "//line virtual.go:900\r\npackage café\r\n//line virtual.go:1200\r\n" +
+		"import (\r\n\t\"fmt\"\r\n\ttexte \"example.com/é\"\r\n\t. \"math\"\r\n\t_ \"embed\"\r\n)\r\nfunc rôle() {}"
+	unit, err := ParseSource("physical.go", []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageOffset := strings.Index(source, "package")
+	wantPackage := model.PackageDeclaration{
+		Name: "café",
+		Span: model.SourceSpan{
+			Start: model.SourcePosition{Offset: packageOffset, Line: 2, Column: 1},
+			End:   model.SourcePosition{Offset: packageOffset + len("package café"), Line: 2, Column: len("package café") + 1},
+		},
+	}
+	if unit.Package != wantPackage {
+		t.Fatalf("package = %#v, want %#v", unit.Package, wantPackage)
+	}
+	wantEnd := model.SourcePosition{Offset: len(source), Line: 10, Column: len("func rôle() {}") + 1}
+	if unit.Span.Start != (model.SourcePosition{Line: 1, Column: 1}) || unit.Span.End != wantEnd {
+		t.Fatalf("file span = %#v, want physical end %#v", unit.Span, wantEnd)
+	}
+	specs := []struct {
+		text  string
+		name  string
+		alias string
+		line  int
+	}{
+		{text: `"fmt"`, name: "fmt", line: 5},
+		{text: `texte "example.com/é"`, name: "example.com/é", alias: "texte", line: 6},
+		{text: `. "math"`, name: "math", alias: ".", line: 7},
+		{text: `_ "embed"`, name: "embed", alias: "_", line: 8},
+	}
+	if len(unit.Imports) != len(specs) {
+		t.Fatalf("imports = %#v", unit.Imports)
+	}
+	for i, spec := range specs {
+		offset := strings.Index(source, spec.text)
+		want := model.Import{
+			Name: spec.name, Alias: spec.alias,
+			Span: model.SourceSpan{
+				Start: model.SourcePosition{Offset: offset, Line: spec.line, Column: 2},
+				End:   model.SourcePosition{Offset: offset + len(spec.text), Line: spec.line, Column: len(spec.text) + 2},
+			},
+		}
+		if unit.Imports[i] != want {
+			t.Errorf("import %d = %#v, want %#v", i, unit.Imports[i], want)
+		}
+	}
+}
+
+func TestSourceUnitsKeepIndependentCanonicalImportsBeforeFinalize(t *testing.T) {
+	left, err := ParseSource("left.go", []byte("package sample\nimport dep \"example.com/left\"\ntype User struct { Value dep.Value }\ntype Other struct{}\nfunc (u User) Left(v dep.Value) {}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := ParseSource("right.go", []byte("package sample\nimport dep \"example.com/right\"\nfunc (u User) Right(v dep.Value) {}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range []*model.SourceUnit{left, right} {
+		for _, typ := range unit.Types {
+			if !reflect.DeepEqual(typ.Imports, unit.Imports) {
+				t.Fatalf("%s.%s lost its file's imports", unit.Path, typ.Name)
+			}
+		}
+	}
+	if len(left.Imports) != 1 || len(right.Imports) != 1 ||
+		left.Imports[0].Name != "example.com/left" || right.Imports[0].Name != "example.com/right" ||
+		left.Imports[0].Alias != "dep" || right.Imports[0].Alias != "dep" {
+		t.Fatalf("independent unit imports: left = %#v, right = %#v", left.Imports, right.Imports)
+	}
+	var leftUser model.Type
+	for _, typ := range left.Types {
+		if typ.Name == "User" {
+			leftUser = typ
+		}
+	}
+	if len(leftUser.Methods) != 1 || leftUser.Methods[0].Parameters[0].Type != "dep.Value" {
+		t.Fatalf("left methods = %#v", leftUser.Methods)
+	}
+	if len(right.Types) != 1 || right.Types[0].Name != "User" || len(right.Types[0].Methods) != 1 ||
+		right.Types[0].Methods[0].Parameters[0].Type != "dep.Value" {
+		t.Fatalf("right types = %#v", right.Types)
+	}
+}
+
+func TestFinalizeDoesNotAppendIntoSourceUnitImports(t *testing.T) {
+	for _, finalize := range []struct {
+		name string
+		run  func([]model.Type) []model.Type
+	}{
+		{name: "ordinary", run: Finalize},
+		{name: "evidence", run: FinalizeWithEvidence},
+	} {
+		t.Run(finalize.name, func(t *testing.T) {
+			left, err := ParseSource("left.go", []byte("package sample\nimport left \"example.com/left\"\ntype User struct{}"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			right, err := ParseSource("right.go", []byte("package sample\nimport right \"example.com/right\"\nfunc (u User) Right() {}"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			repeated, err := ParseSource("extra.go", []byte("package sample\n\nimport right \"example.com/right\"\nfunc (u User) Extra() {}"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Reserve capacity so appending a file-scoped import would overwrite
+			// the class projection's merged dependency if ownership is lost.
+			imports := make([]model.Import, len(left.Imports), len(left.Imports)+1)
+			copy(imports, left.Imports)
+			left.Imports = imports
+			left.RebindPath(left.Path)
+			types := append(append(append([]model.Type(nil), left.Types...), right.Types...), repeated.Types...)
+			projected := finalize.run(types)
+			if len(projected) != 1 || len(projected[0].Imports) != 2 {
+				t.Fatalf("merged imports must ignore declaration positions: %#v", projected)
+			}
+			left.Imports = append(left.Imports, model.Import{Name: "example.com/new"})
+			if projected[0].Imports[0].Name != "example.com/left" ||
+				projected[0].Imports[1].Name != "example.com/right" ||
+				len(right.Imports) != 1 || len(repeated.Imports) != 1 {
+				t.Fatalf("file import change corrupted the class projection: %#v", projected)
+			}
+		})
+	}
+}
+
+func TestBindContextRebindsUnitsIncludingFilesWithoutTypes(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	for _, directory := range []string{first, second} {
+		if err := os.MkdirAll(filepath.Join(directory, "nested"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, module := range map[string]string{
+		filepath.Join(first, "go.mod"):  "module example.com/first\n",
+		filepath.Join(second, "go.mod"): "module example.com/second\n",
+	} {
+		if err := os.WriteFile(path, []byte(module), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		name   string
+		source string
+	}{
+		{name: "functions only", source: "package declared\nfunc Run() {}"},
+		{name: "type declaration", source: "package declared\ntype Value struct{}"},
+		{name: "package only", source: "package declared"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			unit, err := ParseSource(filepath.Join(first, "nested", "file.go"), []byte(test.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if unit.PackagePath != "" {
+				t.Fatalf("parse bound module context: %q", unit.PackagePath)
+			}
+			for _, typ := range unit.Types {
+				if typ.Package != "declared" {
+					t.Fatalf("parsed package = %q, want declared", typ.Package)
+				}
+			}
+			for _, binding := range []struct {
+				path string
+				want string
+			}{
+				{path: filepath.Join(first, "nested", "file.go"), want: "example.com/first/nested"},
+				{path: filepath.Join(second, "file.go"), want: "example.com/second"},
+				{path: filepath.Join(root, "standalone.go"), want: "declared"},
+			} {
+				unit.RebindPath(binding.path)
+				BindContext(unit)
+				if unit.Package.Name != "declared" || unit.PackagePath != binding.want {
+					t.Fatalf("bound package = %#v, package path = %q, want %q", unit.Package, unit.PackagePath, binding.want)
+				}
+				for _, typ := range unit.Types {
+					if typ.Package != binding.want {
+						t.Fatalf("type package = %q, want %q", typ.Package, binding.want)
+					}
+				}
+			}
+		})
 	}
 }

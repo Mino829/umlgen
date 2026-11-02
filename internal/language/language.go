@@ -18,11 +18,11 @@ type Parser interface {
 	Extensions() []string
 	MatchesPath(string) bool
 	CacheSchema() string
-	ParseFile(string) ([]model.Type, error)
-	ParseSource(string, []byte) ([]model.Type, error)
+	ParseFile(string) (*model.SourceUnit, error)
+	ParseSource(string, []byte) (*model.SourceUnit, error)
 	// BindContext applies filesystem context to one file's syntax declarations.
 	// Call after cache storage and before filtering or Finalize.
-	BindContext(string, []model.Type)
+	BindContext(*model.SourceUnit)
 	Finalize([]model.Type, bool) []model.Type
 }
 
@@ -147,14 +147,16 @@ func (javaParser) Extensions() []string { return []string{".java"} }
 func (javaParser) MatchesPath(path string) bool {
 	return strings.EqualFold(filepath.Ext(path), ".java")
 }
-func (javaParser) CacheSchema() string { return "java-tree-sitter-v2" }
-func (javaParser) ParseFile(path string) ([]model.Type, error) {
+func (javaParser) CacheSchema() string { return java.SchemaVersion }
+func (javaParser) ParseFile(path string) (*model.SourceUnit, error) {
 	return java.ParseFile(path)
 }
-func (javaParser) ParseSource(path string, source []byte) ([]model.Type, error) {
+func (javaParser) ParseSource(path string, source []byte) (*model.SourceUnit, error) {
 	return java.ParseSource(path, source)
 }
-func (javaParser) BindContext(_ string, _ []model.Type) {}
+func (javaParser) BindContext(unit *model.SourceUnit) {
+	unit.PackagePath = unit.Package.Name
+}
 func (javaParser) Finalize(types []model.Type, _ bool) []model.Type {
 	java.SortTypes(types)
 	return types
@@ -168,14 +170,14 @@ func (goParser) MatchesPath(path string) bool {
 	return strings.HasSuffix(lower, ".go") && !strings.HasSuffix(lower, "_test.go")
 }
 func (goParser) CacheSchema() string { return golang.SchemaVersion }
-func (goParser) ParseFile(path string) ([]model.Type, error) {
+func (goParser) ParseFile(path string) (*model.SourceUnit, error) {
 	return golang.ParseFile(path)
 }
-func (goParser) ParseSource(path string, source []byte) ([]model.Type, error) {
+func (goParser) ParseSource(path string, source []byte) (*model.SourceUnit, error) {
 	return golang.ParseSource(path, source)
 }
-func (goParser) BindContext(path string, types []model.Type) {
-	golang.BindContext(path, types)
+func (goParser) BindContext(unit *model.SourceUnit) {
+	golang.BindContext(unit)
 }
 func (goParser) Finalize(types []model.Type, explain bool) []model.Type {
 	if explain {

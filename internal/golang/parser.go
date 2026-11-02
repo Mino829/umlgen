@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/parser"
+	"go/scanner"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -18,9 +19,9 @@ import (
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
-const SchemaVersion = "go-ast-v3"
+const SchemaVersion = "go-ast-v4"
 
-func ParseFile(path string) ([]model.Type, error) {
+func ParseFile(path string) (*model.SourceUnit, error) {
 	source, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -28,17 +29,35 @@ func ParseFile(path string) ([]model.Type, error) {
 	return ParseSource(path, source)
 }
 
-// ParseSource returns content-dependent declarations. BindContext must run before
-// package filtering, finalization or relation analysis.
-func ParseSource(path string, source []byte) ([]model.Type, error) {
+// ParseSource returns a content-dependent source unit. BindContext must run
+// before package filtering, finalization or relation analysis.
+func ParseSource(path string, source []byte) (*model.SourceUnit, error) {
+	unit := model.NewSourceUnit("go", path, source)
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, source, parser.AllErrors)
 	if err != nil {
-		return nil, fmt.Errorf("Go syntax error: %w", err)
+		if syntaxErrors, ok := err.(scanner.ErrorList); ok {
+			var sourceFile *token.File
+			fset.Iterate(func(file *token.File) bool {
+				sourceFile = file
+				return false
+			})
+			for _, syntaxError := range syntaxErrors {
+				physical := sourceFile.PositionFor(sourceFile.Pos(syntaxError.Pos.Offset), false)
+				position := model.SourcePosition{Offset: physical.Offset, Line: physical.Line, Column: physical.Column}
+				unit.Diagnostics = append(unit.Diagnostics, model.SourceDiagnostic{
+					Code: "syntax-error", Span: model.SourceSpan{Start: position, End: position},
+				})
+			}
+		}
+		return unit, fmt.Errorf("Go syntax error: %w", err)
 	}
 
 	pkg := file.Name.Name
-	imports := parseImports(file)
+	unit.Package = model.PackageDeclaration{
+		Name: pkg, Span: sourceSpan(fset, file.Package, file.Name.End()),
+	}
+	unit.Imports = parseImports(file, fset)
 	var types []model.Type
 	byName := map[string]int{}
 	for _, declaration := range file.Decls {
@@ -51,7 +70,7 @@ func ParseSource(path string, source []byte) ([]model.Type, error) {
 			if !ok {
 				continue
 			}
-			parsed := parseType(typeSpec, fset, pkg, path, imports)
+			parsed := parseType(typeSpec, fset, pkg, path, unit.Imports)
 			byName[parsed.Name] = len(types)
 			types = append(types, parsed)
 		}
@@ -76,18 +95,19 @@ func ParseSource(path string, source []byte) ([]model.Type, error) {
 		byName[receiver] = len(types)
 		types = append(types, model.Type{
 			Package: pkg, Name: receiver, Kind: model.Struct,
-			Visibility: visibility(receiver), Imports: cloneImports(imports),
+			Visibility: visibility(receiver), Imports: unit.Imports,
 			Methods: []model.Method{method}, Source: path,
 		})
 	}
 	SortTypes(types)
-	return types, nil
+	unit.Types = types
+	return unit, nil
 }
 
 func parseType(spec *ast.TypeSpec, fset *token.FileSet, pkg, path string, imports []model.Import) model.Type {
 	t := model.Type{
 		Package: pkg, Name: spec.Name.Name, Kind: model.Class,
-		Visibility: visibility(spec.Name.Name), Imports: cloneImports(imports), Source: path,
+		Visibility: visibility(spec.Name.Name), Imports: imports, Source: path,
 		Line: fset.PositionFor(spec.Pos(), false).Line,
 	}
 	switch declared := spec.Type.(type) {
@@ -200,20 +220,29 @@ func parseResults(fields *ast.FieldList, fset *token.FileSet) string {
 	return "(" + strings.Join(result, ", ") + ")"
 }
 
-func parseImports(file *ast.File) []model.Import {
+func parseImports(file *ast.File, fset *token.FileSet) []model.Import {
 	var result []model.Import
 	for _, imported := range file.Imports {
 		path, err := strconv.Unquote(imported.Path.Value)
 		if err != nil {
 			continue
 		}
-		item := model.Import{Name: path}
+		item := model.Import{Name: path, Span: sourceSpan(fset, imported.Pos(), imported.End())}
 		if imported.Name != nil {
 			item.Alias = imported.Name.Name
 		}
 		result = append(result, item)
 	}
 	return result
+}
+
+func sourceSpan(fset *token.FileSet, start, end token.Pos) model.SourceSpan {
+	startPosition := fset.PositionFor(start, false)
+	endPosition := fset.PositionFor(end, false)
+	return model.SourceSpan{
+		Start: model.SourcePosition{Offset: startPosition.Offset, Line: startPosition.Line, Column: startPosition.Column},
+		End:   model.SourcePosition{Offset: endPosition.Offset, Line: endPosition.Line, Column: endPosition.Column},
+	}
 }
 
 func expressionText(fset *token.FileSet, expression ast.Expr) string {
@@ -264,13 +293,10 @@ func visibility(name string) model.Visibility {
 
 // BindContext binds one file's syntax declarations to its current module and
 // directory. It must run after cache storage so module paths are never persisted.
-func BindContext(path string, types []model.Type) {
-	if len(types) == 0 {
-		return
-	}
-	pkg := packagePath(path, types[0].Package)
-	for i := range types {
-		types[i].Package = pkg
+func BindContext(unit *model.SourceUnit) {
+	unit.PackagePath = packagePath(unit.Path, unit.Package.Name)
+	for i := range unit.Types {
+		unit.Types[i].Package = unit.PackagePath
 	}
 }
 
@@ -332,6 +358,9 @@ func finalize(types []model.Type, withEvidence bool) []model.Type {
 			continue
 		}
 		indexes[key] = len(merged)
+		// A class projection may merge imports, but must never append into its
+		// source unit's canonical slice. Defer allocation until imports grow.
+		current.Imports = current.Imports[:len(current.Imports):len(current.Imports)]
 		merged = append(merged, current)
 	}
 	inferImplementations(merged, withEvidence)
@@ -357,7 +386,8 @@ func mergeType(target *model.Type, source model.Type) {
 	for _, imported := range source.Imports {
 		found := false
 		for _, existing := range target.Imports {
-			if existing == imported {
+			if existing.Name == imported.Name && existing.Alias == imported.Alias &&
+				existing.Static == imported.Static && existing.Wildcard == imported.Wildcard {
 				found = true
 				break
 			}
@@ -519,10 +549,6 @@ func appendUniqueMethods(methods []model.Method, additional ...model.Method) []m
 		}
 	}
 	return methods
-}
-
-func cloneImports(imports []model.Import) []model.Import {
-	return append([]model.Import(nil), imports...)
 }
 
 func SortTypes(types []model.Type) {

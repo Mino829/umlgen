@@ -30,7 +30,7 @@
 
 既存の`--explain`を拡張する学習者向けの関係説明を開発ブランチで実装済み（未マージ）。関係の意味、解析時のソース抜粋、Goの暗黙実装を支えるメソッド、範囲・失敗・未解決・既知の非表示参照を扱う。実CLIとテストの確認結果は[`development-direction.md`](development-direction.md)に記録。レビュー後は関係線の変更と根拠の変化を扱うチーム向け機能を検討し、watch／導入改善はその後に進める。リリースの実施は別途判断する。
 
-図の拡張計画の前提修正 **P1-01（Goキャッシュのmodule文脈分離）** は開発版で実装済み。構文キャッシュ取得後、現在の`go.mod`と配置に再束縛してからフィルター・型統合を行う。別module、module名変更／削除、配置移動、moduleなしでcold／warm／`--no-cache`の一致と実キャッシュヒットを確認し、Java／Goの削除ファイル説明も維持した。`go test ./...`、`go vet ./...`成功。詳細・次の独立した実装単位P1-02は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。パッケージ図自体は未実装。
+図の拡張計画の前提修正 **P1-01（Goキャッシュのmodule文脈分離）** と **P1-02（ファイル単位の解析結果・import位置）** は開発版で実装済み。Java／Goの`SourceUnit`は型0件でもpackage節・import・物理位置・診断を保持し、キャッシュはファイルscopeを復元してから現在のmoduleへ再束縛する。実CLIで既存図と説明のcold／warm／`--no-cache`一致、Javaのgolden、型0件のcache hit、削除ファイルのGit比較元を確認。`go test ./...`、`go vet ./...`成功。次の独立した実装単位は **P1-03（PackageIDと依存根拠の集約）**。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。パッケージ図自体は未実装。
 
 ## 進め方
 

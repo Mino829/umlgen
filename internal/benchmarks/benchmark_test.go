@@ -38,9 +38,12 @@ func BenchmarkParseJavaSource(b *testing.B) {
 			b.SetBytes(int64(len(source)))
 			b.ResetTimer()
 			for range b.N {
-				types, err := java.ParseSource("Benchmark.java", source)
-				if err != nil || len(types) != count {
-					b.Fatalf("types=%d err=%v", len(types), err)
+				unit, err := java.ParseSource("Benchmark.java", source)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(unit.Types) != count {
+					b.Fatalf("types=%d", len(unit.Types))
 				}
 			}
 		})
@@ -101,7 +104,7 @@ func BenchmarkWarmJavaCache(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		result, err := cache.ParseFile(sourcePath)
-		if err != nil || !result.Hit || len(result.Types) != 100 {
+		if err != nil || !result.Hit || len(result.Unit.Types) != 100 {
 			b.Fatalf("result=%#v err=%v", result, err)
 		}
 	}

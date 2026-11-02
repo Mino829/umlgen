@@ -3,6 +3,7 @@ package java
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -31,10 +32,11 @@ public class UserService extends BaseService implements UserUseCase, Auditable {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	types, err := ParseFile(path)
+	unit, err := ParseFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	types := unit.Types
 	if len(types) != 1 {
 		t.Fatalf("got %d types", len(types))
 	}
@@ -65,10 +67,11 @@ public interface Repository extends Parent {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	types, err := ParseFile(path)
+	unit, err := ParseFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	types := unit.Types
 	if len(types) != 1 || types[0].Kind != model.Interface {
 		t.Fatalf("unexpected types: %#v", types)
 	}
@@ -90,10 +93,11 @@ enum Status { ACTIVE, INACTIVE }`
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	types, err := ParseFile(path)
+	unit, err := ParseFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	types := unit.Types
 	if len(types) != 2 {
 		t.Fatalf("got %d types: %#v", len(types), types)
 	}
@@ -132,10 +136,11 @@ enum Status {
     static class Metadata {}
 }`
 
-	types, err := ParseSource("Common.java", []byte(source))
+	unit, err := ParseSource("Common.java", []byte(source))
 	if err != nil {
 		t.Fatal(err)
 	}
+	types := unit.Types
 	if len(types) != 5 {
 		t.Fatalf("types = %d, want 5: %#v", len(types), types)
 	}
@@ -202,10 +207,11 @@ class Outer
         First<Target, Other>,
         Second {}
 }`
-	types, err := ParseSource(path, []byte(source))
+	unit, err := ParseSource(path, []byte(source))
 	if err != nil {
 		t.Fatal(err)
 	}
+	types := unit.Types
 	if len(types) != 4 {
 		t.Fatalf("types = %d, want 4: %#v", len(types), types)
 	}
@@ -296,10 +302,11 @@ public class Outer {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	types, err := ParseFile(path)
+	unit, err := ParseFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	types := unit.Types
 	if len(types) != 2 {
 		t.Fatalf("types = %#v", types)
 	}
@@ -324,11 +331,11 @@ func TestParseCompatibilityFixture(t *testing.T) {
 
 	byName := map[string]model.Type{}
 	for _, file := range files {
-		types, parseErr := ParseFile(file)
+		unit, parseErr := ParseFile(file)
 		if parseErr != nil {
 			t.Fatalf("ParseFile(%s): %v", file, parseErr)
 		}
-		for _, parsed := range types {
+		for _, parsed := range unit.Types {
 			byName[parsed.QualifiedName()] = parsed
 		}
 	}
@@ -387,4 +394,162 @@ func compatibilityFixturePath(t *testing.T, parts ...string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestParsePackageOnlySourceUnit(t *testing.T) {
+	const source = "package sample;"
+	unit, err := ParseSource("package-info.java", []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSpan := model.SourceSpan{
+		Start: model.SourcePosition{Offset: 0, Line: 1, Column: 1},
+		End:   model.SourcePosition{Offset: 15, Line: 1, Column: 16},
+	}
+	if unit.Span != wantSpan || unit.Package != (model.PackageDeclaration{Name: "sample", Span: wantSpan}) {
+		t.Fatalf("source/package spans = %#v / %#v, want %#v", unit.Span, unit.Package, wantSpan)
+	}
+	if len(unit.Types) != 0 || len(unit.Imports) != 0 || len(unit.Diagnostics) != 0 {
+		t.Fatalf("package-only declarations = %#v", unit)
+	}
+}
+
+func TestParseUnnamedPackageSourceUnit(t *testing.T) {
+	unit, err := ParseSource("Plain.java", []byte("class Plain {}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unit.Package != (model.PackageDeclaration{}) || len(unit.Types) != 1 ||
+		unit.Types[0].Package != "" || unit.Types[0].QualifiedName() != "Plain" {
+		t.Fatalf("unnamed package = %#v", unit)
+	}
+	wantEnd := model.SourcePosition{Offset: 14, Line: 1, Column: 15}
+	if unit.Span.End != wantEnd || len(unit.Diagnostics) != 0 {
+		t.Fatalf("unnamed source span/diagnostics = %#v / %#v", unit.Span, unit.Diagnostics)
+	}
+}
+
+func TestParseSourceUnitStructuralImportsAndPhysicalSpans(t *testing.T) {
+	const source = "// π\r\n" +
+		"package café /*x*/ . app;\r\n" +
+		"import one /*x*/ . Two;\r\n" +
+		"import /*x*/ static\tone . Outer /*x*/ . member;\r\n" +
+		"import two /*x*/ . *;\r\n" +
+		"import static three . Outer /*x*/ . *;\r\n" +
+		"import four . Outer /*x*/ . Inner;\r\n" +
+		"import static five . Outer /*x*/ . Nested;\r\n" +
+		"class Outer { class Inner {} }\r\n" +
+		"class Other {}"
+	unit, err := ParseSource("Types.java", []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSpan := model.SourceSpan{
+		Start: model.SourcePosition{Offset: 0, Line: 1, Column: 1},
+		End:   model.SourcePosition{Offset: 298, Line: 10, Column: 15},
+	}
+	wantPackage := model.PackageDeclaration{
+		Name: "café.app",
+		Span: model.SourceSpan{
+			Start: model.SourcePosition{Offset: 7, Line: 2, Column: 1},
+			End:   model.SourcePosition{Offset: 33, Line: 2, Column: 27},
+		},
+	}
+	if unit.Span != wantSpan || unit.Package != wantPackage {
+		t.Fatalf("source/package spans = %#v / %#v, want %#v / %#v", unit.Span, unit.Package, wantSpan, wantPackage)
+	}
+	wants := []struct {
+		name             string
+		static, wildcard bool
+		start, end       int
+		line, endColumn  int
+	}{
+		{"one.Two", false, false, 35, 58, 3, 24},
+		{"one.Outer.member", true, false, 60, 107, 4, 48},
+		{"two", false, true, 109, 130, 5, 22},
+		{"three.Outer", true, true, 132, 170, 6, 39},
+		{"four.Outer.Inner", false, false, 172, 206, 7, 35},
+		{"five.Outer.Nested", true, false, 208, 250, 8, 43},
+	}
+	if len(unit.Imports) != len(wants) {
+		t.Fatalf("imports = %#v, want %d", unit.Imports, len(wants))
+	}
+	for i, want := range wants {
+		expected := model.Import{
+			Name: want.name, Static: want.static, Wildcard: want.wildcard,
+			Span: model.SourceSpan{
+				Start: model.SourcePosition{Offset: want.start, Line: want.line, Column: 1},
+				End:   model.SourcePosition{Offset: want.end, Line: want.line, Column: want.endColumn},
+			},
+		}
+		if unit.Imports[i] != expected {
+			t.Errorf("import %d = %#v, want %#v", i, unit.Imports[i], expected)
+		}
+	}
+	wantNames := []string{"café.app.Outer", "café.app.Outer.Inner", "café.app.Other"}
+	if len(unit.Types) != len(wantNames) {
+		t.Fatalf("types = %#v", unit.Types)
+	}
+	for i, parsed := range unit.Types {
+		if parsed.QualifiedName() != wantNames[i] || parsed.Source != "Types.java" {
+			t.Errorf("type %d = %#v", i, parsed)
+		}
+		if !reflect.DeepEqual(parsed.Imports, unit.Imports) {
+			t.Errorf("type %d lost its file's imports", i)
+		}
+	}
+	if unit.Types[0].Line != 9 || unit.Types[1].Line != 9 || unit.Types[2].Line != 10 {
+		t.Errorf("physical type lines = %d, %d, %d", unit.Types[0].Line, unit.Types[1].Line, unit.Types[2].Line)
+	}
+	if len(unit.Diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v", unit.Diagnostics)
+	}
+}
+
+func TestParseModuleDeclarationDiagnostic(t *testing.T) {
+	const source = "/* π */\r\nopen module sample.app {\r\n    requires java.base;\r\n    exports sample.api;\r\n}"
+	unit, err := ParseSource("module-info.java", []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := model.SourceDiagnostic{
+		Code: "unsupported-module-declaration",
+		Span: model.SourceSpan{
+			Start: model.SourcePosition{Offset: 10, Line: 2, Column: 1},
+			End:   model.SourcePosition{Offset: 87, Line: 5, Column: 2},
+		},
+	}
+	if len(unit.Diagnostics) != 1 || unit.Diagnostics[0] != want {
+		t.Fatalf("module diagnostics = %#v, want %#v", unit.Diagnostics, want)
+	}
+	if unit.Package != (model.PackageDeclaration{}) || len(unit.Imports) != 0 || len(unit.Types) != 0 {
+		t.Fatalf("module directives invented package/type dependencies: %#v", unit)
+	}
+	if unit.Span.End != want.Span.End {
+		t.Fatalf("module source end = %#v, want %#v", unit.Span.End, want.Span.End)
+	}
+}
+
+func TestParseSyntaxDiagnosticHasPhysicalMissingTokenSpan(t *testing.T) {
+	const source = "class Good {}\r\nclass Café {"
+	unit, err := ParseSource("Broken.java", []byte(source))
+	if err == nil {
+		t.Fatalf("err = %v", err)
+	}
+	if unit == nil {
+		t.Fatal("syntax failure did not return a source unit")
+	}
+	wantPosition := model.SourcePosition{Offset: 28, Line: 2, Column: 14}
+	want := model.SourceDiagnostic{
+		Code: "syntax-error", Span: model.SourceSpan{Start: wantPosition, End: wantPosition},
+	}
+	if len(unit.Diagnostics) != 1 || unit.Diagnostics[0] != want {
+		t.Fatalf("syntax diagnostics = %#v, want %#v", unit.Diagnostics, want)
+	}
+	if len(unit.Types) != 0 {
+		t.Fatalf("syntax failure returned partial types: %#v", unit.Types)
+	}
+	if unit.Span.End != wantPosition {
+		t.Fatalf("syntax source end = %#v", unit.Span.End)
+	}
 }
