@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/Mino829/umlgen/internal/plantuml"
 	"github.com/Mino829/umlgen/internal/relations"
 	"github.com/Mino829/umlgen/internal/renderer"
-	"github.com/Mino829/umlgen/internal/scanner"
 )
 
 var Version = "0.5.0-dev"
@@ -54,9 +52,14 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return exitOK, nil
 	}
 	commandAt := -1
-	for i, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--config" || arg == "-config" {
+			i++
+			continue
+		}
 		switch arg {
-		case "class", "diff", "init", "cache", "version", "help":
+		case "class", "package", "diff", "init", "cache", "version", "help":
 			commandAt = i
 		}
 		if commandAt >= 0 {
@@ -85,6 +88,9 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		case "class":
 			printClassHelp(stdout)
 			return exitOK, nil
+		case "package":
+			printPackageHelp(stdout)
+			return exitOK, nil
 		case "diff":
 			printDiffHelp(stdout)
 			return exitOK, nil
@@ -112,6 +118,8 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return runCache(rest, common, stdout)
 	case "class":
 		return runClass(rest, common, stdout, stderr)
+	case "package":
+		return runPackage(rest, common, stdout, stderr)
 	case "diff":
 		return runDiff(rest, common, stdout, stderr)
 	default:
@@ -274,7 +282,7 @@ func runClassMode(
 	fs.BoolVar(&o.verbose, "v", o.verbose, "")
 	fs.BoolVar(&o.quiet, "quiet", o.quiet, "")
 	fs.BoolVar(&o.quiet, "q", o.quiet, "")
-	normalized, normalizeErr := normalizeClassArgs(args)
+	normalized, normalizeErr := normalizeDiagramArgs(args, fs)
 	if normalizeErr != nil {
 		return exitArgs, normalizeErr
 	}
@@ -456,7 +464,7 @@ func runClassMode(
 		}
 		explanation.Sources = make(map[string]explain.Source)
 	}
-	files, err := scanner.SourceFiles(targets, cfg.Exclude, sourceParser.Extensions()...)
+	files, err := scanSourceFiles(targets, cfg.Exclude, sourceParser)
 	if err != nil {
 		if o.explain {
 			explanation.Failures = append(explanation.Failures, explain.Failure{
@@ -466,7 +474,6 @@ func runClassMode(
 		}
 		return exitError, err
 	}
-	files = matchingFiles(files, sourceParser.MatchesPath)
 	if o.explain {
 		explanation.Scope.Files = len(files)
 	}
@@ -482,88 +489,24 @@ func runClassMode(
 		}
 	}
 
-	var parseCache *javacache.Cache
-	if o.noCache {
-		if o.verbose {
-			fmt.Fprintln(stdout, "Cache: disabled")
-		}
-	} else {
-		cacheSettings := cfg
-		// Clear output-related fields that don't affect parsing
-		cacheSettings.Output.File = ""
-		cacheSettings.Output.Format = ""
-		cacheSettings.Visibility.Public = false
-		cacheSettings.Visibility.Protected = false
-		cacheSettings.Visibility.Private = false
-		cacheSettings.Visibility.PackagePrivate = false
-		cacheSettings.Members.Fields = false
-		cacheSettings.Members.Methods = false
-		cacheSettings.Relations.Inheritance = false
-		cacheSettings.Relations.Implementation = false
-		cacheSettings.Relations.FieldDependency = false
-		cacheSettings.Relations.ParameterDependency = false
-		cacheSettings.Relations.ReturnDependency = false
-		cacheSettings.Renderer.Type = ""
-		cacheSettings.Renderer.ServerURL = ""
-		cacheSettings.Renderer.Timeout = 0
-		cacheSettings.Layout.PackageGrouping = ""
-		cacheSettings.Layout.Direction = ""
-		cacheSettings.Layout.SkinParams = nil
-		parseCache, err = javacache.OpenFor(
-			Version, sourceParser.Name(), sourceParser.CacheSchema(), cacheSettings, sourceParser.ParseSource,
-		)
-		if err != nil {
-			fmt.Fprintf(stderr, "Warning: cache disabled: %v\n", err)
-			parseCache = nil
-		}
-	}
+	analysis := newSourceAnalysis(sourceAnalysisOptions{
+		Config: cfg, Parser: sourceParser, NoCache: o.noCache,
+		CaptureSource: o.explain, Verbose: o.verbose,
+	}, stdout, stderr)
 
 	var types []model.Type
 	var knownTypes []model.Type
 	warnings := 0
 	changedParseFailures := 0
-	cacheHits, cacheMisses := 0, 0
 	for _, file := range files {
 		changedFile := false
 		if diffSelection != nil {
 			_, changedFile = diffSelection.ChangeFor(file)
 		}
-		if o.verbose {
-			fmt.Fprintf(stdout, "Parsing: %s\n", file)
-		}
-		var unit *model.SourceUnit
-		var parseErr error
-		var source []byte
-		if o.explain {
-			source, parseErr = os.ReadFile(file)
-			if parseErr == nil {
-				explanation.Sources[file] = explain.Source{Content: source, Origin: "working tree"}
-			}
-		}
-		if parseErr == nil {
-			if parseCache == nil {
-				if o.explain {
-					unit, parseErr = sourceParser.ParseSource(file, source)
-				} else {
-					unit, parseErr = sourceParser.ParseFile(file)
-				}
-			} else {
-				var result javacache.Result
-				if o.explain {
-					result, parseErr = parseCache.ParseSource(file, source)
-				} else {
-					result, parseErr = parseCache.ParseFile(file)
-				}
-				unit = result.Unit
-				if result.Hit {
-					cacheHits++
-				} else {
-					cacheMisses++
-				}
-				if result.CacheError != nil {
-					fmt.Fprintf(stderr, "Warning: cache entry was refreshed for %s: %v\n", file, result.CacheError)
-				}
-			}
+		parsed := analysis.parseFile(file)
+		unit, parseErr := parsed.Unit, parsed.Err
+		if o.explain && parsed.Captured {
+			explanation.Sources[file] = explain.Source{Content: parsed.Content, Origin: "working tree"}
 		}
 		if parseErr != nil {
 			warnings++
@@ -578,7 +521,6 @@ func runClassMode(
 			}
 			continue
 		}
-		sourceParser.BindContext(unit)
 		found := unit.Types
 		if o.explain {
 			knownTypes = append(knownTypes, found...)
@@ -597,9 +539,7 @@ func runClassMode(
 			}
 		}
 	}
-	if o.verbose && parseCache != nil {
-		fmt.Fprintf(stdout, "Cache hits: %d, misses: %d\n", cacheHits, cacheMisses)
-	}
+	analysis.reportCache()
 	if diffSelection != nil {
 		for _, deleted := range diffSelection.Deleted {
 			if !sourceParser.MatchesPath(deleted.Path) {
@@ -680,25 +620,15 @@ func runClassMode(
 			fmt.Fprintf(stdout, "Focused on %s with depth %d (%d types)\n", o.focus, o.depth, len(types))
 		}
 	}
-	pumlPath := cfg.Output.File
-	ext := strings.ToLower(filepath.Ext(pumlPath))
-	if ext == ".svg" || ext == ".png" {
-		pumlPath = strings.TrimSuffix(pumlPath, filepath.Ext(pumlPath)) + ".puml"
-	}
-	if filepath.Ext(pumlPath) == "" {
-		pumlPath += ".puml"
-	}
+	pumlPath := diagramOutputPath(cfg.Output.File)
 	var content string
 	if noChanges {
 		content = plantuml.Placeholder(o.title, opts)
 	} else {
 		content = plantuml.Generate(model.Project{Types: types}, opts)
 	}
-	if err := os.MkdirAll(filepath.Dir(pumlPath), 0o755); err != nil {
-		return exitOutput, fmt.Errorf("failed to create output directory: %s", filepath.Dir(pumlPath))
-	}
-	if err := os.WriteFile(pumlPath, []byte(content), 0o644); err != nil {
-		return exitOutput, fmt.Errorf("failed to write output file: %s", pumlPath)
+	if err := writeDiagram(pumlPath, content); err != nil {
+		return exitOutput, err
 	}
 	classes, interfaces := countKinds(types)
 	if !o.quiet {
@@ -719,55 +649,37 @@ func runClassMode(
 		}
 		writeExplanation(stdout, explanation, explainedTypes, knownTypes, opts)
 	}
-	if cfg.Output.Format == "svg" || cfg.Output.Format == "png" {
-		renderCfg := renderer.Config{
-			Type:      renderer.Type(cfg.Renderer.Type),
-			ServerURL: cfg.Renderer.ServerURL,
-			Timeout:   cfg.Renderer.Timeout,
-		}
-		if renderCfg.Type == renderer.TypeServer && !o.quiet {
-			fmt.Fprintln(stdout, "Note: the PlantUML server receives your source code. The default renderer keeps code local.")
-		}
-		imagePath, renderErr := renderer.Render(cfg.Output.Format, pumlPath, renderCfg)
-		if renderErr != nil {
-			fmt.Fprintf(stderr, "Warning: PlantUML file was generated, but %s rendering failed: %v\n", strings.ToUpper(cfg.Output.Format), renderErr)
-			return exitRender, nil
-		}
-		if !o.quiet {
-			fmt.Fprintf(stdout, "Generated %s\n", imagePath)
-		}
-	}
-	return exitOK, nil
+	return renderDiagram(cfg.Output.Format, pumlPath, renderer.Config{
+		Type: renderer.Type(cfg.Renderer.Type), ServerURL: cfg.Renderer.ServerURL,
+		Timeout: cfg.Renderer.Timeout,
+	}, o.quiet, stdout, stderr)
 }
 
-func normalizeClassArgs(args []string) ([]string, error) {
-	valueFlags := map[string]bool{
-		"--output": true, "-o": true, "--format": true, "-f": true,
-		"--include": true, "--exclude": true, "--title": true, "--config": true,
-		"--focus": true, "--depth": true, "--direction": true, "--relations": true,
-		"--language": true,
-		"--renderer": true, "--server-url": true, "--render-timeout": true,
-		"--package-grouping": true, "--layout-direction": true, "--skinparam": true,
-	}
+func normalizeDiagramArgs(args []string, fs *flag.FlagSet) ([]string, error) {
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if strings.HasPrefix(arg, "-") {
-			flags = append(flags, arg)
-			name := arg
-			if at := strings.IndexByte(arg, '='); at >= 0 {
-				name = arg[:at]
-			}
-			if valueFlags[name] && !strings.Contains(arg, "=") {
-				if i+1 >= len(args) {
-					return nil, fmt.Errorf("flag needs an argument: %s", arg)
-				}
-				i++
-				flags = append(flags, args[i])
-			}
-			continue
+		if arg == "--" {
+			flags = append(flags, "--")
+			positional = append(positional, args[i+1:]...)
+			return append(flags, positional...), nil
 		}
-		positional = append(positional, arg)
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			flags = append(flags, arg)
+			name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+			if definition := fs.Lookup(name); definition != nil && !hasValue {
+				boolean, isBoolean := definition.Value.(interface{ IsBoolFlag() bool })
+				if !isBoolean || !boolean.IsBoolFlag() {
+					if i+1 >= len(args) {
+						return nil, fmt.Errorf("flag needs an argument: %s", arg)
+					}
+					i++
+					flags = append(flags, args[i])
+				}
+			}
+		} else {
+			positional = append(positional, arg)
+		}
 	}
 	return append(flags, positional...), nil
 }
@@ -869,6 +781,7 @@ Usage:
 
 Available Commands:
   class       Generate a class diagram
+  package     Generate a package dependency diagram
   cache       Manage the local parse cache
   diff        Generate a diagram for Git changes
   init        Create a configuration file

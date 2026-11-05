@@ -1,6 +1,6 @@
 # 次にやること
 
-確認日: 2026-11-01
+確認日: 2026-11-02
 
 ## 完了済み
 
@@ -34,7 +34,13 @@
 
 `internal/packagegraph`は、文脈を分離したpackage ID、型宣言／import別の根拠・件数、内部／外部／未解決／曖昧候補を保持する。Javaの所有型・wildcardの曖昧性、Goのファイル別aliasと実package名を扱い、推定実装先と通常のalias参照も混同しない。実ファイルの解析で全3modeのcold／warm／キャッシュ非使用一致、既存class CLIの図・説明とJava golden一致を確認。`go test ./...`、`go vet ./...`成功。
 
-次の独立した実装単位は **P1-04（循環検出とpackage範囲抽出）**。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。パッケージ図生成・`package`コマンド自体はまだ未実装。
+**P1-04（循環検出とpackage範囲抽出）** と **P1-05（package PlantUML生成）** も開発版で実装済み。通常／推定根拠を区別するSCC、関係選択後のin/out/bothとhop、cycles-only・外部非表示、focusで隠れた循環を保持する。図は別の生成APIでpackage端点・種類別件数・循環とscopeの凡例を描き、同名別文脈と未信頼文字列を安全に表示する。実Java／Goソースから17シナリオのSVG／PNGと文書の実出力例をPlantUML 1.2026.6で生成・確認。`go test ./...`、`go vet ./...`、既存class CLIのcold／warm／`--no-cache`とJava golden一致も確認した。
+
+**P1-06（`package`コマンドとYAML接続）** と **P1-07（packageの根拠・解析範囲の説明）** も開発版で実装済み。`umlgen package`から全3mode、循環・外部表示、package focus、関係選択、SVG／PNG、`--explain`を利用できる。共有する探索・構文キャッシュ・出力処理を既存class経路から限定抽出し、図別の既定ファイルと新YAML namespaceの検証を追加した。
+
+2026-11-02の確認: Java／Goの全3modeで実CLIのcold／warm／`--no-cache`説明一致と通常図の不変性、型0件のimport、推定実装・focusで隠れた候補循環、設定優先度・相対パス・exclude置換、部分／全件解析失敗・読取失敗を確認。実local PlantUMLでSVG／PNGを生成し、1秒期限と0バイト画像は終了コード5で`.puml`と説明を保持した。既存classのcache／layout／explainとJava golden一致、実Git差分の追加・変更・削除およびGit base抜粋も確認。`go test ./...`、`go vet ./...`成功。
+
+次は **P1-08（受入検証の集約と利用例・性能比較）**。Java／Goの代表fixture、既存class/diffを含む回帰、既存性能基準との比較を揃えてPhase 1Aの完成条件を確認する。今回、新しい性能保証やpackage差分は追加していない。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。
 
 ## 進め方
 
