@@ -22,7 +22,12 @@ func packageDiffCommit(t *testing.T, root, message string) string {
 
 func packageDiffRepo(t *testing.T, language string) string {
 	t.Helper()
-	root := t.TempDir()
+	// Git snapshots use the physical repository root. Windows TEMP can use an
+	// 8.3 alias (RUNNER~1), so fixture evidence must use that same file identity.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, root, "init")
 	runGit(t, root, "config", "user.email", "umlgen@example.test")
 	runGit(t, root, "config", "user.name", "umlgen test")
