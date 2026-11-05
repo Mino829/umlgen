@@ -134,3 +134,5 @@ PR本文の記述例:
 ローカル確認: 実際のinline parserをNodeで実行する回帰で、既定値・優先順位・引用・Unicode・fence・重複・範囲外・size上限・悪意ある入力の拒否と非実行を確認した。`go test ./...`、`go vet ./...`、actionlint成功。SHA-256検証済み配布版v0.5.0とPlantUML 1.2026.6でworkflowと同じ引数・生成script・receipt／Summaryを実行し、package／relation／depthの絞り込み、全体図のバイト不変、変更なし・type-less・選択ディレクトリ全削除・解析失敗を確認した。本文編集イベントとrun取消は実GitHub上でも確認してから結果をPRへ記録する。
 
 実GitHub確認: [拒否ケース](https://github.com/Mino829/umlgen/actions/runs/42062889682)では禁止flagを明示エラーにし、生成jobがskip、artifactが0件だった。許可filterへの本文編集で新runが起動し、[depth 0の結果](https://github.com/Mino829/umlgen/actions/runs/42063624983)では5ファイルを生成した。downloadした`review-scope.json`のdepth／direction／relations、head SHA、本文SHA-256が、実際のPR #74の本文・commitと一致することを確認した。
+
+取消の実確認: commit追加直後に本文を編集すると、[先行run 42066663649](https://github.com/Mino829/umlgen/actions/runs/42066663649)がcancelledとなり、[新しい本文のrun 42066669590](https://github.com/Mino829/umlgen/actions/runs/42066669590)の検証・図生成が成功した。[CI run 42066663484](https://github.com/Mino829/umlgen/actions/runs/42066663484)ではLinux／Windows／macOS arm64・amd64もすべて成功した。個別のrun履歴と最新本文に対応する結果を区別して確認する。
