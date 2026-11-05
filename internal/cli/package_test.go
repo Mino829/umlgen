@@ -292,7 +292,6 @@ func TestPackageCLIInvalidOptionsPreserveOutput(t *testing.T) {
 		{name: "activity function", flags: []string{"--function=processOrder"}},
 		{name: "state field", flags: []string{"--state-field=status"}},
 		{name: "deployment manifest", flags: []string{"--manifest=deployment.yaml"}},
-		{name: "future namespace", config: "diagrams:\n  sequence: {}\n"},
 		{name: "misspelled package namespace", config: "diagrams:\n  packages: {}\n"},
 		{name: "unknown package setting", config: "diagrams:\n  package:\n    dependency_soruce: imports\n"},
 		{name: "invalid dependency source", flags: []string{"--dependency-source=calls"}},
@@ -545,7 +544,7 @@ func TestPackageCLIRenderFailureRetainsPlantUMLWithoutImplicitServer(t *testing.
 			t.Setenv("PLANTUML_JAR", "")
 			bin := t.TempDir()
 			t.Setenv("PATH", bin)
-			args := []string{"package", root, "--config", cfg, "--format=png", "--render-timeout=1s", "--output", filepath.Join(root, "packages.png")}
+			args := []string{"package", root, "--config", cfg, "--format=png", "--output", filepath.Join(root, "packages.png")}
 			if mode == "local failure" {
 				if err := os.WriteFile(filepath.Join(bin, "plantuml"), []byte("#!/bin/sh\nprintf 'intentional package renderer failure\\n' >&2\nexit 7\n"), 0o755); err != nil {
 					t.Fatal(err)
@@ -577,4 +576,152 @@ func TestPackageCLICommandNamedConfigPath(t *testing.T) {
 	packageCLIWrite(t, filepath.Join(root, "src", "Model.java"), "package sample; class Model {}")
 	packageCLISuccess(t, "--config", "package", "package", "--no-cache")
 	packageCLIRequireNodes(t, packageCLIRead(t, "package-diagram.puml"), "sample")
+}
+
+// These syntax-only examples are also CLI inputs for the package documentation.
+// Deliberate cycles, ambiguous names and absent dependencies must not be mistaken
+// for compiler-checked projects or silently turned into guessed graph edges.
+func TestPackageCLIRepresentativeFixtures(t *testing.T) {
+	type dependency struct {
+		from, to string
+		types    int
+		imports  int
+	}
+	for _, language := range []string{"java", "go"} {
+		t.Run(language, func(t *testing.T) {
+			root, err := filepath.Abs(filepath.Join("..", "..", "testdata", "package", language))
+			if err != nil {
+				t.Fatal(err)
+			}
+			work := t.TempDir()
+			t.Setenv("UMLGEN_CACHE_DIR", filepath.Join(work, "cache"))
+			cfg := packageCLIConfig(t, work, "language: "+language+"\n")
+			output := filepath.Join(work, "packages.puml")
+			prefix := "sample."
+			if language == "go" {
+				prefix = "example.test/packagefixture/"
+			}
+			internal := []string{prefix + "app", prefix + "domain", prefix + "service", prefix + "alternate", prefix + "bootstrap"}
+			for _, mode := range []string{"declared-types", "imports", "both"} {
+				t.Run(mode, func(t *testing.T) {
+					args := []string{"package", root, "--config", cfg, "--dependency-source=" + mode, "--external=show", "--cycles=mark", "--no-cache", "--quiet", "--explain", "-o", output}
+					result := packageCLISuccess(t, args...)
+					diagram := packageCLIRead(t, output)
+					nodes := append([]string(nil), internal...)
+					edges := []dependency{
+						{prefix + "domain", prefix + "service", 1, 1},
+						{prefix + "service", prefix + "domain", 1, 1},
+					}
+					if language == "java" {
+						edges = append(edges, dependency{prefix + "app", prefix + "service", 1, 1})
+						if mode != "declared-types" {
+							edges = append(edges,
+								dependency{prefix + "app", prefix + "domain", 0, 1},
+								dependency{prefix + "app", prefix + "alternate", 0, 1},
+								dependency{prefix + "bootstrap", prefix + "service", 0, 1},
+							)
+						}
+					} else {
+						edges = append(edges,
+							dependency{prefix + "app", prefix + "domain", 1, 1},
+							dependency{prefix + "app", prefix + "alternate", 1, 1},
+						)
+						if mode != "declared-types" {
+							nodes = append(nodes, "example.test/telemetry")
+							edges = append(edges,
+								dependency{prefix + "bootstrap", prefix + "service", 0, 1},
+								dependency{prefix + "bootstrap", "example.test/telemetry", 0, 1},
+							)
+						}
+					}
+					packageCLIRequireNodes(t, diagram, nodes...)
+					if got := strings.Count(diagram, " --> ") + strings.Count(diagram, " ..> "); got != len(edges) {
+						t.Fatalf("got %d edges, want %d:\n%s", got, len(edges), diagram)
+					}
+					for _, edge := range edges {
+						types, imports := edge.types, edge.imports
+						if mode == "imports" {
+							types = 0
+						}
+						if mode == "declared-types" {
+							imports = 0
+						}
+						packageCLIRequireEdge(t, diagram, edge.from, edge.to, types, imports)
+					}
+					for label := range packageCLINodes(diagram) {
+						wantCycle := strings.HasPrefix(label, prefix+"domain"+`\n`) || strings.HasPrefix(label, prefix+"service"+`\n`)
+						if gotCycle := strings.Contains(label, "[declared cycle in scope]"); gotCycle != wantCycle {
+							t.Errorf("unexpected cycle membership for %q:\n%s", label, diagram)
+						}
+					}
+					if strings.Count(diagram, "[declared cycle in scope]") != 2 {
+						t.Errorf("expected exactly the domain/service cycle:\n%s", diagram)
+					}
+					if !strings.Contains(result.stdout, fmt.Sprintf("Visible diagram: %d packages, %d dependencies.", len(nodes), len(edges))) {
+						t.Errorf("explanation disagrees with diagram counts:\n%s", result.stdout)
+					}
+					var evidence []string
+					if mode != "imports" {
+						evidence = append(evidence, `reference="Missing"`)
+						if language == "java" {
+							evidence = append(evidence,
+								"sample.app.App -> sample.service.Service [field",
+								filepath.Join(root, "app", "App.java")+":9",
+								"9 |     Service service;",
+								`, ambiguous] reference="Item"`, "type=sample.domain.Item", "type=sample.alternate.Item",
+							)
+						} else {
+							evidence = append(evidence,
+								prefix+"app.App -> "+prefix+"domain.Item [field",
+								prefix+"app.Backup -> "+prefix+"alternate.Item [field",
+								filepath.Join(root, "app", "app.go")+":7",
+								filepath.Join(root, "app", "backup.go")+":7",
+								"7 | \tItem model.Item",
+							)
+						}
+					}
+					if mode != "declared-types" {
+						if language == "java" {
+							evidence = append(evidence,
+								filepath.Join(root, "bootstrap", "package-info.java")+":4:",
+								"4 | import sample.service.Service;",
+								`reference="missing.remote.Client"`,
+							)
+						} else {
+							evidence = append(evidence,
+								filepath.Join(root, "bootstrap", "bootstrap.go")+":5:",
+								"5 | \t_ \"example.test/packagefixture/service\"",
+								`alias="model"`, `alias="_"`,
+							)
+						}
+					}
+					for _, want := range evidence {
+						if !strings.Contains(result.stdout, want) {
+							t.Errorf("missing fixture evidence %q:\n%s", want, result.stdout)
+						}
+					}
+					if language == "go" && mode != "imports" {
+						for _, wrong := range []string{
+							prefix + "app.App -> " + prefix + "alternate.Item",
+							prefix + "app.Backup -> " + prefix + "domain.Item",
+						} {
+							if strings.Contains(result.stdout, wrong) {
+								t.Errorf("import alias escaped its source file: %s\n%s", wrong, result.stdout)
+							}
+						}
+					}
+				})
+			}
+			t.Run("cycle-only projection", func(t *testing.T) {
+				result := packageCLISuccess(t, "package", root, "--config", cfg, "--dependency-source=both", "--cycles=only", "--external=show", "--no-cache", "--quiet", "--explain", "-o", output)
+				diagram := packageCLIRead(t, output)
+				packageCLIRequireNodes(t, diagram, prefix+"domain", prefix+"service")
+				packageCLIRequireEdge(t, diagram, prefix+"domain", prefix+"service", 1, 1)
+				packageCLIRequireEdge(t, diagram, prefix+"service", prefix+"domain", 1, 1)
+				if strings.Count(diagram, " --> ") != 2 || !strings.Contains(result.stdout, "Visible diagram: 2 packages, 2 dependencies.") {
+					t.Fatalf("cycle-only projection retained non-cycle dependencies:\n%s\n%s", diagram, result.stdout)
+				}
+			})
+		})
+	}
 }

@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **全体は開発計画。P1-01〜07（解析モデル・package graph・循環／範囲解析・PlantUML生成・CLI／YAML・根拠説明）は開発版で実装済み**。P1-08の受入集約・性能比較は未完了。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。P1-01〜07の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
+- 状態: **Phase 1A（P1-01〜08）、Phase 1B（P1B-01〜04、完全Git snapshotのpackage差分）、Phase 2（範囲を明示した静的シーケンス図）は開発版で実装・検証済み**。activity以降のPhase 3〜4は未実装の計画。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。Phase 1A／1B／2の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -53,13 +53,13 @@ docs/ examples/ scripts/ .github/workflows/
 
 | 論点 | READMEで案内する仕様 | 実装から確認した範囲・注意点 |
 | --- | --- | --- |
-| 対応図 | Java/GoからPlantUMLクラス図・package依存図を生成 | 開発版に`package`を追加済み。sequence以降やpackage差分は未実装 |
-| Goの実行・開発要件 | Go 1.24以上の案内 | [go.mod](../go.mod)の`go`ディレクティブは`1.25`。本書では実際の依存定義を基準にする |
-| AST解析 | Java/Goを解析 | JavaはTree-sitter、Goは標準`go/parser`。どちらも現在の共通出力は型宣言で、コンパイラー相当の型検査ではない |
-| パッケージ表示 | グルーピング、階層レイアウト | packageの枠の中に型を配置する。関係は型同士で、パッケージ間へ集約していない |
-| Goのinterface実装 | 暗黙実装を可視化 | パースした型・メソッドの構文的シグネチャ照合。`go/types`による判定ではない |
-| Git差分 | 追加・変更・削除を色分け | 基本単位は変更ファイル内の型。比較先コミットの完全な型・辺モデルを作る方式ではない |
-| キャッシュ | ソース変更に応じて再解析 | 内容ハッシュ中心。Goのmodule文脈はP1-01で構文キャッシュから分離し、取得後に現在の配置へ再束縛する |
+| 対応図 | Java/GoからPlantUMLクラス図・package依存図・静的シーケンス図を生成 | 開発版に`package`、`diff --diagram package`、`sequence`を追加済み。activity以降は未実装 |
+| Goの実行・開発要件 | ソースからの開発版ビルドはGo 1.25以上 | [go.mod](../go.mod)の`go`ディレクティブも`1.25`。Java sequenceには別途JDK 17以上が必要 |
+| AST／意味解析 | class／packageとsequenceで経路を分離 | class／packageはJava Tree-sitter・Go標準ASTによる宣言モデル。sequenceだけが選択ソースをGo `go/types`／Java `JavacTask`で意味解析 |
+| classのpackage表示 | グルーピング、階層レイアウト | 型を囲む枠で、関係は型同士。独立したpackageコマンドはpackage端点へ集約する別経路 |
+| class／packageのGo interface実装 | 暗黙実装を可視化 | 構文的シグネチャ照合による推定。sequenceのgo/typesによるdispatch候補とは区別する |
+| Git差分 | 追加・変更・削除を色分け | class diffは変更ファイル内の型が基本。package diffは両commitの完全な選択snapshot。sequence diffは未対応 |
+| キャッシュ | class／packageの構文を再利用 | Goのmodule文脈はP1-01で構文キャッシュから分離。sequenceは現在の入力から毎回意味解析し、このキャッシュを流用しない |
 | 外部送信 | ローカル解析を中心とした説明 | 解析のためにソース全体を送信する経路はない。ただし明示的な`--renderer server`は**生成したPlantUML**を送信する。機密な型名等も含み得る |
 | 性能 | キャッシュによる高速化 | 既存の参考値は特定環境・単一Javaソースの計測。全言語・全コマンドの速度保証ではない |
 
@@ -137,9 +137,9 @@ P1-05の内部APIに続き、P1-06で実際の`package` CLIからもlocal PlantU
 
 [gitdiff/gitdiff.go](../internal/gitdiff/gitdiff.go)は`git diff --name-status --find-renames`でJava/Goの変更パスを取得する。削除ファイルは比較元から`git show`で読み、追加／変更側は**現在の作業ツリー**から解析する。triple-dotの比較元はmerge-base。untrackedも追加対象へ含める。
 
-したがって、現在の`diff A..B`を「AとBの完全な静的モデル比較」と解釈してはいけない。rename/copyは新しいパスを変更扱いにし、変更されたファイルの全型に同じ変更区分を付ける。変更ファイル内だけで削除された型・辺を完全復元する処理や、辺独自の追加／削除モデルはない。
+したがって、既定class図の`diff A..B`を「AとBの完全な静的モデル比較」と解釈してはいけない。rename/copyは新しいパスを変更扱いにし、変更されたファイルの全型に同じ変更区分を付ける。既存class diffには、変更ファイル内だけで削除された型・辺を完全復元する処理や、辺独自の追加／削除モデルはない。
 
-**提案:** パッケージ差分は後述のPhase 1Bで両側の完全なスナップショットから集約する。変更ファイルだけの集約で「packageが消えた」「循環が解消した」と判定しない。既存`diff`の既定動作は維持し、新しい図のスナップショット規約を明示する。
+**Phase 1B実装済み:** `diff --diagram package`は別の`internal/gitsnapshot`経路で、両側の完全な選択ソースとmodule文脈を固定commitから読み、`internal/packagediff`で比較する。未変更ファイルに残る根拠も含め、根拠の減少と辺の消滅を分ける。既存class diffの既定・作業ツリー規約は変更しない。
 
 #### 解析キャッシュ
 
@@ -201,17 +201,17 @@ Goではimport文字列を宣言されたimport pathとして保持し、alias�
 
 ### 4.2 Phase 2: シーケンス図
 
-**提案:** 「entryからの静的な呼び出し候補と制御構造の投影」として提供する。Call Graphだけを走査順に並べて実行順としない。
+**開発版実装:** 「entryからの静的な呼び出し候補と制御構造の投影」として提供する。Call Graphだけを走査順に並べて実行順としない。利用例・正確な範囲は[sequenceの説明](../examples/sequence/README.md)を参照。
 
 1. 自由関数、メソッド、コンストラクター、初期化処理、関数リテラル／lambdaを識別し、本体とcallsiteの位置を抽出する。Goの`main`/`init`も対象に加える。
 2. entryは一意なCallableIDへ解決する。単純名が複数ある場合は候補を示してエラーにし、最初の関数を選ばない。Javaは所有型＋引数型、Goはimport path＋関数名／レシーバーを指定可能にする。
 3. 直接呼び出し、動的候補、未解決を分けたCall Graphを構築する。辺は「呼び出す可能性がある」を意味する。[S8]
 4. ASTの構造化領域と評価規則から`alt`、`opt`、`loop`等を生成し、最大展開深さ、再帰、循環、参加者数・メッセージ数を制限する。到達した上限は省略箇所として見せる。
-5. 引数はソース上の式・宣言型、戻りは戻り型／return式として表示する。実行値、ループ回数、採用された分岐は得られない。例外で後続引数が評価されない可能性も残す。
+5. 引数はソース式、entry／候補signatureは宣言型、戻りはreturn式として扱う。実行値、ループ回数、採用された分岐は得られない。未対応の例外・制御移動では後続を確定した直列経路にしない。
 
-Goの型解決候補は`go/packages`＋`go/types`、必要な箇所でSSA／callgraphを利用する。ただし現在の依存にはなく、導入時のGoバージョン・ライブラリ版は別途固定する。`go/packages`は既定でgoコマンドを使い、環境によってdriverを使う。オフライン性、module download、cgoや外部ツールの実行境界を検証し、単なるAST解析と同じ実行条件とは扱わない。[S8]
+Goは標準`go/parser`＋`go/types`と選択済みローカルソースだけのimporterを採用した。`unsafe`以外の標準ライブラリ・外部export data／ソースはロードしない。不足は型診断として残す。提案時の`go/packages`／SSAは採用せず、goコマンド・driver・download・cgo・build tags／GOOS別のbuild再現を行わない。[S13]
 
-JavaではTree-sitterを構文抽出へ残し、JDT bindingsまたはJavaParser＋SymbolSolverによる意味解析を比較する。classpath、source root、言語レベル、JVM導入・プロセス連携・配布サイズが必要になる。構文だけの独自resolverでオーバーロードや動的dispatchを確定したと称しない。採用backendは未決定。[S6][S7]
+JavaはJDK標準の`JavacTask.parse`／`analyze`を採用し、JDK 17以上、既定source release 17とした。提案時のJDT／JavaParser比較は実施・採用していない。組込みの信頼済みhelperだけを起動し、project classpath／sourcepath／processorpathは空、annotation processing・暗黙のソースロード・code generationを無効にする。対象コード・build・pluginを実行せず、JDK API以外の依存不足は診断する。既存Tree-sitter経路はclass／packageに維持する。[S14]
 
 並行・動的処理の表現:
 
@@ -350,7 +350,7 @@ flowchart TD
 
 ### 5.5 キャッシュと性能
 
-**P1-01実装済み:** ソース内容依存の構文データをキャッシュし、moduleパス等の文脈は各実行で決定・再束縛する。CLIは通常解析・cache hit・削除ファイルのいずれも、packageフィルター、finalize、関係解析より前に`BindContext`を適用する。従来の最終`Type.Package`を、別rootでそのまま再利用しない。削除ファイルのmodule探索は従来どおり現在の作業ツリーを使い、Phase 1Bの完全snapshot比較へ変更しない。
+**P1-01実装済み:** ソース内容依存の構文データをキャッシュし、moduleパス等の文脈は各実行で決定・再束縛する。CLIは通常解析・cache hit・削除ファイルのいずれも、packageフィルター、finalize、関係解析より前に文脈を適用する。従来の最終`Type.Package`を別rootでそのまま再利用しない。既存class diffの削除ファイルは従来どおり現在の作業ツリーでmodule探索し、package差分だけは`gitsnapshot.Snapshot.BindContext`で各固定Git snapshotの`go.mod`へ束縛する。
 
 文脈を含む解析結果をキャッシュする必要が生じた場合は、別のキーへroot/module識別子、`go.mod`/`go.sum`/`go.work`・replace、build flags、Go version、Javaのsource root/classpath・言語レベル、frontend版、依存宣言のfingerprintを含める。必要な入力だけを段階ごとに選び、全環境変数や絶対パスを無差別にhashしない。外部依存の変更時は呼び出し元やSCCも無効化対象になり得る。
 
@@ -359,7 +359,7 @@ flowchart TD
 - メモリーでは型ID／ファイルIDへの参照で集約し、同じimport・ソース本文を型ごとに複製しない。通常実行で詳細根拠を無駄に構築しない。
 - Package SCCはグラフ構築後に線形時間だが、名前解決、Goの型×interface照合、意味解析、PlantUMLのレイアウト費用は別。SCCだけから全体性能を保証しない。
 - sequenceはentryからの到達範囲を絞り、深さ・参加者・メッセージ上限を持つ。ただし型情報のロードには広い範囲が必要な場合があり、「表示を絞ればロードも定数時間」としない。
-- 性能評価はcold/warm/no-cache、ファイル数、型数、package数、辺数、peak RSS、parse/resolve/project/renderの時間を分ける。既存[性能基準](performance.md)を出発点に同一環境で比較し、数値目標は実測後に決める。今回新しい性能測定はしていない。
+- 性能評価はcold/warm/no-cache、ファイル数、型数、package数、辺数、peak RSS、parse/resolve/project/renderの時間を分ける。P1-08で既存class基準の再計測、Java／Goのpackage各phase、実CLIのcache別時間とRSS、外部renderer費用を[性能基準](performance.md)へ記録した。単一環境の参考値であり、新しい数値目標や速度保証は設けない。
 
 ### 5.6 クラス図との後方互換性
 
@@ -373,7 +373,7 @@ flowchart TD
 
 ### 6.1 コマンド体系
 
-**`package`と対応フラグは開発版で実装済み。sequence以降とpackage差分は未実装の仕様案。** `class`／従来の`diff`は既存の意味を維持する。
+**`package`、`diff --diagram package`、`sequence`と対応フラグは開発版で実装済み。activity以降は未実装の仕様案。** `class`／既定class diffは既存の意味を維持する。
 
 ```bash
 umlgen class ./src
@@ -384,7 +384,7 @@ umlgen activity ./src --function processOrder
 umlgen state ./src --type Connection --state-field status
 umlgen component . --boundary-config architecture.yaml
 umlgen deployment . --manifest compose.yaml
-# Phase 1Bの候補。従来のdiffは引き続きクラス図。
+# Phase 1Bで実装済み。省略時のdiffは引き続きクラス図。
 umlgen diff main...HEAD --diagram package
 ```
 
@@ -397,11 +397,11 @@ umlgen diff main...HEAD --diagram package
 | class専用 | hide-fields/methods/private、メンバー表示、現行の型focus。package等で渡されたら黙って無視しない |
 | package | `--dependency-source declared-types\|imports\|both`、`--external hide\|show`、`--cycles off\|mark\|only`、packageを指定する`--focus`、`--depth`、`--direction` |
 | packageの型関係選択 | `--relations`はdeclared-types部分だけを絞る。importsのみとの組合せはエラー。bothではimport宣言を消さない。表示メンバーの可視性とは独立 |
-| sequence | `--entry`、`--max-call-depth`、`--max-participants`、`--max-messages`。関数selectorの文法を実装時に固定 |
+| sequence | `--entry`、`--max-call-depth`、`--max-participants`、`--max-messages`、`--java-release`、`--analysis-timeout`。一意な単純名・完全名・signature・`context::signature`を受理。`--include`・`--no-cache`・layout・class／package専用flagは拒否 |
 | activity | `--function`、必要に応じて`--max-nodes`。本体を一意に選ぶ |
 | state | `--type`、`--state-field`、`--state-config`。明示定義の出典を維持 |
 | component / deployment | `--boundary-config`、`--manifest`等。複数manifestのmergeは対応仕様が決まるまで自動実行しない |
-| diffの追加 | `--diagram package`は完全snapshot解析ができてから。sequence等のdiffは今回のPhaseでは約束しない |
+| diffの追加 | `--diagram package`はPhase 1Bで完全snapshot解析を接続済み。sequence等のdiffは今回のPhaseでは追加しない |
 
 packageの`depth/direction`はpackage依存グラフ上で定義する。dependency-source／relationsで選んだ辺を作ってからfocusし、循環判定対象はfocus前の選択済み解析範囲とする。`cycles only`は循環を含むpackageとfocus到達集合の共通部分を表示する。外部非表示も判定後に適用し、隠れた循環・辺があっても解析結果を再分類しない。`cycles off`はSCC処理自体を省き、「循環なし」とは解釈しない。P1-06でCLI接続済みで、クラス図の既存BFS挙動は変更しない。
 
@@ -409,7 +409,7 @@ packageの`depth/direction`はpackage依存グラフ上で定義する。depende
 
 ### 6.2 `.umlgen.yaml`の拡張
 
-**以下のpackage設定は開発版で実装済み。** `diagrams`内の未知namespace・キー・型は設定エラーとする。sequence以降の設定はまだ受理しない。
+**以下のpackage／sequence設定は開発版で実装済み。** `diagrams`内の未知namespace・キー・型は設定エラーとする。activity以降の設定は受理しない。
 
 ```yaml
 language: auto
@@ -427,15 +427,22 @@ diagrams:
     dependency_source: declared-types
     external: hide
     cycles: mark
+  sequence:
+    entry: main
+    max_call_depth: 3
+    max_participants: 30
+    max_messages: 200
+    java_release: 17
+    analysis_timeout: 30s
 ```
 
-Phase 1で追加した設定は`diagrams.package`だけである。将来のsequence上限等は別途契約を決め、未対応の設定を空実装で受理しない。
+Phase 1は`diagrams.package`、Phase 2は`diagrams.sequence`を追加した。sequenceは既定`sequence-diagram.puml`、意味解析は毎回実施する。未対応の設定を空実装で受理しない。
 
 優先度はCLI明示値 → その図の設定 → 既定値を基本とする。既存のsource/outputの相対パス規約、excludeの置換規約は維持する。新たなboundary/state/manifestのパスも、YAML内ならその設定ファイル基準、CLIならcwd基準とする。diagram別の未指定出力は`package-diagram.puml`等へ分け、既存`class-diagram.puml`を意図せず上書きしない。
 
 `layout.package_grouping`はクラス図のwrapper設定として残す。新図が共通layout.direction等を使う際は対応範囲を検証する。既存のclass専用設定がファイルに存在しても他図の意味を変えず、CLIで他図にclass専用flagを明示した場合はエラーにする。新しい`diagrams.<kind>`内の未知キーは検証し、既存YAML全体の厳格化による互換破壊は別判断にする。
 
-将来の意味解析モード等を`analysis`へ置く案はあるが、Phase 1の設定には追加しない。Go build flags、Java classpath等が必要になるPhase 2のbackend選定時に契約を決める。
+Phase 2は任意のbuild flags／Java project classpathを受け取らない。外部型情報がないことを診断し、安全なローカル解析境界を保つ。`analysis_timeout`はJava helperを期限付きで停止し、Goは解析段階間の協調確認とする。Goの型検査中を強制中断するwall-clock保証ではない。
 
 ## 7. 技術的課題・制限と安全策
 
@@ -460,7 +467,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 8. 開発ロードマップと移行条件
 
-各MVPは対応範囲内で完結した機能とし、未対応を隠すno-opや仮の成功結果を残さない。以下は各Phaseの目標と移行条件であり、個別実装の完了状況は9節に記録する。P1-01〜05の内部APIが実装済みでも、CLI等を含むPhase 1A全体の完了とは扱わない。
+各MVPは対応範囲内で完結した機能とし、未対応を隠すno-opや仮の成功結果を残さない。以下は各Phaseの目標と移行条件であり、個別実装の完了状況は9節に記録する。内部APIだけでは完了とせず、CLI・説明・実画像・既存class/diffの受入までをPhase 1Aに含める。
 
 ### Phase 1A: 独立したパッケージ図MVP
 
@@ -476,9 +483,9 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 ### Phase 1B: 設計レビュー用のパッケージ差分
 
 - **目的:** package間の依存追加・削除、循環の発生・解消を正確に比較する。
-- **実装対象:** `diff <range> --diagram package`の候補。両側のpackage／辺／根拠比較、snapshot規約とrenameの扱い。
-- **必要な内部変更:** Git比較元と比較先をそれぞれ固定したソース／module設定で解析する入口、辺のchangeモデル、安定IDの比較。必要に応じGit objectからの読み出しを再利用する。
-- **依存する既存機能:** gitdiffのrange/base解決、Phase 1A graph、既存説明のGit由来snapshot。
+- **実装対象:** `diff <range> --diagram package`。両側のpackage／辺／根拠比較、snapshot規約とrenameの扱い。
+- **内部変更:** `internal/gitsnapshot`がGit treeとbatch blobから完全な両側入力を読み、snapshot内moduleへ束縛。`internal/packagediff`が安定IDと意味的根拠multiset、両側SCCを比較し、表示投影を比較後に適用する。
+- **利用する既存機能:** Phase 1A graph・SCC・関係選択、構文cache、Git由来ソース説明、layout・renderer。既存classの`gitdiff`経路は変更しない。
 - **技術的リスク:** 現行diffのworking-tree規約との混同、module改名、未追跡ファイル、片側解析失敗、変更ファイルだけによる偽の辺削除。
 - **テスト方針:** 未変更ファイルに根拠が残る辺、最後の根拠の削除、package移動／rename、module変更、base/headと作業ツリーの不一致、片側失敗を確認する。
 - **MVP完成条件:** 両側の完全な対象範囲から辺の追加・削除を判定し、根拠の減少と辺の消滅を区別する。未確定な循環解消を成功扱いにしない。比較revisionとdirty/untrackedの包含規約を表示する。
@@ -488,12 +495,12 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 - **目的:** 指定entryから処理の呼び出し・分岐を追い、学習とレビューを助ける。
 - **実装対象:** Go/Javaの一意なentry、自由関数／メソッド／constructor、直接呼び出し、分岐・ループ、再帰制限、動的候補・未解決の表示。実行trace収集は対象外。
-- **必要な内部変更:** Callable/CallSite、言語別意味解析、Call Graph、本体領域、専用generator、entry選択と展開上限。
+- **実装した内部構造:** `internal/sequence`のCallable／構造化Event／entry選択・上限付き投影、`sequencego`の型解析、`sequencejava`のJDK helper、専用PlantUML・取得済みソースの説明、sequence CLI。呼び出し先参照と代替候補を別に保持する。
 - **依存する既存機能:** SourceUnitと位置・根拠、config、renderer。型関係の近傍BFSは呼び出し解析の代替にしない。
 - **技術的リスク:** Java backendと配布、依存環境不備、Go型ロードの実行境界、動的dispatch、並行処理、順序の誤表示。
 - **テスト方針:** 同名／overloadのentry、引数中の呼び出し順、短絡、分岐内のみの呼び出し、再帰、Go interface/go/defer/channel、Java virtual/例外/reflection、外部依存未解決、上限到達を確認する。
-- **MVP完成条件:** 両言語の明示的に対応した直接呼び出しをentryから描き、動的呼び出し・並行処理・非対応を確定した直列呼び出しにしない。図とソース位置が対応し、引数／戻り値の実行値を補わない。
-- **次へ進む条件:** backendを固定し、外部依存・失敗時の契約、式の評価順、本体位置が安定している。単一関数CFGへ進む。高度なpoints-to解析による全dispatch解決は必須gateにしない。
+- **完成条件（開発版で確認済み）:** 両言語の明示的に対応した直接呼び出しをentryから描き、動的呼び出し・並行処理・非対応を確定した直列呼び出しにしない。図とソース位置が対応し、引数／戻り値の実行値を補わない。例外・未対応制御はbarrierと位置付き省略で示す。
+- **次へ進む条件:** backend・非実行境界・依存不足／失敗・式の評価順・本体位置を固定し、9節の受入結果で確認した。次は単一関数CFGの契約を決める。高度なpoints-to解析による全dispatch解決は必須gateにしない。
 
 ### Phase 3A: 単一関数アクティビティ図
 
@@ -530,7 +537,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ## 9. 最初の実装: パッケージ図MVPのIssue分割
 
-初回調査で分割したIssue候補と実装状況。P1-01〜07は開発版で実装・検証済み、P1-08の未チェック項目は未完了。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
+初回調査で分割したIssue候補と実装状況。P1-01〜08は開発版で実装・検証済み。GitHub上のIssue作成状況を表すものではない。既存ファイルを優先し、未実装の新モジュール名は候補としている。
 
 ### P1-01: Goの解析キャッシュをmodule文脈から分離する
 
@@ -698,14 +705,66 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ### P1-08: MVPの受入検証と利用ドキュメントを揃える
 
-- [ ] 対象: 各機能の既存形式に沿うテスト、`testdata/java/compatibility`、`testdata/go/compatibility`またはpackage専用fixture、README、examples、関連docs。
-- [ ] Java/Goの通常・異常・曖昧・型0件・cache文脈・循環ケースを消費者に見える挙動として検証する。実装の配線だけのテストや文章の丸写しテストは作らない。
-- [ ] 既存class/diff、layout、関係フィルター、explainの回帰を一度まとめて確認する。
-- [ ] 実CLIのcold/warm/no-cache、PlantUML/SVG/PNG、render失敗、部分／全件解析失敗を実行し、表示の根拠を確認する。
-- [ ] 説明・非対応範囲・依存種別・build非依存の限界を利用例に記載する。性能は既存基準との比較を行い、未測定の保証を載せない。
-- [ ] 8節Phase 1Aの全完成条件を満たしてからマージする。Phase 1Bは完全snapshot比較を別Issue群へ分割し、偽のpackage diffを暫定出荷しない。
+- [x] `internal/cli/package_test.go`、package専用fixtureの`testdata/package/{java,go}`、README、[利用例](../examples/package-diagrams/README.md)、関連docsを更新した。
+- [x] Java/Goの通常・異常・曖昧・型0件・cache文脈・循環を消費者に見えるノード・辺・件数・ソース根拠として検証した。
+- [x] 既存class/diff、layout、関係フィルター、explainを全体テストと実CLIでまとめて確認した。
+- [x] 実CLIのcold/warm/no-cache、PlantUML/SVG/PNG、render失敗、部分／全件解析失敗を実行し、表示の根拠を確認した。
+- [x] 説明・非対応範囲・依存種別・build非依存の限界を利用例へ記載した。phase benchmarkと実CLIのclass／package比較・RSSは[性能基準](performance.md)へ記録し、新しい性能保証は設けない。
+- [x] 8節Phase 1Aの完成条件を開発版で確認した。マージ・リリースは未実施。Phase 1Bは下記の独立単位で実装し、変更ファイルだけから推測する暫定package差分は作らない。
 
 依存: P1-01〜07。PRの機能依存順は01→02→03、03後に04と05の非競合部分、続いて06/07→08。各PRは既存コマンドが動く単位で切る。
+
+2026-11-04の受入結果（Darwin arm64、Go 1.26.4、PlantUML 1.2026.6）:
+
+| 範囲 | 確認した消費者向けの結果 |
+| --- | --- |
+| Java代表fixture | 全3modeのpackage／辺／件数一致。wildcardの曖昧なItemとMissingは型依存を捏造せず、型0件のpackage-infoのimportを保持 |
+| Go代表fixture | 全3modeのpackage／辺／件数一致。同じaliasのファイル別解決、型0件のblank import、外部path、domain/service循環を保持 |
+| cache／説明 | 両言語・全3modeでcold／warm／no-cacheの図・説明一致、explain有無の図がバイト一致。Goのmodule変更・root移動・moduleなしでno-cacheと一致 |
+| SCC／focus | cycles-onlyはdomain/serviceの2 package・2辺。depth 0は1 packageを表示し、解析範囲の循環と既知の非表示対象を説明 |
+| 実画像 | 両言語のSVG／PNGをlocal rendererで生成。SVGのラベル・辺件数とPNGの端点・循環・凡例を確認 |
+| 失敗 | 部分解析失敗は診断と図、全件失敗は終了コード3で旧出力保持。1秒期限は約1.11秒、空画像・異常終了も終了コード5で.pumlと説明を保持 |
+| class／diff回帰 | Java goldenのバイト一致、Java／Goのcache・explain・全grouping・横配置・field選択を確認。実Gitの追加／変更／削除色、Git base抜粋、explain有無の図一致、型0件のplaceholderを確認 |
+| 品質 | `go test ./...`、`go vet ./...`成功。今回のLinux／Windows CIは未実行であり、ローカル確認を全OSの成功とは扱わない |
+
+### Phase 1Bの実装状況（開発版・未リリース）
+
+既存class diffを変更ファイルだけのpackage差分へ流用せず、以下の4単位を実装した。GitHub上のIssue作成・マージ・リリースを表すものではない。ユーザー向けの全規約は[差分機能](pr-diff.md#パッケージ依存の差分開発版)と[利用例](../examples/package-diagrams/README.md#gitの両側から根拠の変化を読む)に記載する。
+
+| 実装単位 | 実装・受入結果 | 依存 |
+| --- | --- | --- |
+| P1B-01: 比較snapshotの固定 | `gitsnapshot.Load`が完全SHA・両treeの選択ソース・snapshot内go.modを固定。単一revisionはREV..HEAD、二点はA..B、三点は一意なmerge-base..B。dirty／staged／untrackedを除外し、削除済みtarget・片側空・特殊ファイル名・未対応形式を実Gitで検証 | Phase 1A |
+| P1B-02: package／辺／根拠の比較 | 言語＋root／moduleディレクトリ＋canonical名でidentity比較。意味的根拠のmultisetで一部削除・最後の根拠・同件数の入替・file rename・行／hashだけの変化を区別。package／module identity変更は削除＋追加、推測renameなし | P1B-01 |
+| P1B-03: 循環・差分説明と図 | before／after union、色・status・両側件数、SCCのメンバー集合、各Git本文の位置・抜粋を表示。解析失敗と関係する未解決／曖昧参照では不確かな辺・循環変化を確定しない。比較後のexternal／cycle-only投影で偽の辺削除を作らない | P1B-02 |
+| P1B-04: CLI接続と受入 | `diff --diagram class|package`、package用YAML・出力・rendererを接続。既定は従来class。Java／Goの全3依存modeでcache／explain不変性、実SVG／PNG、部分／全件失敗、module変更、削除target、三点比較と既存class互換を確認 | P1B-03 |
+
+2026-11-04の確認: `go test ./...`、`go vet ./...`成功。実Java／Goの2ファイルが支える辺を2→1の根拠変更として保持し、最後の根拠を消すと辺削除になることを確認。行移動だけは変更なし、同packageのfile renameは辺を保持した根拠変更。Goの旧／新moduleは同じ構文cacheでも別identityへ束縛され、作業ツリーのgo.modは混入しない。未解決化した参照から循環解消を断定しない回帰も追加した。
+
+実local PlantUML 1.2026.6で両言語のSVG／PNGを生成し、辺のstatus・before／after件数・端点・凡例を確認。部分parse失敗は不確かな図＋終了コード3、片側全件失敗は旧図保持、模擬rendererの1秒期限は約1.16秒・空画像・異常終了はいずれも終了コード5で.pumlと説明を保持。Java goldenのバイト一致と既存Java／Go class・class diffの実CLIも確認。今回は他OS CI・リリース・package差分の性能保証は行っていない。
+
+境界: 呼出時のsource／include／exclude／関係条件を両commitへ等しく適用し、過去YAMLは自動採用しない。package差分のfocus／depth／direction・class専用flagは明示拒否。完全なbuild graphや外部本文を読む機能は追加しない。これらは既存class diffや全体package図の対応範囲を狭めるものではない。
+
+追加回帰: YAMLの相対source／output、CLIの依存mode上書きとexclude置換、配置、Git失敗時の旧図保持（終了コード1）、書込失敗（4）を実CLIで確認。絶対configパスのrepo root別名を対象外と誤判定する不具合を再現・修正し、root alias経由の削除済みtargetとsource symlink拒否の実Git回帰を追加した。既存ソース選択の除外規則とGo module directiveの字句処理は共有し、別経路の規則を複製しない。
+
+### Phase 2の実装状況（開発版・未リリース）
+
+`sequence`をCLI・両言語の意味解析・構造化投影・ソース説明・実画像まで接続した。[代表ソースと実行例](../examples/sequence/README.md)に導入要件、候補と省略の読み方、YAML、終了コードを記載する。新しい第三者の意味解析依存は追加せず、標準Go型検査と標準JDKコンパイラーの限定利用を選んだ。
+
+| 契約 | 実装・受入結果 |
+| --- | --- |
+| backend／非実行 | Goは選択ローカルimporterで外部ツールを呼ばない。空PATHと無効driver／proxyでも代表fixtureを解析。Javaはtrusted helperのparse／analyzeのみで、processor・implicit loading・generation・project classpathを無効化。helperはメモリ・出力・期限を制限 |
+| entry／位置 | 一意な単純名・完全名・signature・context付きID。overload／同名は候補を表示。取得済み本文とhashからUTF-8 byte範囲・行／byte列・抜粋を説明し、Java UTF-16位置を変換。図は一意な短縮名・相対パス、説明は完全identityを保持 |
+| 制御と動的呼出し | 引数の呼び出し順・短絡・alt／opt／loop／switch／selectを保持。直接の選択ソースだけ展開。interface／virtual／関数値は代替候補、goは非同期起動、deferは登録、channel相手は不明として表示 |
+| 停止と省略 | 再帰・深さ／参加者／メッセージ上限を明示。lambda／リテラル作成時に本体を実行しない。Java try／finally等の非対応barrierの先を通常経路に平坦化せず、backendが後続IRを省略した場合も位置付き省略を残す |
+| CLI／失敗 | 専用YAML、既定sequence-diagram.puml、共通output／renderer、相対パス・exclude置換を接続。構文／型エラー＋利用可能entryは部分図と終了コード3、利用不能entryは旧図保持。javac構文回復による仮のentryも不採用として回帰を追加 |
+| 実画像／異常 | 両言語の実local SVG／PNGを生成・確認。helper不足・解析期限、rendererの失敗・期限・空画像、PlantUMLへの文字列注入防止を実CLIで確認。300ms期限で実際に開始した子がpipeを保持しても約0.42秒で終了し旧図を保持 |
+| 互換性 | sequence YAML併用時もJava golden、Java／Goのclass cache／explain、全package modeのcache非使用との一致、実Gitのpackage辺削除と既定／明示class diff一致を確認。Java classはJDKなしでも従来どおり動作 |
+| 品質／限界 | `go test ./...`、`go vet ./...`成功。Darwin arm64、Go 1.26.4、JDK 26.0.1（対象release 17）、PlantUML 1.2026.6。他OS CI・マージ・リリース・sequence性能保証は未実施 |
+
+表示上限は型情報ロードの量を定数にせず、Goの期限は型検査の強制中断ではない。外部依存・build条件・実行値・採用分岐・動的dispatch・goroutine終了順を補わない。構文／型エラーと、妥当なソース内の非対応警告を区別し、後者はbarrier／省略で可視化する。sequence diffやactivity／CFGは今回追加していない。
+
+PR公開前の追加検証: Goでも構文回復で作られたheader／本体・EOFの閉じbrace欠落・壊れた宣言内のリテラルを候補から除外した。妥当な別関数と型エラーだけのentryの部分解析は維持する。全代替経路がbarrierとなる領域から後続を漏らさず、未知eventは位置付き省略、空本体は偽の深さ省略なしとした。実Javaのif/else＋try/finallyとGoの空本体・壊れたentryを実CLIで確認。package差分はrefs/replaceでcommit／tree／source／moduleを置換しても二点・三点比較の図と説明が不変で、未対応moduleのみの片側からpackage消滅を断定しない。全体テスト・vet・build成功、両言語SVG／PNGとJava golden一致を確認。CIの4 OSにJDK17と両言語の実CLI smokeを追加したが、他OSの結果は実行後に別途確認する。
+
 
 ## 10. パッケージ図のPlantUML出力例
 
@@ -750,12 +809,12 @@ endlegend
 | 未決定事項 | 現時点の推奨・判断時点 |
 | --- | --- |
 | Java/Goの複数root・同名packageの設定表現 | IDで文脈を分離し、曖昧な統合はしない。Phase 1のfixtureでroot指定の最小契約を決定 |
-| Javaの外部import package境界 | 初回は未知の境界を未解決にする。classpathを使う高精度解決はPhase 2 backend選定時 |
-| Goのビルド文脈 | 初回package図はスキャン対象の宣言モデル。build tags/GOOS別の正確なgraphは意味解析導入時に決定 |
-| Goの意味解析ライブラリ版と実行ポリシー | Phase 2開始前にGo 1.25との互換、download/driver/cgo等を検証して固定 |
-| Javaの意味解析backend | JDTとJavaParser＋SymbolSolverを同一fixtureで比較。解決精度、classpath不足時の診断、速度、JVM配布・連携費用で決定 |
-| entry／function selector文法 | 完全名・receiver・overloadを一意指定できる契約をPhase 2前に決定 |
-| package diffのhead／working-tree規約 | 既存diffを変えず、新図は固定revision比較を推奨。dirty/untrackedを含む場合の明示指定をPhase 1Bで決定 |
+| Javaの外部import package境界 | package図は未知を未解決。sequenceは選択ソース＋JDK APIのみで、project classpathの追加は将来の別契約 |
+| Goのビルド文脈 | packageもsequenceもbuild tags／GOOS別の実build再現を行わない。sequenceは選択ソースを型検査し、不足を診断 |
+| Goの意味解析と実行ポリシー | Phase 2で標準go/types・選択ソースのみと固定。goコマンド・download／driver／cgoなし。外部ロードは採用しない |
+| Javaの意味解析backend | Phase 2でJavacTask、JDK>=17と固定。JDT／JavaParser比較は実施せず、標準JDKのparse／analyzeに限定 |
+| entry／function selector文法 | sequenceはPhase 2で単純名・完全名・signature・context付きIDと固定。一意でなければ候補付きエラー。activity selectorはCFG設計時 |
+| package diffのhead／working-tree規約 | Phase 1Bで固定済み。REV..HEAD／A..B／merge-base(A,B)..Bの固定commit比較のみで、dirty／staged／untrackedは常に除外。既存class diffの規約は変更しない |
 | CFGの例外精度と非構造化表現 | 両言語の例外・defer fixtureで、変換可能な範囲と明示非対応をPhase 3A前に決定 |
 | 状態定義YAMLのschema | 値domain、初期状態、event/guard/action、ソースとの対応をPhase 3B前に決定 |
 | manifestの対応版・merge | Phase 4B前に対応仕様と入力条件を固定。生成コマンドの自動実行はしない |
@@ -763,7 +822,7 @@ endlegend
 
 これらの判断は後続Phaseの開始条件であり、最初のpackage図のために全てを先に解決する必要はない。
 
-## 12. 本書作成時の確認範囲
+## 12. 初回調査時の確認範囲（過去の記録）
 
 **実施した確認:** README、前掲の実装、設定、fixture、既存docsを読み、現行CLIをビルドして次を実行した。出力、キャッシュ、手書きPlantUML例はリポジトリ外の一時ディレクトリへ配置した。
 
@@ -777,7 +836,7 @@ endlegend
 | `package`コマンド | `unknown command: package`、終了コード2。未実装を確認 |
 | 10節の手書き例を`plantuml -tsvg`で変換 | 終了コード0。SVGとして読み込み、package名3件と構文エラー表示がないことを確認 |
 
-これは**現行挙動の調査と記法例の確認**であり、新しい図のCLI・IR・精度を実装検証したものではない。今回テストスイートや新規性能ベンチマークは実行していない。実装コード・既存の動作は変更していない。
+この節は**初回調査時点の挙動と記法例の記録**であり、現在の実装状態ではない。その時点では新規実装・テストスイート・性能計測を行っていない。以後のPhase 1A／1B／2の実装・実CLI・テストによる確認は9節に記録する。
 
 ## 13. 出典
 
@@ -807,3 +866,5 @@ endlegend
 - **[S10] PlantUML記法:** [packageを含むクラス図記法](https://plantuml.com/class-diagram)、[sequence](https://plantuml.com/sequence-diagram)、[activity](https://plantuml.com/activity-diagram-beta)、[state](https://plantuml.com/state-diagram)、[component](https://plantuml.com/component-diagram)、[deployment](https://plantuml.com/deployment-diagram)、[use case](https://plantuml.com/use-case-diagram)。記法を生成できることと、ソースから意味を取得できることは別である。
 - **[S11] Compose:** [Services / depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)。起動順・health条件の宣言であり、サービス間の実通信を表すものではない。
 - **[S12] Kubernetes:** [Service](https://kubernetes.io/docs/concepts/services-networking/service/)。selector、Pod、EndpointSlice、selectorなしServiceの扱い。desired topologyと実行状態の区別に利用。
+- **[S13] Go標準型検査:** [`go/types`](https://pkg.go.dev/go/types)。構文木の型検査とImporter契約。Phase 2は選択済みローカルソースの専用importerで利用し、go/packagesを経由しない。
+- **[S14] JDKコンパイラーAPI:** [JavacTask（JDK 17）](https://docs.oracle.com/en/java/javase/17/docs/api/jdk.compiler/com/sun/source/util/JavacTask.html)。parse／analyzeとgenerateの区別。Phase 2は前二者だけを呼び、対象コードを生成・実行しない。

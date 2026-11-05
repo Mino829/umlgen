@@ -1,10 +1,10 @@
 # umlgen
 
-**Java／Goのソースコードからクラス図・パッケージ依存図を生成するCLIツール**
+**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図を生成するCLIツール**
 
-umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名等を含む生成済みPlantUMLを外部送信します。
+umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名・呼び出し式等を含む生成済みPlantUMLを外部送信します。
 
-`package`コマンドは未リリースの開発版です。現在の配布版の機能とは区別してください。
+`package`・package差分・`sequence`は未リリースの開発版です。現在の配布版の機能とは区別してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -69,8 +69,8 @@ umlgen class ./src --include com.example.service
 ## 💡 主な機能
 
 ### 📊 多言語対応
-- **Java**: Tree-sitterによる高速AST解析
-- **Go**: 標準ライブラリによる確実な解析
+- **Java**: class／packageはTree-sitter、sequenceはJDKコンパイラーによる意味解析
+- **Go**: class／packageは標準AST、sequenceは選択済みローカルソースの`go/types`による意味解析
 
 ### 🎨 柔軟な出力
 - PlantUML（編集可能）
@@ -95,7 +95,7 @@ umlgen class ./src --include com.example.service
 - GitHub Actionsでの自動生成
 
 ### ⚡ 高速キャッシュ
-- 解析結果をキャッシュして2回目以降を高速化
+- class／packageの構文解析結果をキャッシュして2回目以降を高速化。sequenceの意味解析は毎回実行
 - ファイル内容と設定に基づいた安全なキャッシュ
 
 
@@ -146,7 +146,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $installer -InstallPlantUML
 
 ### Goからインストール
 
-Go 1.24以降とCコンパイラが必要です。
+開発版をソースからビルドするにはGo 1.25以降とCコンパイラが必要です。
 
 ```bash
 go install github.com/Mino829/umlgen/cmd/umlgen@latest
@@ -315,13 +315,57 @@ diagrams:
 - `--explain`は型／importの位置・hash・解析時のソース抜粋、失敗・未解決・既知の非表示対象、推定実装メソッド、表示前の循環範囲を説明します。通常図は変わらず、未指定時には詳細抜粋用のソース本文を保持しません。
 - YAMLのclass専用visibility／members／relations／package_grouping／classAttributeIconSizeはpackage図へ適用しません。class専用CLI flagは拒否します。package用skinparamは`linetype`／`shadowing`のみです。新しい`diagrams`内の未知キー・namespace・型も設定エラーです。
 
-部分解析失敗は警告と診断を残し、成功した入力から生成します。全件失敗は終了コード3で既存出力を保持します。関数本体・外部依存のソース・Java classpath・Go build tagsは解析せず、循環はコンパイル可否や実行時の呼び出し順を表しません。表示上の「依存0件」をリポジトリ全体の依存なしと解釈しないでください。package差分は未対応です。
+部分解析失敗は警告と診断を残し、成功した入力から生成します。全件失敗は終了コード3で既存出力を保持します。関数本体・外部依存のソース・Java classpath・Go build tagsは解析せず、循環はコンパイル可否や実行時の呼び出し順を表しません。表示上の「依存0件」をリポジトリ全体の依存なしと解釈しないでください。
 
-全フラグは`umlgen package --help`で確認できます。
+Java／Goの実ソース、依存種別ごとの件数、曖昧な型・外部import・循環の読み方は[パッケージ図の利用例](examples/package-diagrams/README.md)を参照してください。[性能比較](docs/performance.md)には測定条件とclassとの差を記載しています。全フラグは`umlgen package --help`で確認できます。
+
+### package差分（開発版）
+
+```bash
+umlgen diff main...HEAD --diagram package --dependency-source both --explain
+umlgen diff HEAD~1..HEAD ./src --diagram package --language go \
+  --format svg --renderer local --output package-changes.svg
+```
+
+比較元／先の**全選択ソースと`go.mod`を固定したGit commit**から解析し、未変更ファイルに残る根拠も集約します。既定出力は`package-change-diagram.puml`。`diff`の既定は従来のclass図のままです。
+
+- package差分の単一revisionは`revision..HEAD`。`A..B`は両commit、`A...B`はmerge-baseとBを比較し、完全なSHAを図・説明に残します。working tree・staged・untrackedは含めません。
+- 辺の追加／削除、同じ辺の根拠変更、変更なしの文脈を区別し、`types`／`imports`を比較前後別に表示します。行移動・ソースhashだけの変化は依存変更にしません。ファイルrenameは根拠変更、package／module identityの変更は削除＋追加で、renameの推測統合はしません。
+- `--external`／`--cycles only`は比較後の両側unionを絞る表示条件です。片側で循環から外れただけの辺を削除扱いにしません。型関係の`--relations`とimportの独立性も維持します。
+- 部分解析失敗は不確かな差分と診断を生成して終了コード3、片側全件失敗は既存出力を保持して終了コード3。未解決／曖昧な参照があるpackageの辺や関係する循環では、不確かな追加・削除・解消を断定しません。
+- invocation時の設定・include／excludeを両commitへ同じ条件で適用します。対象はGit repo内のパス。片側で削除済みの対象も指定でき、選択したsource symlink／submoduleは明示エラーにします。build条件や外部本文は解析しません。
+- package差分では`--focus`／`--depth`／`--direction`とclass専用flagを拒否します。全体package図のfocusと既存class diffの近傍指定は従来どおりです。
+
+再現可能なGit操作例は[利用例](examples/package-diagrams/README.md)、snapshotと終了コードの詳細は[差分機能](docs/pr-diff.md#パッケージ依存の差分開発版)を参照してください。既存GitHub Actions workflowの既定コマンドや配布版は変更していません。
+
+## 静的シーケンス図（開発版）
+
+`sequence`は、指定したentryからの**静的な呼び出し・構造化された分岐やループ**を描きます。実行traceではなく、引数の実行値・分岐結果・ループ回数・スケジュールを推定しません。
+
+```bash
+# リポジトリの代表fixtureで、呼び出しと根拠のソースを確認
+umlgen sequence testdata/sequence/go --language go --entry PlaceOrder --explain
+umlgen sequence testdata/sequence/java --language java --entry PlaceOrder \
+  --format svg --renderer local -o sequence.svg
+
+# entry直下だけ表示し、参加者数・メッセージ数にも上限を設ける
+umlgen sequence ./src --entry 'sample.Checkout.PlaceOrder(boolean,sample.Repository,java.lang.Runnable)' \
+  --max-call-depth 0 --max-participants 15 --max-messages 50
+```
+
+- entryは一意な単純名・完全名・引数型を含むsignature・`context::signature`。曖昧なら候補を表示して終了コード2にします。
+- 既定上限は展開深さ3・参加者30・メッセージ200。再帰・上限・非対応の位置と省略を残します。動的dispatchは代替候補で、全候補の本体を直列に展開しません。Goの`go`／`defer`も同期呼び出しとして展開しません。
+- Goは選択済みローカルpackageと`unsafe`だけを解決し、goコマンド・driver・download・cgo・外部ソース読み込みを行いません。標準ライブラリも`unsafe`以外はロードせず、不足する型情報を診断します。
+- Java sequenceのみ**JDK 17以上**が必要です（既定`--java-release 17`）。組込みの信頼済みhelperでparse／analyzeのみを行い、対象コード・annotation processor・build・pluginを実行しません。project classpath／sourcepathは使わず、外部依存不足は診断します。既存Java class／packageにJDKは不要です。
+- `--analysis-timeout`は既定30秒。Java helperを期限付きで終了し、Goは解析段階間の協調的な期限確認を行います。Goの型検査中を強制中断する制限ではありません。
+- 構文／型エラーがあってもentryが利用可能なら診断付きの図を出し終了コード3。entryが利用不能なら既存図を保持します。非対応構文は位置付きの警告・barrier・省略で示します。
+- 既定出力は`sequence-diagram.puml`。共有output／renderer／相対パス規約は従来どおり。`diagrams.sequence`にentry・上限・Java release・解析期限を設定できます。class／package専用flag・layout・`--no-cache`・sequence差分は対応していません。
+
+実行できる両言語の例、YAML、動的呼び出し・例外・channelの読み方は[シーケンス図の利用例](examples/sequence/README.md)を参照してください。全フラグは`umlgen sequence --help`で確認できます。
 
 ## 解析キャッシュ
 
-Java／Goファイルの解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。
+class／packageのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。sequenceはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
 
 Goではpackage節などの構文情報だけを再利用し、packageパスは各実行で現在の`go.mod`とソースの配置から決定します。同じソースを別moduleへ置いた場合や、`go.mod`のmodule名・配置ディレクトリを変更した場合も、以前のpackageパスを引き継ぎません。祖先に`go.mod`がなければpackage節の名前を使います。解析スキーマが変わった場合、旧エントリーは自動的にmissになります。
 

@@ -1,6 +1,6 @@
 # 次にやること
 
-確認日: 2026-11-02
+確認日: 2026-11-05
 
 ## 完了済み
 
@@ -40,7 +40,21 @@
 
 2026-11-02の確認: Java／Goの全3modeで実CLIのcold／warm／`--no-cache`説明一致と通常図の不変性、型0件のimport、推定実装・focusで隠れた候補循環、設定優先度・相対パス・exclude置換、部分／全件解析失敗・読取失敗を確認。実local PlantUMLでSVG／PNGを生成し、1秒期限と0バイト画像は終了コード5で`.puml`と説明を保持した。既存classのcache／layout／explainとJava golden一致、実Git差分の追加・変更・削除およびGit base抜粋も確認。`go test ./...`、`go vet ./...`成功。
 
-次は **P1-08（受入検証の集約と利用例・性能比較）**。Java／Goの代表fixture、既存class/diffを含む回帰、既存性能基準との比較を揃えてPhase 1Aの完成条件を確認する。今回、新しい性能保証やpackage差分は追加していない。詳細は[`uml-expansion-proposal.md`](uml-expansion-proposal.md)を参照。
+**P1-08（受入検証の集約と利用例・性能比較）** も開発版で実装・検証済み。`testdata/package/{java,go}`とCLI受入回帰に、依存mode別の端点・辺・件数、曖昧／未解決、型0件のimport、Goのファイル別alias、循環を集約した。[利用例](../examples/package-diagrams/README.md)と[性能比較](performance.md)を追加し、Phase 1Aの完成条件を確認した。P1-08では新しい性能保証やpackage差分を追加せず、次のPhase 1Bへ分離した。
+
+**Phase 1B（P1B-01〜04、完全snapshotに基づくpackage差分）** も開発版で実装・検証済み。`diff --diagram package`が両commitの全選択ソースと各go.modをGitから固定し、未変更ファイルに残る根拠、一部／最後の根拠削除、同件数の入替、file rename、package／module identity変更を区別する。dirty／staged／untrackedを含めず、既存class diffの既定は変更しない。比較後のexternal／cycles-only投影で偽の辺削除を作らず、解析失敗・未解決／曖昧参照に関係する辺／循環を不確かとして説明する。
+
+今回の確認: Java／Goの全3依存modeでcold／warm／`--no-cache`とexplain有無の図一致、実local SVG／PNG、部分／全件parse失敗、模擬rendererの期限・空画像・異常終了、Go module変更と汚れた作業ツリーの分離、削除target・片側空・merge-base、行移動とfile renameを実CLIで確認。Java goldenと既存class／class diffの互換性、`go test ./...`、`go vet ./...`も成功。他OS CI・マージ・リリース・package差分の性能保証は未実施。契約と利用例は[差分機能](pr-diff.md#パッケージ依存の差分開発版)と[開発計画](uml-expansion-proposal.md)を参照。
+
+**Phase 2（静的シーケンス図）** も開発版で実装・検証済み。Goは選択済みローカルソースの`go/types`、JavaはJDK 17以上の`JavacTask.parse/analyze`を採用し、対象のbuild・実行・annotation processor・依存downloadを行わない境界を固定した。`sequence --entry`、一意なselector、制御領域、直接呼び出し展開、動的候補、go／defer／channel、再帰・上限・非対応箇所の明示、取得済みソースによる説明、専用YAML・rendererを接続した。
+
+2026-11-05の確認: 両言語の実CLIとlocal SVG／PNG、引数の呼び出し順・短絡・分岐・loop、動的候補の非展開、Goの非同期／defer登録・channel相手不明、Javaの例外barrierと後続省略、各上限・再帰・overload、外部依存不足・壊れたentryによる旧図保持を確認した。javacの構文回復が作った仮のentryで旧図を上書きする不具合を修正し、回帰を追加した。JDK不在時の既存Java class、空PATHでのGo解析、Java期限と継承pipe待機、renderer異常・期限・空画像、YAML相対パスと優先順位、文字列のPlantUML無害化も確認。既存Java golden、Java／Goのclass／package cache・説明、全package mode、実Gitのpackage差分と既定class diffは維持。`go test ./...`、`go vet ./...`成功。環境・実行例・限界は[利用例](../examples/sequence/README.md)と[開発計画](uml-expansion-proposal.md)に記録した。
+
+PR公開前の追加修正: Goのパーサー回復宣言・閉じbrace欠落・内部リテラルをentry／候補から除外し、妥当な別関数と型エラーだけの部分解析は維持した。シーケンス投影では全代替経路が非対応barrierの場合の後続漏れ、未知eventの無表示打切り、空本体の深さ上限による偽の省略を修正。package差分ではGit replacement objectによる固定SHAの内容すり替えを無効化し、未対応module入力によるpackage追加・削除も不確かにした。実CLIで再現・結果を確認し、全体テスト・vet・build成功。両言語のSVG／PNGとJava class golden一致を再確認した。4 OSのCIにJDK 17と両言語の実CLI生成smokeを追加し、smoke shell blockはローカルmacOSで実行した。
+
+Java protocolの追加修正: JDK 17／Windowsの非UTF-8既定charsetを想定した実JVM検証で、日本語メソッド名が`??`になる問題を再現。helperの出力writerをUTF-8固定にし、日本語entry選択・呼び出しIDを保持する回帰を追加した。
+
+次は **Phase 3A（単一関数アクティビティ図）** の開始条件を揃える。CFGの分岐・終了・短絡・例外辺とAST位置の対応を固定し、break／continue・finally／defer等を正常経路へ平坦化しない契約から進める。sequenceは実行traceや完全なdispatch解決ではなく、CFG・activity以降も実装済みとは扱わない。他OS CI・マージ・リリース・sequence性能保証は未実施。リリースと配布物の検証は別途判断する。
 
 ## 進め方
 

@@ -59,7 +59,7 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 			continue
 		}
 		switch arg {
-		case "class", "package", "diff", "init", "cache", "version", "help":
+		case "class", "package", "sequence", "diff", "init", "cache", "version", "help":
 			commandAt = i
 		}
 		if commandAt >= 0 {
@@ -91,6 +91,9 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		case "package":
 			printPackageHelp(stdout)
 			return exitOK, nil
+		case "sequence":
+			printSequenceHelp(stdout)
+			return exitOK, nil
 		case "diff":
 			printDiffHelp(stdout)
 			return exitOK, nil
@@ -120,6 +123,8 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return runClass(rest, common, stdout, stderr)
 	case "package":
 		return runPackage(rest, common, stdout, stderr)
+	case "sequence":
+		return runSequence(rest, common, stdout, stderr)
 	case "diff":
 		return runDiff(rest, common, stdout, stderr)
 	default:
@@ -235,23 +240,21 @@ func runDiff(args []string, inherited commonOptions, stdout, stderr io.Writer) (
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return exitArgs, errors.New("diff requires a Git revision or range")
 	}
+	diagram, remaining, err := diffDiagramArgs(args[1:])
+	if err != nil {
+		return exitArgs, err
+	}
+	if diagram == "package" {
+		return runPackageMode(remaining, inherited, stdout, stderr, args[0])
+	}
 	selection, err := gitdiff.Analyze(args[0])
 	if err != nil {
 		return exitError, err
 	}
-	return runClassMode(args[1:], inherited, stdout, stderr, &selection)
+	return runClassMode(remaining, inherited, stdout, stderr, &selection)
 }
 
-func runClassMode(
-	args []string,
-	inherited commonOptions,
-	stdout, stderr io.Writer,
-	diffSelection *gitdiff.Result,
-) (int, error) {
-	var o classOptions
-	o.commonOptions = inherited
-	fs := flag.NewFlagSet("class", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+func registerClassFlags(fs *flag.FlagSet, o *classOptions) {
 	fs.StringVar(&o.output, "output", "", "")
 	fs.StringVar(&o.output, "o", "", "")
 	fs.StringVar(&o.format, "format", "", "")
@@ -282,6 +285,19 @@ func runClassMode(
 	fs.BoolVar(&o.verbose, "v", o.verbose, "")
 	fs.BoolVar(&o.quiet, "quiet", o.quiet, "")
 	fs.BoolVar(&o.quiet, "q", o.quiet, "")
+}
+
+func runClassMode(
+	args []string,
+	inherited commonOptions,
+	stdout, stderr io.Writer,
+	diffSelection *gitdiff.Result,
+) (int, error) {
+	var o classOptions
+	o.commonOptions = inherited
+	fs := flag.NewFlagSet("class", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	registerClassFlags(fs, &o)
 	normalized, normalizeErr := normalizeDiagramArgs(args, fs)
 	if normalizeErr != nil {
 		return exitArgs, normalizeErr
@@ -782,6 +798,7 @@ Usage:
 Available Commands:
   class       Generate a class diagram
   package     Generate a package dependency diagram
+  sequence    Project static calls and control regions from a selected entry
   cache       Manage the local parse cache
   diff        Generate a diagram for Git changes
   init        Create a configuration file
@@ -807,7 +824,7 @@ The clean subcommand removes all cached source parse results for umlgen.
 }
 
 func printDiffHelp(w io.Writer) {
-	fmt.Fprint(w, `Generate a class diagram for changed Java or Go types and their surroundings.
+	fmt.Fprint(w, `Generate a class or package dependency diff from Java or Go source code.
 
 Usage:
   umlgen diff <revision-or-range> [target] [flags]
@@ -815,9 +832,21 @@ Usage:
 Examples:
   umlgen diff HEAD~1
   umlgen diff main...HEAD --depth 2 --show-relation-labels
+  umlgen diff main...HEAD --diagram package --dependency-source both --explain
 
-Changed types are colored green (added), yellow (modified), or red (deleted).
-Class command flags such as --depth, --direction, --output, --format, and --explain are supported.
+--diagram class (default) preserves the existing changed-type/working-tree behavior.
+Class flags such as --depth, --direction, --output, --format, and --explain are supported.
+
+--diagram package compares complete immutable Git trees, not changed files alone.
+A single revision means revision..HEAD; A..B uses both commits; A...B uses merge-base(A,B)..B.
+Dirty, staged and untracked content is excluded, including go.mod changes.
+Package flags: --dependency-source declared-types|imports|both, --external hide|show,
+--cycles off|mark|only, --relations, --include, --exclude, --language, --no-cache,
+--explain, --layout-direction, --skinparam, --output, --format and renderer controls.
+--focus, --depth, --direction and class-only flags are not supported for package diff.
+Default package diff output: package-change-diagram.puml.
+Partial parse failure emits an uncertain diff and exits 3; total failure preserves output.
+Added/removed edges are distinct from modified evidence on an existing edge.
 `)
 }
 

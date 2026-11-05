@@ -48,12 +48,12 @@ func SourceFiles(targets, excludes []string, extensions ...string) ([]string, er
 				return walkErr
 			}
 			if entry.IsDir() {
-				if path != target && (defaultExcluded[entry.Name()] || excludedPath(path, excludes)) {
+				if path != target && ExcludedDirectory(path, excludes) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-			if supported[strings.ToLower(filepath.Ext(entry.Name()))] && !excludedPath(path, excludes) {
+			if supported[strings.ToLower(filepath.Ext(entry.Name()))] && !ExcludedPath(path, excludes) {
 				abs, _ := filepath.Abs(path)
 				if !seen[abs] {
 					files, seen[abs] = append(files, abs), true
@@ -69,7 +69,15 @@ func SourceFiles(targets, excludes []string, extensions ...string) ([]string, er
 	return files, nil
 }
 
-func excludedPath(path string, excludes []string) bool {
+// ExcludedDirectory shares traversal exclusions with immutable Git scanning.
+// Callers preserve the explicit-target override before using this predicate.
+func ExcludedDirectory(path string, excludes []string) bool {
+	return defaultExcluded[filepath.Base(path)] || ExcludedPath(path, excludes)
+}
+
+// ExcludedPath matches path exclusions; package-like dotted selectors are
+// intentionally left for the graph's package selection stage.
+func ExcludedPath(path string, excludes []string) bool {
 	slash := filepath.ToSlash(path)
 	for _, ex := range excludes {
 		ex = strings.Trim(strings.TrimSpace(filepath.ToSlash(ex)), "/")
