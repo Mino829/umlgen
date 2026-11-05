@@ -136,3 +136,5 @@ PR本文の記述例:
 実GitHub確認: [拒否ケース](https://github.com/Mino829/umlgen/actions/runs/42062889682)では禁止flagを明示エラーにし、生成jobがskip、artifactが0件だった。許可filterへの本文編集で新runが起動し、[depth 0の結果](https://github.com/Mino829/umlgen/actions/runs/42063624983)では5ファイルを生成した。downloadした`review-scope.json`のdepth／direction／relations、head SHA、本文SHA-256が、実際のPR #74の本文・commitと一致することを確認した。
 
 取消の実確認: commit追加直後に本文を編集すると、[先行run 42066663649](https://github.com/Mino829/umlgen/actions/runs/42066663649)がcancelledとなり、[新しい本文のrun 42066669590](https://github.com/Mino829/umlgen/actions/runs/42066669590)の検証・図生成が成功した。[CI run 42066663484](https://github.com/Mino829/umlgen/actions/runs/42066663484)ではLinux／Windows／macOS arm64・amd64もすべて成功した。個別のrun履歴と最新本文に対応する結果を区別して確認する。
+
+Windowsの追加確認では、[初回Nodeプロセスのテスト待機が10秒に達する事象](https://github.com/Mino829/umlgen/actions/runs/42067562018/job/127385842827)を確認した。外部プロセスの起動も含むテスト用guardを30秒へ揃え、許可値・拒否条件・本文の非実行assertは変更していない。製品側の検証jobは5分、生成jobは15分のまま。修正後のローカル回帰・全体テスト・vetは成功した。

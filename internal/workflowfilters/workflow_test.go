@@ -106,7 +106,9 @@ func (h workflowHarness) run(t *testing.T, event any, depth, direction, dir stri
 	if err := os.WriteFile(scriptPath, []byte(h.script), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// This bounds native process startup as well as validation. Windows hosted
+	// runners can spend over 10s starting the first Node process under load.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.node, scriptPath)
 	cmd.Dir = dir
