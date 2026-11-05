@@ -17,6 +17,7 @@ name: UML diff
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, edited]
 
 permissions:
   contents: read
@@ -32,16 +33,19 @@ jobs:
 
 導入直後の試用では `@main` を利用できます。本運用では、umlgen のリリースタグまたは完全な commit SHA へ固定することを推奨します。
 
-実行後、Actions の run summary から `umlgen-pr-diff` artifact をダウンロードします。内容は次の 4 ファイルです。
+実行後、Actionsのrun summaryから適用条件と比較commitを確認し、`umlgen-pr-diff` artifactをダウンロードします。対応する開発版workflowでは次の5ファイルを保存します。
 
 ```text
 change-diagram.puml
 change-diagram.svg
 full-diagram.puml
 full-diagram.svg
+review-scope.json
 ```
 
 全体図は PR の head commit の Java ソースから生成されます。削除された型や差分の変更色は含まれません。Java ファイルの変更がない PR でも生成されます。
+
+開発版workflowではPR本文の`umlgen` blockから、差分図の`--include`／`--relations`／`--depth`／`--direction`を指定できます。全体図には適用しません。構文・上限・安全境界・本文編集時の再生成と結果の読み方は[PR本文フィルタ](github-actions.md#pr本文でレビュー範囲を指定する開発版)を参照してください。
 
 ワークフローの入力・出力・セキュリティに関する詳細は [`docs/github-actions.md`](./github-actions.md) を参照してください。
 

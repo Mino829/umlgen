@@ -454,6 +454,8 @@ jobs:
 
 導入方法、入力、Fork Pull Requestのセキュリティ上の注意は[`docs/github-actions.md`](docs/github-actions.md)を参照してください。
 
+開発版workflowでは、PR本文の`umlgen` blockから差分図の`--include`／`--relations`／`--depth`／`--direction`だけを安全に指定できます。本文編集で再生成するには、callerの`pull_request.types`に`edited`も含めます。全体図には本文フィルタを適用せず、適用引数・比較commit・本文hashをSummaryと`review-scope.json`へ残します。[構文・上限・失敗時の扱い](docs/github-actions.md#pr本文でレビュー範囲を指定する開発版)を確認してください。既存の参照先を対応workflowのcommitへ更新するまでは利用できません。
+
 ## 設定ファイル
 
 設定のひな型を生成します。

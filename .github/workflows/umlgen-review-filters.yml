@@ -1,0 +1,267 @@
+name: Reusable umlgen review filters
+
+on:
+  workflow_call:
+    inputs:
+      depth:
+        description: Default relationship depth around changed types
+        required: false
+        default: 1
+        type: number
+      direction:
+        description: Default relation traversal direction (in, out, or both)
+        required: false
+        default: both
+        type: string
+    outputs:
+      args-json:
+        description: Validated change-diagram arguments as a JSON string array
+        value: ${{ jobs.validate.outputs.args-json }}
+      metadata-json:
+        description: Review-filter provenance and effective values as JSON
+        value: ${{ jobs.validate.outputs.metadata-json }}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate PR review filters
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      args-json: ${{ steps.parse.outputs.args-json }}
+      metadata-json: ${{ steps.parse.outputs.metadata-json }}
+    steps:
+      - name: Parse review scope from event data
+        id: parse
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          INPUT_DEPTH: ${{ inputs.depth }}
+          INPUT_DIRECTION: ${{ inputs.direction }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const crypto = require('node:crypto');
+
+            class ValidationError extends Error {}
+            function fail(message) {
+              throw new ValidationError(message);
+            }
+
+            function reviewBlock(body) {
+              if (Buffer.byteLength(body, 'utf8') > 256 * 1024) {
+                fail('PR body exceeds the 256 KiB limit.');
+              }
+              let fence = null;
+              let block = null;
+              let blockBytes = 0;
+              let count = 0;
+              // Keep original line endings so the block byte limit is exact.
+              const lines = body.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g) || [];
+              for (const rawLine of lines) {
+                const line = rawLine.replace(/(?:\r\n|\r|\n)$/, '');
+                if (fence !== null) {
+                  const close = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+                  if (close && close[1][0] === fence.character && close[1].length >= fence.length) {
+                    fence = null;
+                  } else if (fence.review) {
+                    blockBytes += Buffer.byteLength(rawLine, 'utf8');
+                    if (blockBytes > 8 * 1024) {
+                      fail('Review-filter block exceeds the 8 KiB limit.');
+                    }
+                    block.push(rawLine);
+                  }
+                  continue;
+                }
+                const open = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+                if (!open || (open[1][0] === '`' && open[2].includes('`'))) {
+                  continue;
+                }
+                const review = open[2].replace(/^[ \t]+|[ \t]+$/g, '') === 'umlgen';
+                fence = { character: open[1][0], length: open[1].length, review };
+                if (review) {
+                  count += 1;
+                  if (count > 1) {
+                    fail('Only one umlgen review-filter block is allowed.');
+                  }
+                  block = [];
+                }
+              }
+              if (fence !== null && fence.review) {
+                fail('The umlgen review-filter block is missing its closing fence.');
+              }
+              return block === null ? null : block.join('');
+            }
+
+            function tokenize(block) {
+              // Tabs and line endings are delimiters; other control characters are invalid.
+              if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(block)) {
+                fail('Review-filter block contains a control character.');
+              }
+              const text = block.replace(/\r\n|\r/g, '\n');
+              const tokens = [];
+              let token = '';
+              let started = false;
+              let quote = null;
+              function finish() {
+                if (started) {
+                  tokens.push(token);
+                  if (tokens.length > 32) {
+                    fail('Review-filter block exceeds the 32-token limit.');
+                  }
+                  token = '';
+                  started = false;
+                }
+              }
+              for (let index = 0; index < text.length; index += 1) {
+                const character = text[index];
+                if (character === '\\') {
+                  index += 1;
+                  if (index === text.length) {
+                    fail('Review-filter block has an unfinished escape.');
+                  }
+                  if (text[index] !== '\n') {
+                    token += text[index];
+                    started = true;
+                  }
+                } else if (quote !== null) {
+                  if (character === quote) {
+                    quote = null;
+                  } else {
+                    token += character;
+                  }
+                } else if (character === '"' || character === "'") {
+                  quote = character;
+                  started = true;
+                } else if (/\s/u.test(character)) {
+                  finish();
+                } else {
+                  token += character;
+                  started = true;
+                }
+              }
+              if (quote !== null) {
+                fail('Review-filter block has an unclosed quote.');
+              }
+              finish();
+              if (tokens.length === 0) {
+                fail('The umlgen review-filter block must not be empty.');
+              }
+              return tokens;
+            }
+
+            function overrides(tokens) {
+              const allowed = new Set(['--depth', '--direction', '--include', '--relations']);
+              const values = new Map();
+              for (let index = 0; index < tokens.length; index += 1) {
+                const token = tokens[index];
+                const equal = token.indexOf('=');
+                const flag = equal === -1 ? token : token.slice(0, equal);
+                if (!allowed.has(flag)) {
+                  fail('Review-filter block contains an unsupported argument.');
+                }
+                if (values.has(flag)) {
+                  fail('Review-filter block repeats an argument.');
+                }
+                let value;
+                if (equal === -1) {
+                  index += 1;
+                  if (index === tokens.length) {
+                    fail('A review-filter argument is missing its value.');
+                  }
+                  value = tokens[index];
+                } else {
+                  value = token.slice(equal + 1);
+                }
+                if (value.length === 0 || value.startsWith('--')) {
+                  fail('A review-filter argument is missing its value.');
+                }
+                values.set(flag, value);
+              }
+              return values;
+            }
+
+            try {
+              const defaultDepthText = process.env.INPUT_DEPTH;
+              const defaultDepth = Number(defaultDepthText);
+              if (!/^(?:0|[1-9][0-9]*)$/.test(defaultDepthText || '') || !Number.isInteger(defaultDepth)) {
+                fail('Workflow depth must be a nonnegative integer.');
+              }
+              const defaultDirection = process.env.INPUT_DIRECTION;
+              const directions = new Set(['in', 'out', 'both']);
+              if (!directions.has(defaultDirection)) {
+                fail('Workflow direction must be in, out, or both.');
+              }
+              const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+              const body = event.pull_request?.body ?? '';
+              if (typeof body !== 'string') {
+                fail('PR body must be text.');
+              }
+              const block = reviewBlock(body);
+              const values = block === null ? new Map() : overrides(tokenize(block));
+              const filters = { depth: defaultDepth, direction: defaultDirection, include: null, relations: null };
+
+              if (values.has('--depth')) {
+                const value = values.get('--depth');
+                if (!/^(?:0|[1-9][0-9]*)$/.test(value) || Number(value) > 10) {
+                  fail('Review-filter depth must be an integer from 0 through 10 without leading zeros.');
+                }
+                filters.depth = Number(value);
+              }
+              if (values.has('--direction')) {
+                const value = values.get('--direction');
+                if (!directions.has(value)) {
+                  fail('Review-filter direction must be in, out, or both.');
+                }
+                filters.direction = value;
+              }
+              if (values.has('--include')) {
+                const value = values.get('--include');
+                if (Buffer.byteLength(value, 'utf8') > 1024) {
+                  fail('Review-filter include exceeds the 1024-byte limit.');
+                }
+                const javaPackage = /^[\p{ID_Start}_$][\p{ID_Continue}_$]*(?:\.[\p{ID_Start}_$][\p{ID_Continue}_$]*)*$/u;
+                if (!javaPackage.test(value)) {
+                  fail('Review-filter include must be one Java package prefix.');
+                }
+                filters.include = value;
+              }
+              if (values.has('--relations')) {
+                const relations = values.get('--relations').split(',').map(relation => relation.trim());
+                const allowedRelations = new Set(['inheritance', 'implementation', 'field', 'parameter', 'return']);
+                if (!(relations.length === 1 && relations[0] === 'all') &&
+                    (relations.some(relation => !allowedRelations.has(relation)) || new Set(relations).size !== relations.length)) {
+                  fail('Review-filter relations must be unique allowed relation names, or all alone.');
+                }
+                filters.relations = relations.join(',');
+              }
+
+              const depthArgument = values.has('--depth') ? String(filters.depth) : defaultDepthText;
+              const args = ['--depth', depthArgument, '--direction', filters.direction];
+              if (filters.include !== null) {
+                args.push('--include', filters.include);
+              }
+              if (filters.relations !== null) {
+                args.push('--relations', filters.relations);
+              }
+              const metadata = {
+                source: block === null ? 'workflow-defaults' : 'pr-body',
+                body_sha256: crypto.createHash('sha256').update(body, 'utf8').digest('hex'),
+                filters,
+                applies_to: 'change-diagram',
+              };
+              fs.appendFileSync(process.env.GITHUB_OUTPUT,
+                `args-json=${JSON.stringify(args)}\nmetadata-json=${JSON.stringify(metadata)}\n`);
+            } catch (error) {
+              const message = error instanceof ValidationError ? error.message : 'Unable to read or validate review filters.';
+              // Only controlled messages reach the summary or the action error log.
+              try {
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Review-filter validation failed\n\n${message}\n`);
+              } catch {
+                // Preserve the safe validation error if the runner cannot write its summary.
+              }
+              throw new Error(message);
+            }
