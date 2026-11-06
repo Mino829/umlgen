@@ -13,6 +13,7 @@ name: UML diff
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, edited]
 
 permissions:
   contents: read
@@ -28,13 +29,14 @@ jobs:
 
 導入直後の試用では`@main`を利用できる。本運用では、内容が変化しないumlgenのリリースタグまたは完全なcommit SHAへ固定する。
 
-実行後、Actionsのrun summaryにあるArtifactsから`umlgen-pr-diff`をダウンロードする。内容は次の4ファイル。
+実行後、Actionsのrun summaryに適用条件・比較commit・本文hashを表示し、Artifactsから`umlgen-pr-diff`をダウンロードする。内容は次の5ファイル。
 
 ```text
 change-diagram.puml
 change-diagram.svg
 full-diagram.puml
 full-diagram.svg
+review-scope.json
 ```
 
 `change-diagram`は変更型とその周辺の差分図、`full-diagram`はPRのhead commitにある対象パスのJava型の全体図です（`.umlgen.yaml`の除外設定は適用されます）。全体図に変更色や削除された型は含まれません。全体図はmerge commitではなくPRのhead commitから生成します。
@@ -56,6 +58,45 @@ full-diagram.svg
 
 なお、このワークフローは`.java`ファイルの変更のみを検知する。Goプロジェクトで利用する場合はローカルCLIまたは独自ワークフローで`umlgen diff`を呼び出してください。
 
+## PR本文でレビュー範囲を指定する（開発版）
+
+対応するworkflowのcommit／リリースを使うと、PR本文の専用blockで**差分図だけ**の範囲を指定できる。呼び出し側の`pull_request.types`には上の例のように`edited`を含める。旧workflowの参照先を更新しない場合、この設定は適用されない。
+
+````markdown
+### 今回レビューしたい範囲
+
+```umlgen
+--include "com.example.order"
+--relations inheritance,implementation,field
+--depth 2
+--direction out
+```
+````
+
+| 引数 | 受理する値 |
+| --- | --- |
+| `--include` | Javaのpackage prefixを**1つ**。Unicode識別子も可。UTF-8で1024 bytes以下。複数prefix・CSV・glob・ファイルパスは不可 |
+| `--relations` | `inheritance,implementation,field,parameter,return`の一意な部分集合、または`all`単独 |
+| `--depth` | `0`〜`10`の整数。符号・小数・指数・先頭0は禁止。`0`は変更型のみ |
+| `--direction` | `in`／`out`／`both` |
+
+- `--flag value`と`--flag=value`を使える。single／double quote、backslash escape、行継続を扱うが、変数・command substitution・シェル構文は実行しない。
+- 対象はinfo stringが正確に`umlgen`のfenced blockが1つ。backtick／tildeは3個以上、indentは3 spacesまで。長い外側fenceに入った記述例は設定にしない。別のinfo stringやinline codeも対象外。
+- blockなしは従来どおり、`with.depth`／`with.direction`を使い、include／relationsはCLIとrepository設定の既定を維持する。block内で指定した値だけが優先する。信頼済みの`with.depth`には本文用の最大10を適用しない。
+- 空block・閉じ忘れ・複数block・同じ引数の重複・未対応の引数／値は、checkoutやdownloadの前に明示エラーにする。無指定の図へfallbackしない。
+- 本文は256 KiB、blockは8 KiB、tokenは32個まで。検証jobは5分、図生成は15分の期限を設ける。
+- `--config`／`--output`／`--source`／`--language`／`--renderer`／`--server-url`／`--focus`等は受け付けない。source、比較commit、CLI版、出力先、rendererはworkflow管理のまま。
+
+`--relations`は線の種類を選ぶ。配布版CLIの近傍選択により、選択しなかった関係の周辺型が文脈として残る場合がある。package prefixやdepthによる型の範囲とは区別する。
+
+全体図の`full-diagram`へ本文フィルタは適用しない。こちらは従来どおりheadの全体文脈で、repository設定は有効。差分図と全体図を同じレビュー条件の図として解釈しない。
+
+`review-scope.json`には、渡した引数、本文／workflow既定の別、base・比較merge-base・headの完全SHA、source path、CLI版、本文のSHA-256、run ID／attempt、生成status、Java変更なしの判定を記録する。本文そのものは保存しない。指定していないinclude／relationsのCLI・repository既定まで解決した公開APIではない。
+
+同じrepository・caller workflow・PR・artifact名の新しいrunが古いrunを取り消す。異なる図を同時生成する場合は`artifact-name`を分ける。caller側で同名のconcurrency groupを重ねて設定しない。artifactとSummaryはrun・commit・本文hashに結び付き、以前のrunのartifactは履歴であって「常に最新」のURLではない。
+
+失敗時にはSummaryとログへ診断を残し、成功した図のartifactとしてuploadしない。本文検証に失敗した場合は生成job自体を開始しない。本文への自動書き戻し・PRコメント投稿は行わない。
+
 ## 出力
 
 再利用ワークフローは次のoutputを返す。
@@ -74,6 +115,8 @@ full-diagram.svg
 - umlgenのLinuxアーカイブは公開リリースの`SHA256SUMS.txt`で検証する
 - PlantUML 1.2026.6のJARをMaven Centralから取得し、固定したSHA-256で検証してからrunner内でSVGを生成する。Ubuntuの`plantuml`パッケージ（1.2020.2）はJava annotationの宣言を描画できないため使用しない
 - ソースコードを外部の図生成サービスへ送信しない
+- 本文の解析はcheckoutしない検証job内の固定・SHA pinされたgithub-scriptで行い、event JSONをデータとして読む。PR内のスクリプトを解析helperとして実行しない
+- 許可した値だけをJSONとしてjob間へ渡し、NUL区切りの引数配列からCLIを呼ぶ。本文や引数文字列をshellへ再評価しない
 - このワークフローではSVG出力に固定している。PNG出力やPlantUML Serverレンダラーを利用する場合はローカルCLIで`umlgen diff`を実行する
 
 GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメンテナー承認が必要になる。

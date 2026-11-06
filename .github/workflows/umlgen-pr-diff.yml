@@ -54,10 +54,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: umlgen-review-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.artifact-name }}
+  cancel-in-progress: true
+
 jobs:
+  filters:
+    name: Validate PR review scope
+    uses: ./.github/workflows/umlgen-review-filters.yml
+    with:
+      depth: ${{ inputs.depth }}
+      direction: ${{ inputs.direction }}
+
   generate:
     name: Generate PR class diagram
+    needs: filters
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -86,10 +99,48 @@ jobs:
             echo "::error::Base and head commits are unavailable. Call from pull_request or pass base-sha and head-sha."
             exit 1
           fi
-          git cat-file -e "${BASE_SHA}^{commit}"
-          git cat-file -e "${HEAD_SHA}^{commit}"
+          BASE_SHA="$(git rev-parse --verify --end-of-options "${BASE_SHA}^{commit}")"
+          HEAD_SHA="$(git rev-parse --verify --end-of-options "${HEAD_SHA}^{commit}")"
+          COMPARISON_BASE_SHA="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           echo "base-sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "head-sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "comparison-base-sha=$COMPARISON_BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare review receipt
+        id: receipt
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          REVIEW_ARGS_JSON: ${{ needs.filters.outputs.args-json }}
+          REVIEW_METADATA_JSON: ${{ needs.filters.outputs.metadata-json }}
+          BASE_SHA: ${{ steps.revisions.outputs.base-sha }}
+          HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
+          COMPARISON_BASE_SHA: ${{ steps.revisions.outputs.comparison-base-sha }}
+          SOURCE: ${{ inputs.source }}
+          UMLGEN_VERSION: ${{ inputs.umlgen-version }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const args = JSON.parse(process.env.REVIEW_ARGS_JSON);
+            const output = path.join(process.env.RUNNER_TEMP, 'umlgen-pr-diff');
+            fs.mkdirSync(output, {recursive: true});
+            fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'umlgen-review-args'),
+              args.map(value => value + '\0').join(''), {mode: 0o600});
+            const receipt = {
+              ...JSON.parse(process.env.REVIEW_METADATA_JSON),
+              status: 'pending',
+              arguments: args,
+              base_sha: process.env.BASE_SHA,
+              head_sha: process.env.HEAD_SHA,
+              comparison_base_sha: process.env.COMPARISON_BASE_SHA,
+              source_path: process.env.SOURCE,
+              umlgen_version: process.env.UMLGEN_VERSION,
+              run_id: process.env.GITHUB_RUN_ID,
+              run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+              full_diagram: 'Unfiltered PR-head context; repository configuration still applies.'
+            };
+            fs.writeFileSync(path.join(output, 'review-scope.json'),
+              JSON.stringify(receipt, null, 2) + '\n', {mode: 0o600});
 
       - name: Check out PR head for diagrams
         shell: bash
@@ -140,13 +191,16 @@ jobs:
           BASE_SHA: ${{ steps.revisions.outputs.base-sha }}
           HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
           SOURCE: ${{ inputs.source }}
-          DEPTH: ${{ inputs.depth }}
-          DIRECTION: ${{ inputs.direction }}
+          REVIEW_ARGS_FILE: ${{ runner.temp }}/umlgen-review-args
         run: |
           set -euo pipefail
           OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
           UMLGEN_BIN="$RUNNER_TEMP/umlgen/umlgen-linux-amd64"
           mkdir -p "$OUTPUT_DIR"
+          REVIEW_ARGS=()
+          while IFS= read -r -d '' argument; do
+            REVIEW_ARGS+=("$argument")
+          done < "$REVIEW_ARGS_FILE"
           emit_placeholder_diagram() {
             local note="$1"
             printf '%s\n' \
@@ -167,8 +221,8 @@ jobs:
               mkdir -p "$SOURCE"
             fi
             if "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
-              --depth "$DEPTH" \
-              --direction "$DIRECTION" \
+              "${REVIEW_ARGS[@]}" \
+              --language java \
               --format svg \
               --renderer=jar \
               --output "$OUTPUT_DIR/change-diagram.puml" \
@@ -206,6 +260,7 @@ jobs:
           fi
 
       - name: Generate full diagram at PR head
+        id: full
         shell: bash
         env:
           SOURCE: ${{ inputs.source }}
@@ -262,6 +317,61 @@ jobs:
           fi
 
 
+      - name: Summarize review scope
+        if: always() && !cancelled() && steps.receipt.outcome == 'success'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          DIFF_OUTCOME: ${{ steps.diagram.outcome }}
+          FULL_OUTCOME: ${{ steps.full.outcome }}
+          NO_JAVA_CHANGES: ${{ steps.diagram.outputs.no-java-changes }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const output = path.join(process.env.RUNNER_TEMP, 'umlgen-pr-diff');
+            const file = path.join(output, 'review-scope.json');
+            const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+            receipt.status = process.env.DIFF_OUTCOME === 'success' &&
+              process.env.FULL_OUTCOME === 'success' ? 'generated' : 'failed';
+            receipt.no_java_changes = process.env.NO_JAVA_CHANGES === 'true' ? true :
+              process.env.NO_JAVA_CHANGES === 'false' ? false : null;
+            if (receipt.status === 'generated') {
+              for (const name of ['change-diagram.puml', 'change-diagram.svg',
+                'full-diagram.puml', 'full-diagram.svg']) {
+                if (!fs.statSync(path.join(output, name)).size) {
+                  throw new Error('A required diagram output is empty.');
+                }
+              }
+            }
+            fs.writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n');
+            const escape = value => String(value).replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+              .replace(/\|/g, '&#124;').replace(/[\r\n]/g, ' ');
+            const rows = [
+              ['Result', receipt.status],
+              ['Filter source', receipt.source],
+              ['No changed Java files', receipt.no_java_changes ?? 'unknown'],
+              ['Base commit', receipt.base_sha],
+              ['Comparison merge-base', receipt.comparison_base_sha],
+              ['Head commit', receipt.head_sha],
+              ['Selected source path', receipt.source_path],
+              ['Released CLI', receipt.umlgen_version],
+              ['PR body SHA-256', receipt.body_sha256],
+              ['Run / attempt', receipt.run_id + ' / ' + receipt.run_attempt]
+            ];
+            const summary = [
+              '## umlgen review scope', '',
+              '| Setting | Value |', '| --- | --- |',
+              ...rows.map(([key, value]) => '| ' + key + ' | <code>' +
+                escape(value) + '</code> |'), '',
+              'Arguments apply only to the change diagram. Unset include/relations preserve the released CLI and repository-config defaults.',
+              '<pre>' + escape(JSON.stringify(receipt.arguments, null, 2)) + '</pre>', '',
+              'The full diagram is unfiltered PR-head context, not the filtered review result.',
+              'Artifacts belong to this run and body digest; older runs are historical results, not a mutable latest diagram.', ''
+            ].join('\n');
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+
       - name: Upload diagram
         id: artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -272,5 +382,6 @@ jobs:
             ${{ runner.temp }}/umlgen-pr-diff/change-diagram.svg
             ${{ runner.temp }}/umlgen-pr-diff/full-diagram.puml
             ${{ runner.temp }}/umlgen-pr-diff/full-diagram.svg
+            ${{ runner.temp }}/umlgen-pr-diff/review-scope.json
           if-no-files-found: error
           retention-days: ${{ inputs.retention-days }}

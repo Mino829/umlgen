@@ -71,3 +71,70 @@ watch／Homebrew／Scoopを次の最優先としていた従来の順序は、�
 - Java／Goとも通常のPlantUMLとのバイト一致、コールド／ウォーム／キャッシュ無効時の説明一致を確認。
 - JavaのCRLF・最終改行なし、Java／Goの全件解析失敗、部分失敗、focus・includeによる既知の非表示参照、削除ファイルのGit比較元、差分プレースホルダを確認。
 - 実際のPlantUMLで、説明と階層レイアウトを併用したSVGを生成して解析。
+
+## PR本文でレビュー範囲を指定する
+
+**状態: 開発版workflowで実装済み。未マージ・未リリース。** 優先順位2「チームの設計レビュー」の導線。学習者向け説明とは別に、本文から安全に差分図の条件を指定する。
+
+### 目的と記述例
+
+PR作成者が「今回レビューしてほしい設計範囲」を本文で指定し、その条件に合わせた図をGitHub Actionsで生成する。シェルコマンドを実行する仕組みではなく、専用のコードブロックから許可したCLIフィルタだけを読み取る。
+
+PR本文の記述例:
+
+````markdown
+### 確認したい設計範囲
+
+```umlgen
+--include com.example.order
+--relations inheritance,implementation,field
+--depth 2
+--direction out
+```
+````
+
+受け付ける引数は`--include`、`--relations`、`--depth`、`--direction`だけ。比較元・比較先のコミット、解析対象のルート、出力先、renderer、CLI版はworkflow管理とし、PR本文から変更させない。配布版CLI v0.5.0に合わせ、includeは単一のJava package prefix、relationsは一意なCSVまたはall、本文depthは0〜10とした。
+
+### 動作
+
+- PR作成・再オープン・コミット追加で、指定したフィルタを使って再生成する。
+- 本文編集でも再生成する。`pull_request`の`opened`、`reopened`、`synchronize`に加え、`edited`を明示的に扱う。
+- 専用ブロックがなければ従来の既定設定で生成する。
+- 未対応の引数、不正な値、複数の専用ブロックなど曖昧な指定は、黙って無視せず明確なエラーにする。
+- Summaryとartifactに図、渡した引数、base・merge-base・headの完全SHA、source、CLI版、本文hash、run ID／attemptと生成statusを残す。本文そのものは保存しない。
+- reusable workflow全体のconcurrencyで古いrunを取り消す。artifactはrun・commit・本文hashに対応し、過去のartifactを可変の「最新結果」として案内しない。
+
+最初の出力先は既存のActions Summaryとartifactとする。PR本文の自動書き換えやコメント投稿は初期範囲に含めず、追加の書き込み権限を要求しない。
+
+### 安全性の境界
+
+- PR本文は信頼できない入力として扱い、イベントJSONからデータとして読み取る。`${{ github.event.pull_request.body }}`を`run:`のスクリプトへ直接埋め込まない。
+- 本文を`eval`、`bash -c`、コマンド置換などで実行しない。トークンを解析・検証し、固定したCLIの引数配列へ渡す。
+- 引数名をallowlistで制限し、関係種別・探索方向の列挙値、深さの整数・上限などを検証する。任意の追加引数へ抜けられる経路を設けない。
+- ブロック数・入力サイズ・実行資源に制限を設け、無制限に図やジョブを作れないようにする。
+- `pull_request`と読み取り専用権限、認証情報を残さないcheckout、検証済みCLI／PlantUMLの利用を維持する。本文の解析のために`pull_request_target`へ切り替えない。
+- ソースのビルドやPR内スクリプトの実行は追加しない。Fork PRに対するGitHub側の実行承認は尊重する。
+
+### 既存機能との関係と前提
+
+- 現行の`diff`は`--focus`と併用できない。特定型を中心に見る指定は全体図の`class --focus`用として分ける。本文から任意の`class`／`diff`コマンドを実行する設計にはしない。
+- 本文フィルタは差分図だけへ適用する。全体図は従来どおりheadの全体文脈で、repository設定は有効。二つを同じレビュー条件の図として扱わない。
+- `.github/workflows/umlgen-review-filters.yml`はcheckoutせず、固定されたinline JavaScriptでevent JSONを解析する。検証済みJSONを生成jobへ渡し、NUL区切りの配列からCLIを起動する。実行scriptをPRの作業ツリーから読み込まない。
+- Java変更のみを検知し、既定CLIは配布版`v0.5.0`。Goや未リリースの図をこの変更へ混在させない。type-less変更・全削除・解析失敗の既存経路は維持する。
+- 利用者は対応workflowのcommitを選び、callerの`pull_request.types`に`edited`を含める必要がある。旧workflowや通常のCLIがPR本文を自動解析するわけではない。詳しい構文・上限は[GitHub Actions](github-actions.md#pr本文でレビュー範囲を指定する開発版)を参照。
+
+### 受入確認
+
+- 指定なしの互換性、正常なフィルタ、本文編集・追加コミット後の再生成。
+- 引用を含む値、不正な引数・値、複数ブロック、シェル構文を含む悪意ある入力を、安全に扱うこと。
+- 差分図と全体図の条件を混同せず、Summaryに適用条件とコミットを表示すること。
+- Fork PRの読み取り専用権限と、既存の「変更なし」・削除ファイル・解析失敗の扱いを維持すること。
+- 不正な指定の結果として、無指定の図を成功扱いで出したり、過去のartifactを最新結果として案内したりしないこと。
+
+ローカル確認: 実際のinline parserをNodeで実行する回帰で、既定値・優先順位・引用・Unicode・fence・重複・範囲外・size上限・悪意ある入力の拒否と非実行を確認した。`go test ./...`、`go vet ./...`、actionlint成功。SHA-256検証済み配布版v0.5.0とPlantUML 1.2026.6でworkflowと同じ引数・生成script・receipt／Summaryを実行し、package／relation／depthの絞り込み、全体図のバイト不変、変更なし・type-less・選択ディレクトリ全削除・解析失敗を確認した。本文編集イベントとrun取消は実GitHub上でも確認してから結果をPRへ記録する。
+
+実GitHub確認: [拒否ケース](https://github.com/Mino829/umlgen/actions/runs/42062889682)では禁止flagを明示エラーにし、生成jobがskip、artifactが0件だった。許可filterへの本文編集で新runが起動し、[depth 0の結果](https://github.com/Mino829/umlgen/actions/runs/42063624983)では5ファイルを生成した。downloadした`review-scope.json`のdepth／direction／relations、head SHA、本文SHA-256が、実際のPR #74の本文・commitと一致することを確認した。
+
+取消の実確認: commit追加直後に本文を編集すると、[先行run 42066663649](https://github.com/Mino829/umlgen/actions/runs/42066663649)がcancelledとなり、[新しい本文のrun 42066669590](https://github.com/Mino829/umlgen/actions/runs/42066669590)の検証・図生成が成功した。[CI run 42066663484](https://github.com/Mino829/umlgen/actions/runs/42066663484)ではLinux／Windows／macOS arm64・amd64もすべて成功した。個別のrun履歴と最新本文に対応する結果を区別して確認する。
+
+Windowsの追加確認では、[初回Nodeプロセスのテスト待機が10秒に達する事象](https://github.com/Mino829/umlgen/actions/runs/42067562018/job/127385842827)を確認した。外部プロセスの起動も含むテスト用guardを30秒へ揃え、許可値・拒否条件・本文の非実行assertは変更していない。製品側の検証jobは5分、生成jobは15分のまま。修正後のローカル回帰・全体テスト・vetは成功した。

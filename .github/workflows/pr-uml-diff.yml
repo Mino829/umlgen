@@ -2,6 +2,7 @@ name: PR UML Diff
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, edited]
 
 permissions:
   contents: read
