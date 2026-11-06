@@ -30,11 +30,11 @@
 
 既存の`--explain`を拡張する学習者向けの関係説明は[PR #66](https://github.com/Mino829/umlgen/pull/66)でmainへマージ済み。関係の意味、解析時のソース抜粋、Goの暗黙実装を支えるメソッド、範囲・失敗・未解決・既知の非表示参照を扱う。実CLIとテストの確認結果は[`development-direction.md`](development-direction.md)に記録。関係線の変更と根拠の変化を扱うチーム向け機能を検討し、watch／導入改善はその後に進める。リリースの実施は別途判断する。
 
-直近のゴールは、PR #73の提案を受けた**PR本文からレビュー範囲を指定して安全に差分図を生成する導線**。開発版では、checkoutしない検証job、4種類の許可flagと上限、JSON→NUL区切り引数、本文編集トリガー、古いrunの取消、Summaryと`review-scope.json`を接続した。差分図だけに条件を適用し、head全体図は従来の文脈として維持する。配布版CLI v0.5.0で動作し、未リリースのCLIをPRソースからbuildしない。
+PR #73の提案を受けた**PR本文からレビュー範囲を指定して安全に差分図を生成する導線**は、PR #74→#73を通してmainへ統合済み。checkoutしない検証job、4種類の許可flagと上限、JSON→NUL区切り引数、本文編集トリガー、古いrunの取消、Summaryと`review-scope.json`を接続した。差分図だけに条件を適用し、head全体図は従来の文脈を維持する。workflowは配布版CLI v0.5.0で動作し、PRソースをbuildしない。
 
-確認済み: parserの正常／異常／非実行回帰、全体テスト・vet・actionlintが成功。SHA-256検証済みの実配布版CLIとPlantUML JARで、本文の条件による差分図・SVG、full図のバイト不変、変更なし・type-less・全削除・解析失敗とreceipt／Summaryを確認した。実GitHubの本文編集時の再生成・取消とCIを確認し、PR作成とURL報告まで行う。Go対象・全体図focus・watch・activity・GUIは今回の範囲に含めない。
+確認済み: parserの正常／異常／非実行回帰、全体テスト・vet・actionlint、実配布版CLIとPlantUMLによる差分図・SVG、full図のバイト不変、変更なし・type-less・全削除・解析失敗。実GitHubの本文編集・取消、artifactの本文hash／head／filter一致も確認し、PR #74と統合後のPR #73は4 OSのCIが成功した。Go対象・全体図focus・watch・activity・GUIはこのレビュー導線に含めていない。
 
-図の拡張計画のP1-08以降はPR #71等の別ブランチで進行しており、以下はこのmain系統で確認した状態を記録する。本文フィルタの実装と未マージの図拡張を混同しない。
+以下は同じ開発版へ統合するpackage／sequenceの実装・検証記録。図別の制限と、個別開発時点の確認、統合時の確認を区別する。新機能の配布リリースはまだ行っていない。
 
 図の拡張計画の **P1-01（Goキャッシュのmodule文脈分離）**、**P1-02（ファイル単位の解析結果・import位置）**、**P1-03（PackageIDと依存根拠の集約）** は開発版で実装済み。
 
@@ -50,7 +50,7 @@
 
 **Phase 1B（P1B-01〜04、完全snapshotに基づくpackage差分）** も開発版で実装・検証済み。`diff --diagram package`が両commitの全選択ソースと各go.modをGitから固定し、未変更ファイルに残る根拠、一部／最後の根拠削除、同件数の入替、file rename、package／module identity変更を区別する。dirty／staged／untrackedを含めず、既存class diffの既定は変更しない。比較後のexternal／cycles-only投影で偽の辺削除を作らず、解析失敗・未解決／曖昧参照に関係する辺／循環を不確かとして説明する。
 
-今回の確認: Java／Goの全3依存modeでcold／warm／`--no-cache`とexplain有無の図一致、実local SVG／PNG、部分／全件parse失敗、模擬rendererの期限・空画像・異常終了、Go module変更と汚れた作業ツリーの分離、削除target・片側空・merge-base、行移動とfile renameを実CLIで確認。Java goldenと既存class／class diffの互換性、`go test ./...`、`go vet ./...`も成功。他OS CI・マージ・リリース・package差分の性能保証は未実施。契約と利用例は[差分機能](pr-diff.md#パッケージ依存の差分開発版)と[開発計画](uml-expansion-proposal.md)を参照。
+2026-11-04の個別確認: Java／Goの全3依存modeでcold／warm／`--no-cache`とexplain有無の図一致、実local SVG／PNG、部分／全件parse失敗、模擬rendererの期限・空画像・異常終了、Go module変更と汚れた作業ツリーの分離、削除target・片側空・merge-base、行移動とfile renameを実CLIで確認。Java goldenと既存class／class diffの互換性、`go test ./...`、`go vet ./...`も成功。当時の確認には他OS CI・マージ・リリース・package差分の性能保証を含めていない。契約と利用例は[差分機能](pr-diff.md#パッケージ依存の差分開発版)と[開発計画](uml-expansion-proposal.md)を参照。
 
 **Phase 2（静的シーケンス図）** も開発版で実装・検証済み。Goは選択済みローカルソースの`go/types`、JavaはJDK 17以上の`JavacTask.parse/analyze`を採用し、対象のbuild・実行・annotation processor・依存downloadを行わない境界を固定した。`sequence --entry`、一意なselector、制御領域、直接呼び出し展開、動的候補、go／defer／channel、再帰・上限・非対応箇所の明示、取得済みソースによる説明、専用YAML・rendererを接続した。
 
@@ -60,11 +60,11 @@ PR公開前の追加修正: Goのパーサー回復宣言・閉じbrace欠落・
 
 Java protocolの追加修正: JDK 17／Windowsの非UTF-8既定charsetを想定した実JVM検証で、日本語メソッド名が`??`になる問題を再現。helperの出力writerをUTF-8固定にし、日本語entry選択・呼び出しIDを保持する回帰を追加した。
 
-2026-11-06のCI確認: [PR #71](https://github.com/Mino829/umlgen/pull/71)はLinux／macOS arm64・amd64が成功し、Windowsのpackage差分受入テストだけが失敗した。[失敗ログ](https://github.com/Mino829/umlgen/actions/runs/42030235476/job/127254532622)では、fixtureの期待パスが`RUNNER~1`形式、実際のGit根拠・診断が同一ディレクトリの`runneradmin`形式だった。fixture作成時に`filepath.EvalSymlinks`で物理rootへ揃え、元ファイル・削除根拠・解析失敗の厳密な位置検証を維持した。解析本体・出力・終了コードは変更せず、Windowsだけのskipやassertの緩和も行っていない。対象回帰、全体テスト、vet、buildが成功し、Java／Goの実CLIでroot aliasを使った削除・部分失敗の根拠とcold／warm／no-cache一致を確認した。Windows実行の最終結果は後続PRのCIで確認する。
+2026-11-06のCI修正: PR #71のWindows受入失敗は、fixtureの`RUNNER~1`形式と実際のGit根拠・診断の`runneradmin`形式の差だった。PR #72で物理rootへ揃え、厳密な根拠検証を維持した。PR #72はPR #71へマージ済みで、更新後の[PR #71 CI](https://github.com/Mino829/umlgen/actions/runs/42171703393)は4 OSすべて成功。PR #73を反映したmainとの統合にテキスト競合はなく、統合treeでも全体テスト・vet・build、両言語sequenceのSVG／PNG、全package modeのcache／説明一致、immutable Git差分、Java class goldenの一致を確認した。Windows skipやassertの緩和は行っていない。
 
 共有する作業規約を[`CONTRIBUTING.md`](../CONTRIBUTING.md)へ追加した。実装依頼は検証・コミット・push・PR作成とURL報告までを完了条件にし、手元変更の保持、依存PRの明記、修正対象CI失敗の解消、無断マージ・リリースを行わないことを定めた。既存のignore方針を維持し、ローカル専用AGENTS.mdからこの規約を参照する。PR #69のマージを確認し、PR #71のbaseはmainへ更新済み。
 
-次は **Phase 3A（単一関数アクティビティ図）** の開始条件を揃える。CFGの分岐・終了・短絡・例外辺とAST位置の対応を固定し、break／continue・finally／defer等を正常経路へ平坦化しない契約から進める。sequenceは実行traceや完全なdispatch解決ではなく、CFG・activity以降も実装済みとは扱わない。PR #71のWindows修正確認・マージ・リリース・sequence性能保証は未完了。リリースと配布物の検証は別途判断する。
+次の実装単位は **Phase 3A（単一関数アクティビティ図）**。指定関数のCFGとAST位置を対応付け、if／switch／loop・短絡・早期returnの分岐先と終了先を追える図を目指す。break／continue・label・finally／defer等を正常経路へ平坦化せず、未対応経路は位置付きで可視化する。Go／Javaの実ソース、異常系、元ソースとの対応、実CLIと画像を受入条件にし、PR作成・CI確認・依頼に応じたマージまで進める。CFG／activityはまだ未実装で、実行traceや完全なdispatch解決は約束しない。watch・GUIより先に進める。リリースと性能保証は別の検証・判断とする。
 
 ## 進め方
 
