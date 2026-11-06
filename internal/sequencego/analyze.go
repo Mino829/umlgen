@@ -59,6 +59,41 @@ type analyzer struct {
 // Analyze performs fresh, in-process semantic analysis of the selected snapshots.
 // Parse/type errors are diagnostics on a partial program; cancellation is an error.
 func Analyze(ctx context.Context, sources []sequence.Source) (sequence.Program, error) {
+	a, err := loadAnalyzer(ctx, sources)
+	if err != nil {
+		return a.program, err
+	}
+	for _, d := range a.declarations {
+		if err := ctx.Err(); err != nil {
+			return a.program, err
+		}
+		b := builder{a: a, pkg: d.pkg}
+		if d.body != nil {
+			d.callable.Body, _ = b.block(d.body.List)
+		} else {
+			for _, v := range d.values {
+				d.callable.Body = append(d.callable.Body, b.expr(v)...)
+			}
+		}
+		if d.body == nil && d.values == nil {
+			d.callable.Body = []sequence.Event{b.unsupported(d.node, "callable has no selected source body")}
+		}
+		var markers []sequence.Event
+		for _, diagnostic := range a.program.Diagnostics {
+			if diagnostic.Error && (diagnostic.Code == "type-error" || diagnostic.Code == "parse-error") && diagnostic.File == d.callable.File && diagnostic.Span.Start.Offset >= d.callable.Span.Start.Offset && diagnostic.Span.Start.Offset < d.callable.Span.End.Offset {
+				markers = append(markers, sequence.Event{Kind: sequence.Note, Label: diagnostic.Code + ": " + diagnostic.Message, File: diagnostic.File, Span: diagnostic.Span})
+			}
+		}
+		d.callable.Body = append(markers, d.callable.Body...)
+		a.program.Callables = append(a.program.Callables, d.callable)
+	}
+	a.sortDiagnostics()
+	return a.program, ctx.Err()
+}
+
+// loadAnalyzer captures, parses, checks and indexes each supplied snapshot once.
+// Both projections consume this same source-backed semantic representation.
+func loadAnalyzer(ctx context.Context, sources []sequence.Source) (*analyzer, error) {
 	a := &analyzer{ctx: ctx, fset: token.NewFileSet(), program: sequence.Program{Language: "go", Backend: "go/parser + go/types (selected sources only)"}, packages: map[string]*sourcePackage{}, imports: map[string][]*sourcePackage{}, functions: map[*types.Func]*declaration{}, literals: map[*ast.FuncLit]*declaration{}}
 	a.sourceByPath = make(map[string]sequence.Source, len(sources))
 	ordered := append([]sequence.Source(nil), sources...)
@@ -66,7 +101,7 @@ func Analyze(ctx context.Context, sources []sequence.Source) (sequence.Program, 
 	seen := map[string]bool{}
 	for _, source := range ordered {
 		if err := ctx.Err(); err != nil {
-			return a.program, err
+			return a, err
 		}
 		if seen[source.Path] {
 			a.program.Diagnostics = append(a.program.Diagnostics, sequence.Diagnostic{Code: "duplicate-source", Message: "duplicate selected source path", File: source.Path, Error: true})
@@ -103,7 +138,7 @@ func Analyze(ctx context.Context, sources []sequence.Source) (sequence.Program, 
 	sort.Strings(keys)
 	for _, key := range keys {
 		if err := ctx.Err(); err != nil {
-			return a.program, err
+			return a, err
 		}
 		a.check(a.packages[key])
 	}
@@ -112,35 +147,23 @@ func Analyze(ctx context.Context, sources []sequence.Source) (sequence.Program, 
 	}
 	sort.Slice(a.declarations, func(i, j int) bool { return a.declarations[i].callable.ID < a.declarations[j].callable.ID })
 	ids := map[string]bool{}
+	declarations := a.declarations[:0]
 	for _, d := range a.declarations {
 		if err := ctx.Err(); err != nil {
-			return a.program, err
+			return a, err
 		}
 		if ids[d.callable.ID] {
 			a.diagnostic("duplicate-callable", "duplicate callable identity; declaration omitted", d.node, true)
 			continue
 		}
 		ids[d.callable.ID] = true
-		b := builder{a: a, pkg: d.pkg}
-		if d.body != nil {
-			d.callable.Body, _ = b.block(d.body.List)
-		} else {
-			for _, v := range d.values {
-				d.callable.Body = append(d.callable.Body, b.expr(v)...)
-			}
-		}
-		if d.body == nil && d.values == nil {
-			d.callable.Body = []sequence.Event{b.unsupported(d.node, "callable has no selected source body")}
-		}
-		var markers []sequence.Event
-		for _, diagnostic := range a.program.Diagnostics {
-			if diagnostic.Error && (diagnostic.Code == "type-error" || diagnostic.Code == "parse-error") && diagnostic.File == d.callable.File && diagnostic.Span.Start.Offset >= d.callable.Span.Start.Offset && diagnostic.Span.Start.Offset < d.callable.Span.End.Offset {
-				markers = append(markers, sequence.Event{Kind: sequence.Note, Label: diagnostic.Code + ": " + diagnostic.Message, File: diagnostic.File, Span: diagnostic.Span})
-			}
-		}
-		d.callable.Body = append(markers, d.callable.Body...)
-		a.program.Callables = append(a.program.Callables, d.callable)
+		declarations = append(declarations, d)
 	}
+	a.declarations = declarations
+	return a, ctx.Err()
+}
+
+func (a *analyzer) sortDiagnostics() {
 	sort.SliceStable(a.program.Diagnostics, func(i, j int) bool {
 		x, y := a.program.Diagnostics[i], a.program.Diagnostics[j]
 		if x.File != y.File {
@@ -154,7 +177,6 @@ func Analyze(ctx context.Context, sources []sequence.Source) (sequence.Program, 
 		}
 		return x.Message < y.Message
 	})
-	return a.program, ctx.Err()
 }
 
 func (a *analyzer) Import(path string) (*types.Package, error) {

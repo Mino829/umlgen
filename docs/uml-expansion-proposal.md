@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **Phase 1A（P1-01〜08）、Phase 1B（P1B-01〜04、完全Git snapshotのpackage差分）、Phase 2（範囲を明示した静的シーケンス図）は開発版で実装・検証済み**。activity以降のPhase 3〜4は未実装の計画。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。Phase 1A／1B／2の実装・検証結果は9節へ追記。開発版の機能を、mainへのマージ済み・リリース済みとは扱わない。
+- 状態: **Phase 1A（P1-01〜08）、Phase 1B（P1B-01〜04、完全Git snapshotのpackage差分）、Phase 2（範囲を明示した静的シーケンス図）、Phase 3A（単一関数CFG／activity）は開発版で実装・検証済み**。Phase 3B〜4は未実装の計画。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。Phase 1A／1B／2はPR #71までの統合でmainへマージ済み。Phase 3Aは本開発ブランチの実装で、まだマージ・リリースしていない。個別開発時の記録と現在の統合状況を区別する。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -53,9 +53,9 @@ docs/ examples/ scripts/ .github/workflows/
 
 | 論点 | READMEで案内する仕様 | 実装から確認した範囲・注意点 |
 | --- | --- | --- |
-| 対応図 | Java/GoからPlantUMLクラス図・package依存図・静的シーケンス図を生成 | 開発版に`package`、`diff --diagram package`、`sequence`を追加済み。activity以降は未実装 |
-| Goの実行・開発要件 | ソースからの開発版ビルドはGo 1.25以上 | [go.mod](../go.mod)の`go`ディレクティブも`1.25`。Java sequenceには別途JDK 17以上が必要 |
-| AST／意味解析 | class／packageとsequenceで経路を分離 | class／packageはJava Tree-sitter・Go標準ASTによる宣言モデル。sequenceだけが選択ソースをGo `go/types`／Java `JavacTask`で意味解析 |
+| 対応図 | Java/GoからPlantUMLクラス図・package依存図・静的シーケンス図・単一関数activityを生成 | 開発版に`package`、`diff --diagram package`、`sequence`、`activity`を追加済み。state以降は未実装 |
+| Goの実行・開発要件 | ソースからの開発版ビルドはGo 1.25以上 | [go.mod](../go.mod)の`go`ディレクティブも`1.25`。Java sequence／activityには別途JDK 17以上が必要 |
+| AST／意味解析 | class／packageとsequence／activityで経路を分離 | class／packageはJava Tree-sitter・Go標準ASTによる宣言モデル。sequence／activityは選択ソースをGo `go/types`／Java `JavacTask`で意味解析し、activityは同じ解析のAST・宣言を再利用 |
 | classのpackage表示 | グルーピング、階層レイアウト | 型を囲む枠で、関係は型同士。独立したpackageコマンドはpackage端点へ集約する別経路 |
 | class／packageのGo interface実装 | 暗黙実装を可視化 | 構文的シグネチャ照合による推定。sequenceのgo/typesによるdispatch候補とは区別する |
 | Git差分 | 追加・変更・削除を色分け | class diffは変更ファイル内の型が基本。package diffは両commitの完全な選択snapshot。sequence diffは未対応 |
@@ -223,13 +223,13 @@ JavaはJDK標準の`JavacTask.parse`／`analyze`を採用し、JDK 17以上、�
 
 ### 4.3 Phase 3A: アクティビティ図
 
-**提案:** まず単一の指定関数を対象にする。構造化本体を保持し、CFGで分岐先・終了先を検証してから描画する。
+**開発版で実装済み:** 単一の指定関数を対象に、元ASTの位置と対応した明示ノード・制御辺のCFGを生成する。実行済み経路や到達可能性の証明ではない。
 
 - if/else、switch、for/range、条件、ループback edge、break/continue、早期return、throw/panicを明示する。
-- Javaのtry/catch/finally、例外による飛び先、finally内returnによる上書き、Goのdefer/recover、短絡評価は、通常分岐とは異なる辺・effectとして扱う。未対応なら対象位置付きで診断し、その経路を消さない。
-- `go/cfg`は候補だが、条件そのものの辺表現、`&&`/`||`の短絡、panic等の異常フローを完全には提供しない。必要な正確性に応じてASTを補助情報にし、SSAを検討する。[S9]
-- CFGはループ等を低レベルにするため、PlantUMLのif/while構造へ戻すには元ASTとの対応が要る。非構造化フローを常に自然な入れ子へ変換できるとは仮定しない。
-- losslessな表現ができない場合は明示ノード・接続への限定的な表現、またはその関数を非対応として報告する。もっともらしい正常系だけを成功図として出さない。
+- Javaのtry/catch/finally・resource、Goのdefer/recover・channel／iterator等は未対応のterminal barrierと位置付き診断にする。解析の境界であって実行の終了ではなく、未知の継続を正常終了として接続しない。暗黙の例外／panicとcallee内部は展開しない。
+- Goは標準ASTと型付き式、Javaは既存のJavacTaskが保持するAST／宣言から構築する。両言語とも同じソースを再解析してsequence eventからCFGを推測する方式にはしない。`&&`／`||`を式の位置でも扱い、Goの定数unsafe演算の非評価、Javaの型だけのqualifierも区別する。
+- 非構造化フローを自然なif／whileへ戻すことは約束しない。PlantUMLのlegacy activity記法に明示ノードと接続を出し、return／throw／panic／break／continue／goto／fallthrough等の辺種別を残す。
+- 既定500のノード上限はentry／exit等を含むhard cap。超過時は既存図を保持してエラーにし、もっともらしい途中の正常系だけを成功出力しない。未知構文も黙って省略しない。
 
 ### 4.4 Phase 3B: 状態遷移図
 
@@ -373,7 +373,7 @@ flowchart TD
 
 ### 6.1 コマンド体系
 
-**`package`、`diff --diagram package`、`sequence`と対応フラグは開発版で実装済み。activity以降は未実装の仕様案。** `class`／既定class diffは既存の意味を維持する。
+**`package`、`diff --diagram package`、`sequence`、`activity`と対応フラグは開発版で実装済み。state以降は未実装の仕様案。** `class`／既定class diffは既存の意味を維持する。
 
 ```bash
 umlgen class ./src
@@ -398,7 +398,7 @@ umlgen diff main...HEAD --diagram package
 | package | `--dependency-source declared-types\|imports\|both`、`--external hide\|show`、`--cycles off\|mark\|only`、packageを指定する`--focus`、`--depth`、`--direction` |
 | packageの型関係選択 | `--relations`はdeclared-types部分だけを絞る。importsのみとの組合せはエラー。bothではimport宣言を消さない。表示メンバーの可視性とは独立 |
 | sequence | `--entry`、`--max-call-depth`、`--max-participants`、`--max-messages`、`--java-release`、`--analysis-timeout`。一意な単純名・完全名・signature・`context::signature`を受理。`--include`・`--no-cache`・layout・class／package専用flagは拒否 |
-| activity | `--function`、必要に応じて`--max-nodes`。本体を一意に選ぶ |
+| activity | `--function`、`--max-nodes`（既定500）、`--java-release`、`--analysis-timeout`。sequenceと同じ一意なselector。本体の制御経路を描き、上限超過は旧図を保持。class／package／sequence専用flag・layout・`--no-cache`は拒否 |
 | state | `--type`、`--state-field`、`--state-config`。明示定義の出典を維持 |
 | component / deployment | `--boundary-config`、`--manifest`等。複数manifestのmergeは対応仕様が決まるまで自動実行しない |
 | diffの追加 | `--diagram package`はPhase 1Bで完全snapshot解析を接続済み。sequence等のdiffは今回のPhaseでは追加しない |
@@ -409,7 +409,7 @@ packageの`depth/direction`はpackage依存グラフ上で定義する。depende
 
 ### 6.2 `.umlgen.yaml`の拡張
 
-**以下のpackage／sequence設定は開発版で実装済み。** `diagrams`内の未知namespace・キー・型は設定エラーとする。activity以降の設定は受理しない。
+**以下のpackage／sequence設定は開発版で実装済み。** `diagrams.activity`も`function`・`max_nodes`・`java_release`・`analysis_timeout`に対応する（[利用例](../README.md#単一関数アクティビティ図開発版)）。`diagrams`内の未知namespace・キー・型は設定エラーとする。state以降の設定は受理しない。
 
 ```yaml
 language: auto
@@ -505,13 +505,13 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 ### Phase 3A: 単一関数アクティビティ図
 
 - **目的:** 呼び出し先よりも関数内の分岐・終了経路を理解する。
-- **実装対象:** if/switch/for、break/continue、早期return、言語別の例外・異常終了の対応範囲、未対応経路の診断。
-- **必要な内部変更:** CFGとAST領域の対応、制御辺の種類、activityへの投影。
+- **実装済み:** if/switch/for、式内の短絡、break/continue、早期return。Goのrange・type switch・goto／label・組込みpanic、Javaのdo／while・三項・colon/arrow switch・明示throwとlabel。暗黙の例外やcallee内部は対象外で、try/finally・defer/recover等はterminal barrierにする。
+- **内部変更:** 小さな`activity.Graph`にentry/exit、元AST位置付きノード、型付き制御辺を持たせ、backendの共有AST／宣言を利用して選択関数だけ構築する。Javaは同じcompilerプロセスのmetadata／選択handshakeで二重compileを避ける。
 - **依存する既存機能:** Phase 2の本体取得・位置・意味解析、renderer。高度な動的dispatch精度の完成は不要。
 - **技術的リスク:** 短絡、finally/defer、非構造化制御、例外辺の欠落、見かけ上の正常系だけの図。
-- **テスト方針:** nested分岐、ゼロ回ループ、switch fallthrough、label付きbreak、複数return、例外／panic、try/finally、defer/recover、変換不能な経路を確認する。
-- **MVP完成条件:** 対応構文の分岐先と終了先が失われず、未対応箇所を位置付きで報告する。制御経路の可能性と実行済み経路を区別できる。
-- **次へ進む条件:** CFGの辺・位置・例外範囲が安定し、状態変数更新の根拠へ再利用できる。
+- **回帰確認:** nested分岐、ゼロ回／無限ループ、switch fallthrough、label付きbreak／continue・goto、複数return、throw／panic、式内の短絡／三項、try/finally、defer/recover、構文回復・曖昧選択・hard capを確認した。Goの定数unsafe演算と型引数経由のchannel range、Javaのclass literal／constructor referenceの誤った辺を修正し、失敗前／成功後の回帰を保持した。
+- **完成条件（開発版で確認済み）:** 対応構文の分岐先と終了先を失わず、未対応箇所を位置付きで報告する。実CLIの辺とソース抜粋、両言語のlocal SVG／PNGで、可能性と実行済み経路を区別した。全体テスト・vet・build成功。CI確認・マージとリリースは別に扱う。
+- **次へ進む条件:** CFGの辺・位置・例外範囲のレビューを受ける。状態変数更新への再利用はPhase 3Bの明示状態モデル契約を決めてから行い、変数名やenumだけで状態機械を自動決定しない。
 
 ### Phase 3B: 明示定義を中心とする状態遷移図
 
@@ -813,9 +813,9 @@ endlegend
 | Goのビルド文脈 | packageもsequenceもbuild tags／GOOS別の実build再現を行わない。sequenceは選択ソースを型検査し、不足を診断 |
 | Goの意味解析と実行ポリシー | Phase 2で標準go/types・選択ソースのみと固定。goコマンド・download／driver／cgoなし。外部ロードは採用しない |
 | Javaの意味解析backend | Phase 2でJavacTask、JDK>=17と固定。JDT／JavaParser比較は実施せず、標準JDKのparse／analyzeに限定 |
-| entry／function selector文法 | sequenceはPhase 2で単純名・完全名・signature・context付きIDと固定。一意でなければ候補付きエラー。activity selectorはCFG設計時 |
+| entry／function selector文法 | sequence／activityとも単純名・完全名・signature・context付きID。一意でなければ候補付きエラー。同じ選択器で優先順位を維持 |
 | package diffのhead／working-tree規約 | Phase 1Bで固定済み。REV..HEAD／A..B／merge-base(A,B)..Bの固定commit比較のみで、dirty／staged／untrackedは常に除外。既存class diffの規約は変更しない |
-| CFGの例外精度と非構造化表現 | 両言語の例外・defer fixtureで、変換可能な範囲と明示非対応をPhase 3A前に決定 |
+| CFGの例外精度と非構造化表現 | Phase 3Aで明示ノード・型付き制御辺を採用。try/finally・defer/recover等は位置付きterminal barrier、暗黙の例外／callee内部は展開しない。完全な例外解析は未実装 |
 | 状態定義YAMLのschema | 値domain、初期状態、event/guard/action、ソースとの対応をPhase 3B前に決定 |
 | manifestの対応版・merge | Phase 4B前に対応仕様と入力条件を固定。生成コマンドの自動実行はしない |
 | 図の上限・性能目標 | 既存・大規模fixtureの実測で決定。本文の例の数値を既定仕様にしない |

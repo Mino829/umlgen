@@ -59,7 +59,7 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 			continue
 		}
 		switch arg {
-		case "class", "package", "sequence", "diff", "init", "cache", "version", "help":
+		case "class", "package", "sequence", "activity", "diff", "init", "cache", "version", "help":
 			commandAt = i
 		}
 		if commandAt >= 0 {
@@ -94,6 +94,9 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		case "sequence":
 			printSequenceHelp(stdout)
 			return exitOK, nil
+		case "activity":
+			printActivityHelp(stdout)
+			return exitOK, nil
 		case "diff":
 			printDiffHelp(stdout)
 			return exitOK, nil
@@ -125,6 +128,8 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return runPackage(rest, common, stdout, stderr)
 	case "sequence":
 		return runSequence(rest, common, stdout, stderr)
+	case "activity":
+		return runActivity(rest, common, stdout, stderr)
 	case "diff":
 		return runDiff(rest, common, stdout, stderr)
 	default:
@@ -799,6 +804,7 @@ Available Commands:
   class       Generate a class diagram
   package     Generate a package dependency diagram
   sequence    Project static calls and control regions from a selected entry
+  activity    Trace explicit control-flow edges inside one selected function
   cache       Manage the local parse cache
   diff        Generate a diagram for Git changes
   init        Create a configuration file

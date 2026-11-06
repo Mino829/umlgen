@@ -32,7 +32,7 @@ jobs:
         with:
           go-version: '1.26.10'
           cache-dependency-path: go.sum
-      - name: Set up minimum supported sequence JDK
+      - name: Set up minimum supported semantic-analysis JDK
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -66,6 +66,21 @@ jobs:
             --output "$RUNNER_TEMP/java-sequence.puml"
           test -s "$RUNNER_TEMP/go-sequence.puml"
           test -s "$RUNNER_TEMP/java-sequence.puml"
+      - name: Smoke single-function activity CLI
+        shell: bash
+        run: |
+          binary=./umlgen
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=./umlgen.exe
+          fi
+          "$binary" activity testdata/activity/go \
+            --language go --function ProcessOrder --explain \
+            --output "$RUNNER_TEMP/go-activity.puml"
+          "$binary" activity testdata/activity/java \
+            --language java --function processOrder --java-release 17 --explain \
+            --output "$RUNNER_TEMP/java-activity.puml"
+          test -s "$RUNNER_TEMP/go-activity.puml"
+          test -s "$RUNNER_TEMP/java-activity.puml"
       - name: Test macOS installer
         if: runner.os == 'macOS'
         shell: bash

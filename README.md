@@ -1,10 +1,10 @@
 # umlgen
 
-**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図を生成するCLIツール**
+**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図・単一関数アクティビティ図を生成するCLIツール**
 
 umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名・呼び出し式等を含む生成済みPlantUMLを外部送信します。
 
-`package`・package差分・`sequence`は未リリースの開発版です。現在の配布版の機能とは区別してください。
+`package`・package差分・`sequence`・`activity`は未リリースの開発版です。現在の配布版の機能とは区別してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -69,8 +69,8 @@ umlgen class ./src --include com.example.service
 ## 💡 主な機能
 
 ### 📊 多言語対応
-- **Java**: class／packageはTree-sitter、sequenceはJDKコンパイラーによる意味解析
-- **Go**: class／packageは標準AST、sequenceは選択済みローカルソースの`go/types`による意味解析
+- **Java**: class／packageはTree-sitter、sequence／activityはJDKコンパイラーによる意味解析
+- **Go**: class／packageは標準AST、sequence／activityは選択済みローカルソースの`go/types`による意味解析
 
 ### 🎨 柔軟な出力
 - PlantUML（編集可能）
@@ -95,7 +95,7 @@ umlgen class ./src --include com.example.service
 - GitHub Actionsでの自動生成
 
 ### ⚡ 高速キャッシュ
-- class／packageの構文解析結果をキャッシュして2回目以降を高速化。sequenceの意味解析は毎回実行
+- class／packageの構文解析結果をキャッシュして2回目以降を高速化。sequence／activityの意味解析は毎回実行
 - ファイル内容と設定に基づいた安全なキャッシュ
 
 
@@ -356,16 +356,48 @@ umlgen sequence ./src --entry 'sample.Checkout.PlaceOrder(boolean,sample.Reposit
 - entryは一意な単純名・完全名・引数型を含むsignature・`context::signature`。曖昧なら候補を表示して終了コード2にします。
 - 既定上限は展開深さ3・参加者30・メッセージ200。再帰・上限・非対応の位置と省略を残します。動的dispatchは代替候補で、全候補の本体を直列に展開しません。Goの`go`／`defer`も同期呼び出しとして展開しません。
 - Goは選択済みローカルpackageと`unsafe`だけを解決し、goコマンド・driver・download・cgo・外部ソース読み込みを行いません。標準ライブラリも`unsafe`以外はロードせず、不足する型情報を診断します。
-- Java sequenceのみ**JDK 17以上**が必要です（既定`--java-release 17`）。組込みの信頼済みhelperでparse／analyzeのみを行い、対象コード・annotation processor・build・pluginを実行しません。project classpath／sourcepathは使わず、外部依存不足は診断します。既存Java class／packageにJDKは不要です。
+- Java sequence／activityのみ**JDK 17以上**が必要です（既定`--java-release 17`）。組込みの信頼済みhelperでparse／analyzeのみを行い、対象コード・annotation processor・build・pluginを実行しません。project classpath／sourcepathは使わず、外部依存不足は診断します。既存Java class／packageにJDKは不要です。
 - `--analysis-timeout`は既定30秒。Java helperを期限付きで終了し、Goは解析段階間の協調的な期限確認を行います。Goの型検査中を強制中断する制限ではありません。
 - 構文／型エラーがあってもentryが利用可能なら診断付きの図を出し終了コード3。entryが利用不能なら既存図を保持します。非対応構文は位置付きの警告・barrier・省略で示します。
 - 既定出力は`sequence-diagram.puml`。共有output／renderer／相対パス規約は従来どおり。`diagrams.sequence`にentry・上限・Java release・解析期限を設定できます。class／package専用flag・layout・`--no-cache`・sequence差分は対応していません。
 
 実行できる両言語の例、YAML、動的呼び出し・例外・channelの読み方は[シーケンス図の利用例](examples/sequence/README.md)を参照してください。全フラグは`umlgen sequence --help`で確認できます。
 
+## 単一関数アクティビティ図（開発版）
+
+`activity`は、指定関数内の**分岐先・ループの接続先・終了先**をCFGとして描きます。低レベルの制御辺を失わないよう、PlantUMLの明示的なactivityノードとラベル付き接続を使います。入れ子のif／whileへ無理に変換せず、実行trace・値・到達可能性の証明とは区別します。
+
+```bash
+umlgen activity testdata/activity/go --language go \
+  --function ProcessOrder --explain -o go-activity.puml
+umlgen activity testdata/activity/java --language java \
+  --function processOrder --format svg --renderer local -o java-activity.svg
+```
+
+- `--function`は一意な単純名・完全名・signature・`context::signature`。曖昧な指定では候補を表示して終了コード2にし、以前の図を保持します。
+- if／else、式内の`&&`／`||`、ループのゼロ回・back edge・update、switch、fallthrough、break／continue、早期returnを扱います。Goのgoto／ラベルと組込みpanic、Javaのdo／while・ラベル・明示throw・三項演算にも対応します。呼び出しは単一関数内のactionで、呼び出し先へ展開しません。
+- **未対応ノードは実行の終了ではなく、解析の境界です。** Goのdefer／recover・go・select・channel／iterator、Javaのtry／catch／finally／resource・synchronized・assert・switch式等は位置付きのterminal barrierと警告にし、そこから架空の正常継続辺を出しません。後続の構文ノードが非接続で残る場合もあります。
+- 暗黙の例外／panic、初期化処理、スケジューリング、callee内部の実行は推定しません。関数リテラル／lambda／匿名classの本体を宣言位置で実行扱いにしません。
+- 既定の`--max-nodes 500`にはentry／exitと合流ノードを含みます。超過は終了コード2で、途中までの図を成功出力せず既存図を保持します。必要なら明示的に上限を増やしてください。
+- `--explain`は取得済みソースの位置・抜粋、ノードIDと種類、辺の接続先と種類、診断を表示します。描画時にソースを再読込しません。
+- 構文／型エラーがあっても指定関数が利用可能なら部分図と診断を出して終了コード3。利用不能なら既存図を保持します。非対応警告だけなら終了コード0ですが、全経路の解析成功を意味しません。
+- 解析境界はsequenceと共通です。Goは選択済みローカルソースのみ、Javaは**JDK 17以上**と信頼済みhelperを使い、対象コード・build・processor・依存downloadを実行しません。`--java-release`はJavaのみ、`--analysis-timeout`は既定30秒（Goは協調的な確認）です。
+- 既定出力は`activity-diagram.puml`。共有output／renderer／exclude／設定相対パスに対応します。`--no-cache`・focus・layout・class／package／sequence専用flagとactivity差分は対応しません。
+
+```yaml
+diagrams:
+  activity:
+    function: processOrder
+    max_nodes: 500
+    java_release: 17
+    analysis_timeout: 30s
+```
+
+CLI指定は設定より優先します。未知のnamespace／キーや型違いは設定エラーです。全フラグは`umlgen activity --help`で確認できます。
+
 ## 解析キャッシュ
 
-class／packageのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。sequenceはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
+class／packageのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。sequence／activityはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
 
 Goではpackage節などの構文情報だけを再利用し、packageパスは各実行で現在の`go.mod`とソースの配置から決定します。同じソースを別moduleへ置いた場合や、`go.mod`のmodule名・配置ディレクトリを変更した場合も、以前のpackageパスを引き継ぎません。祖先に`go.mod`がなければpackage節の名前を使います。解析スキーマが変わった場合、旧エントリーは自動的にmissになります。
 

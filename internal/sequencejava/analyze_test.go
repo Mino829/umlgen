@@ -296,6 +296,13 @@ func TestTargetCodeAndAmbientProcessorsAreNeverExecuted(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNoErrors(t, program)
+	graph, err := AnalyzeActivity(context.Background(), []sequence.Source{{Path: filepath.Join(root, "Sample.java"), Root: root, Content: []byte(target)}}, "entry", 20, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Nodes) != 2 || graph.Function.Body != nil {
+		t.Fatalf("activity executed initializer or built sequence events: %+v", graph)
+	}
 	if _, err = os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("target code or ambient annotation processor executed: %v", err)
 	}
