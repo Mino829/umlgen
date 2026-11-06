@@ -1,6 +1,6 @@
 # 次にやること
 
-確認日: 2026-11-05
+確認日: 2026-11-06
 
 ## 完了済み
 
@@ -54,7 +54,11 @@ PR公開前の追加修正: Goのパーサー回復宣言・閉じbrace欠落・
 
 Java protocolの追加修正: JDK 17／Windowsの非UTF-8既定charsetを想定した実JVM検証で、日本語メソッド名が`??`になる問題を再現。helperの出力writerをUTF-8固定にし、日本語entry選択・呼び出しIDを保持する回帰を追加した。
 
-次は **Phase 3A（単一関数アクティビティ図）** の開始条件を揃える。CFGの分岐・終了・短絡・例外辺とAST位置の対応を固定し、break／continue・finally／defer等を正常経路へ平坦化しない契約から進める。sequenceは実行traceや完全なdispatch解決ではなく、CFG・activity以降も実装済みとは扱わない。他OS CI・マージ・リリース・sequence性能保証は未実施。リリースと配布物の検証は別途判断する。
+2026-11-06のCI確認: [PR #71](https://github.com/Mino829/umlgen/pull/71)はLinux／macOS arm64・amd64が成功し、Windowsのpackage差分受入テストだけが失敗した。[失敗ログ](https://github.com/Mino829/umlgen/actions/runs/42030235476/job/127254532622)では、fixtureの期待パスが`RUNNER~1`形式、実際のGit根拠・診断が同一ディレクトリの`runneradmin`形式だった。fixture作成時に`filepath.EvalSymlinks`で物理rootへ揃え、元ファイル・削除根拠・解析失敗の厳密な位置検証を維持した。解析本体・出力・終了コードは変更せず、Windowsだけのskipやassertの緩和も行っていない。対象回帰、全体テスト、vet、buildが成功し、Java／Goの実CLIでroot aliasを使った削除・部分失敗の根拠とcold／warm／no-cache一致を確認した。Windows実行の最終結果は後続PRのCIで確認する。
+
+共有する作業規約を[`CONTRIBUTING.md`](../CONTRIBUTING.md)へ追加した。実装依頼は検証・コミット・push・PR作成とURL報告までを完了条件にし、手元変更の保持、依存PRの明記、修正対象CI失敗の解消、無断マージ・リリースを行わないことを定めた。既存のignore方針を維持し、ローカル専用AGENTS.mdからこの規約を参照する。PR #69のマージを確認し、PR #71のbaseはmainへ更新済み。
+
+次は **Phase 3A（単一関数アクティビティ図）** の開始条件を揃える。CFGの分岐・終了・短絡・例外辺とAST位置の対応を固定し、break／continue・finally／defer等を正常経路へ平坦化しない契約から進める。sequenceは実行traceや完全なdispatch解決ではなく、CFG・activity以降も実装済みとは扱わない。PR #71のWindows修正確認・マージ・リリース・sequence性能保証は未完了。リリースと配布物の検証は別途判断する。
 
 ## 進め方
 
