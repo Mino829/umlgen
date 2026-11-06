@@ -309,7 +309,7 @@ func packagePath(sourcePath, packageName string) (string, string) {
 	for current := directory; ; current = filepath.Dir(current) {
 		moduleFile := filepath.Join(current, "go.mod")
 		if data, readErr := os.ReadFile(moduleFile); readErr == nil {
-			module := moduleName(string(data))
+			module := ModuleName(data)
 			if module == "" {
 				break
 			}
@@ -327,11 +327,15 @@ func packagePath(sourcePath, packageName string) (string, string) {
 	return packageName, directory
 }
 
-func moduleName(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[0] == "module" {
-			return fields[1]
+// ModuleName reads the parser's lexical module directive without interpreting
+// build configuration. Both working-tree and Git-snapshot binding use it.
+func ModuleName(content []byte) string {
+	for len(content) > 0 {
+		line, rest, _ := bytes.Cut(content, []byte{'\n'})
+		content = rest
+		fields := bytes.Fields(line)
+		if len(fields) >= 2 && bytes.Equal(fields[0], []byte("module")) {
+			return string(fields[1])
 		}
 	}
 	return ""

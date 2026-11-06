@@ -32,6 +32,11 @@ jobs:
         with:
           go-version: '1.26.10'
           cache-dependency-path: go.sum
+      - name: Set up minimum supported sequence JDK
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Verify formatting
         if: runner.os != 'Windows'
         shell: bash
@@ -46,6 +51,21 @@ jobs:
           govulncheck ./...
       - name: Build
         run: go build ./cmd/umlgen
+      - name: Smoke static sequence CLI
+        shell: bash
+        run: |
+          binary=./umlgen
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=./umlgen.exe
+          fi
+          "$binary" sequence testdata/sequence/go \
+            --language go --entry PlaceOrder --explain \
+            --output "$RUNNER_TEMP/go-sequence.puml"
+          "$binary" sequence testdata/sequence/java \
+            --language java --entry PlaceOrder --java-release 17 --explain \
+            --output "$RUNNER_TEMP/java-sequence.puml"
+          test -s "$RUNNER_TEMP/go-sequence.puml"
+          test -s "$RUNNER_TEMP/java-sequence.puml"
       - name: Test macOS installer
         if: runner.os == 'macOS'
         shell: bash

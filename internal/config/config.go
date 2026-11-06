@@ -7,19 +7,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mino829/umlgen/internal/sequence"
+
 	"gopkg.in/yaml.v3"
 )
 
 const DefaultFile = ".umlgen.yaml"
 
 type DiagramsConfig struct {
-	Package PackageDiagramConfig `yaml:"package"`
+	Package  PackageDiagramConfig  `yaml:"package"`
+	Sequence SequenceDiagramConfig `yaml:"sequence"`
 }
 
 type PackageDiagramConfig struct {
 	DependencySource string `yaml:"dependency_source"`
 	External         string `yaml:"external"`
 	Cycles           string `yaml:"cycles"`
+}
+
+type SequenceDiagramConfig struct {
+	Entry           string        `yaml:"entry"`
+	MaxCallDepth    int           `yaml:"max_call_depth"`
+	MaxParticipants int           `yaml:"max_participants"`
+	MaxMessages     int           `yaml:"max_messages"`
+	JavaRelease     int           `yaml:"java_release"`
+	AnalysisTimeout time.Duration `yaml:"analysis_timeout"`
 }
 
 type Config struct {
@@ -63,12 +75,17 @@ type Config struct {
 
 func Defaults() Config {
 	var c Config
+	limits := sequence.DefaultLimits()
 	c.Language = "auto"
 	c.Output.File = "class-diagram.puml"
 	c.Output.Format = "plantuml"
 	c.Diagrams.Package.DependencySource = "declared-types"
 	c.Diagrams.Package.External = "hide"
 	c.Diagrams.Package.Cycles = "mark"
+	c.Diagrams.Sequence = SequenceDiagramConfig{
+		MaxCallDepth: limits.MaxCallDepth, MaxParticipants: limits.MaxParticipants, MaxMessages: limits.MaxMessages,
+		JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
+	}
 	c.Visibility.Public = true
 	c.Visibility.Protected = true
 	c.Visibility.Private = true
@@ -147,11 +164,20 @@ func validateDiagrams(node *yaml.Node) error {
 	}
 	for i := 0; i < len(node.Content); i += 2 {
 		key, value := node.Content[i], node.Content[i+1]
-		if key.Tag != "!!str" || key.Value != "package" {
+		if key.Tag != "!!str" {
 			return fmt.Errorf("unknown diagrams key %q", key.Value)
 		}
-		if err := validatePackageDiagram(value); err != nil {
-			return err
+		switch key.Value {
+		case "package":
+			if err := validatePackageDiagram(value); err != nil {
+				return err
+			}
+		case "sequence":
+			if err := validateSequenceDiagram(value); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unknown diagrams key %q", key.Value)
 		}
 	}
 	return nil
@@ -211,7 +237,7 @@ exclude:
   - generated
 
 output:
-  # Omit file to use class-diagram.puml for class or package-diagram.puml for package.
+  # Omit file for command-specific class/package/package-change/sequence defaults.
   # file: diagrams/model.puml
   format: plantuml
 
@@ -247,4 +273,11 @@ diagrams:
     dependency_source: declared-types
     external: hide
     cycles: mark
+  sequence:
+    entry: ""
+    max_call_depth: 3
+    max_participants: 30
+    max_messages: 200
+    java_release: 17
+    analysis_timeout: 30s
 `

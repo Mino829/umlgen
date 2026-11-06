@@ -32,10 +32,7 @@ type packageOptions struct {
 	renderTimeout                            time.Duration
 }
 
-func runPackage(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
-	o := packageOptions{commonOptions: inherited}
-	fs := flag.NewFlagSet("package", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+func registerPackageFlags(fs *flag.FlagSet, o *packageOptions) {
 	fs.StringVar(&o.output, "output", "", "")
 	fs.StringVar(&o.output, "o", "", "")
 	fs.StringVar(&o.format, "format", "", "")
@@ -63,6 +60,17 @@ func runPackage(args []string, inherited commonOptions, stdout, stderr io.Writer
 	fs.BoolVar(&o.verbose, "v", o.verbose, "")
 	fs.BoolVar(&o.quiet, "quiet", o.quiet, "")
 	fs.BoolVar(&o.quiet, "q", o.quiet, "")
+}
+
+func runPackage(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
+	return runPackageMode(args, inherited, stdout, stderr, "")
+}
+
+func runPackageMode(args []string, inherited commonOptions, stdout, stderr io.Writer, revision string) (int, error) {
+	o := packageOptions{commonOptions: inherited}
+	fs := flag.NewFlagSet("package", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	registerPackageFlags(fs, &o)
 	normalized, err := normalizeDiagramArgs(args, fs)
 	if err != nil {
 		return exitArgs, err
@@ -81,6 +89,9 @@ func runPackage(args []string, inherited commonOptions, stdout, stderr io.Writer
 	}
 	if fs.NArg() > 1 {
 		return exitArgs, errors.New("package accepts at most one target")
+	}
+	if revision != "" && (set["focus"] || set["depth"] || set["direction"]) {
+		return exitArgs, errors.New("package diff does not support --focus, --depth or --direction")
 	}
 	if o.depth < 0 {
 		return exitArgs, errors.New("--depth must be zero or greater")
@@ -103,6 +114,9 @@ func runPackage(args []string, inherited commonOptions, stdout, stderr io.Writer
 	}
 	if !cfg.Output.FileSet {
 		cfg.Output.File = "package-diagram.puml"
+		if revision != "" {
+			cfg.Output.File = "package-change-diagram.puml"
+		}
 	}
 	config.ResolvePaths(&cfg, loadedPath)
 	if set["language"] {
@@ -197,6 +211,9 @@ func runPackage(args []string, inherited commonOptions, stdout, stderr io.Writer
 	}
 	if len(targets) == 0 {
 		targets = []string{"."}
+	}
+	if revision != "" {
+		return generatePackageDiff(revision, targets, o, cfg, mode, viewOpts, plantOpts, renderOpts, stdout, stderr)
 	}
 	backend, err := language.Select(cfg.Language, targets, cfg.Exclude, nil)
 	if err != nil {
@@ -489,6 +506,6 @@ Flags:
   -v, --verbose                   enable verbose output
 
 Cycles describe the selected source model, not compiler/build validity.
-Class/future-diagram-only flags are rejected. Package differences are not supported.
+Class/future-diagram-only flags are rejected. Git comparisons use diff --diagram package.
 `)
 }
