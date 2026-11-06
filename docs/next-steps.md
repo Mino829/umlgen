@@ -30,6 +30,12 @@
 
 既存の`--explain`を拡張する学習者向けの関係説明は[PR #66](https://github.com/Mino829/umlgen/pull/66)でmainへマージ済み。関係の意味、解析時のソース抜粋、Goの暗黙実装を支えるメソッド、範囲・失敗・未解決・既知の非表示参照を扱う。実CLIとテストの確認結果は[`development-direction.md`](development-direction.md)に記録。関係線の変更と根拠の変化を扱うチーム向け機能を検討し、watch／導入改善はその後に進める。リリースの実施は別途判断する。
 
+直近のゴールは、PR #73の提案を受けた**PR本文からレビュー範囲を指定して安全に差分図を生成する導線**。開発版では、checkoutしない検証job、4種類の許可flagと上限、JSON→NUL区切り引数、本文編集トリガー、古いrunの取消、Summaryと`review-scope.json`を接続した。差分図だけに条件を適用し、head全体図は従来の文脈として維持する。配布版CLI v0.5.0で動作し、未リリースのCLIをPRソースからbuildしない。
+
+確認済み: parserの正常／異常／非実行回帰、全体テスト・vet・actionlintが成功。SHA-256検証済みの実配布版CLIとPlantUML JARで、本文の条件による差分図・SVG、full図のバイト不変、変更なし・type-less・全削除・解析失敗とreceipt／Summaryを確認した。実GitHubの本文編集時の再生成・取消とCIを確認し、PR作成とURL報告まで行う。Go対象・全体図focus・watch・activity・GUIは今回の範囲に含めない。
+
+図の拡張計画のP1-08以降はPR #71等の別ブランチで進行しており、以下はこのmain系統で確認した状態を記録する。本文フィルタの実装と未マージの図拡張を混同しない。
+
 図の拡張計画の **P1-01（Goキャッシュのmodule文脈分離）**、**P1-02（ファイル単位の解析結果・import位置）**、**P1-03（PackageIDと依存根拠の集約）** は開発版で実装済み。
 
 `internal/packagegraph`は、文脈を分離したpackage ID、型宣言／import別の根拠・件数、内部／外部／未解決／曖昧候補を保持する。Javaの所有型・wildcardの曖昧性、Goのファイル別aliasと実package名を扱い、推定実装先と通常のalias参照も混同しない。実ファイルの解析で全3modeのcold／warm／キャッシュ非使用一致、既存class CLIの図・説明とJava golden一致を確認。`go test ./...`、`go vet ./...`成功。
