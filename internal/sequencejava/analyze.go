@@ -44,10 +44,10 @@ var helper []byte
 // Its sole stdout value is a JSON sequence.Program. Calls without a context
 // deadline are bounded to 30 seconds; an explicit caller deadline takes precedence.
 func Analyze(ctx context.Context, sources []sequence.Source, opts Options) (sequence.Program, error) {
-	return analyze(ctx, sources, opts, nil)
+	return analyze(ctx, sources, opts, nil, nil)
 }
 
-func analyze(ctx context.Context, sources []sequence.Source, opts Options, request *activityRequest) (sequence.Program, error) {
+func analyze(ctx context.Context, sources []sequence.Source, opts Options, request *activityRequest, stateRequest *stateRequest) (sequence.Program, error) {
 	program := sequence.Program{Language: "java", Backend: "jdk-javac", Files: []sequence.File{}, Callables: []sequence.Callable{}, Diagnostics: []sequence.Diagnostic{}}
 	if opts.Release == 0 {
 		opts.Release = 17
@@ -88,7 +88,9 @@ func analyze(ctx context.Context, sources []sequence.Source, opts Options, reque
 		return program, err
 	}
 	var input bytes.Buffer
-	if request == nil {
+	if stateRequest != nil {
+		input.WriteString("UMLSTAJ1")
+	} else if request == nil {
 		input.WriteString("UMLSEQJ1")
 	} else {
 		input.WriteString("UMLACTJ1")
@@ -100,6 +102,8 @@ func analyze(ctx context.Context, sources []sequence.Source, opts Options, reque
 	binary.Write(&input, binary.BigEndian, uint32(len(sources)))
 	if request != nil {
 		binary.Write(&input, binary.BigEndian, int64(request.maxNodes))
+	} else if stateRequest != nil {
+		binary.Write(&input, binary.BigEndian, int64(stateRequest.maxNodes))
 	}
 	for _, source := range sources {
 		for _, value := range [][]byte{[]byte(source.Path), []byte(source.Root), source.Content} {
@@ -126,6 +130,9 @@ func analyze(ctx context.Context, sources []sequence.Source, opts Options, reque
 			continue
 		}
 		cmd.Env = append(cmd.Env, item)
+	}
+	if stateRequest != nil {
+		return runState(cmd, &input, program, stateRequest, ctx)
 	}
 	if request == nil {
 		cmd.Stdin = &input

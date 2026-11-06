@@ -54,14 +54,15 @@ class CompilerBridge {
         DataInputStream in=new DataInputStream(new BufferedInputStream(System.in));
         byte[] magic=in.readNBytes(8);
         boolean activity=Arrays.equals(magic,"UMLACTJ1".getBytes(StandardCharsets.US_ASCII));
-        if (!activity && !Arrays.equals(magic, "UMLSEQJ1".getBytes(StandardCharsets.US_ASCII))) throw new IOException("invalid protocol magic");
+        boolean state=Arrays.equals(magic,"UMLSTAJ1".getBytes(StandardCharsets.US_ASCII));
+        if (!activity && !state && !Arrays.equals(magic, "UMLSEQJ1".getBytes(StandardCharsets.US_ASCII))) throw new IOException("invalid protocol magic");
         int release=in.readInt(), count=in.readInt();
-        long maxNodes=activity?in.readLong():0;
-        if(activity && maxNodes<1) throw new IOException("invalid activity node limit");
+        long maxNodes=activity||state?in.readLong():0;
+        if((activity||state) && maxNodes<1) throw new IOException("invalid activity node limit");
         if (release<17 || count<0) throw new IOException("invalid release or source count");
         List<Input> inputs=new ArrayList<>();
         for (int i=0;i<count;i++) inputs.add(new Input(field(in),field(in),field(in)));
-        if (!activity && in.read()!=-1) throw new IOException("trailing framed input");
+        if (!activity && !state && in.read()!=-1) throw new IOException("trailing framed input");
         inputs.sort(Comparator.comparing(s->s.path));
         Engine engine=new Engine(inputs);
         JavaCompiler compiler=ToolProvider.getSystemJavaCompiler();
@@ -84,10 +85,13 @@ class CompilerBridge {
                 Input source=engine.source(d.getSource());
                 engine.diagnostics.add(obj("code",d.getCode(),"message",d.getMessage(Locale.ROOT),"file",source==null?"":source.path,"span",source==null?obj():source.span(d.getStartPosition(),d.getEndPosition()),"error",d.getKind()==Diagnostic.Kind.ERROR));
             }
-            engine.extract(!activity);
+            engine.extract(!activity && !state);
         }
         Writer stdout=new OutputStreamWriter(System.out,StandardCharsets.UTF_8);
-        StringBuilder out=new StringBuilder(); json(engine.program(),out);
+        State evidence=state?new State(engine,maxNodes):null;
+        Map<String,Object> metadata=engine.program();
+        if(state) metadata.put("targets",evidence.targets());
+        StringBuilder out=new StringBuilder(); json(metadata,out);
         stdout.write(out.toString()); stdout.write('\n'); stdout.flush();
         if(activity) {
             String selected=field(in);
@@ -97,6 +101,12 @@ class CompilerBridge {
                 result=new Activity(engine,d,maxNodes).build(); break;
             }
             out.setLength(0); json(result,out);
+            stdout.write(out.toString()); stdout.flush();
+        }
+        if(state) {
+            String selected=field(in), selectedField=field(in);
+            if(in.read()!=-1) throw new IOException("trailing framed state selection");
+            out.setLength(0); json(evidence.build(selected,selectedField),out);
             stdout.write(out.toString()); stdout.flush();
         }
     }
@@ -434,11 +444,258 @@ class CompilerBridge {
             }
             out.add(e);
         }
-        Object program() throws Exception {
+        Map<String,Object> program() throws Exception {
             List<Object> files=new ArrayList<>(),callables=new ArrayList<>();
             for(Input input:inputs) files.add(obj("path",input.path,"hash",HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.text.getBytes(StandardCharsets.UTF_8)))));
             for(Decl d:declarations) callables.add(d.model);
             return obj("language","java","backend","jdk-javac","files",files,"callables",callables,"diagnostics",diagnostics);
+        }
+    }
+    /** Source assignment candidates, never inferred transitions or initial state. */
+    static class State {
+        final Engine e; final long cap;
+        final List<TypeDecl> types=new ArrayList<>();
+        final List<Object> values=new ArrayList<>(), updates=new ArrayList<>(), functions=new ArrayList<>();
+        final Set<String> valueIDs=new HashSet<>();
+        final IdentityHashMap<Tree,Decl> callables=new IdentityHashMap<>();
+        final IdentityHashMap<Decl,List<Candidate>> writes=new IdentityHashMap<>();
+        VariableElement field;
+        record TypeDecl(CompilationUnitTree unit,ClassTree tree,TypeElement element,Map<String,Object> model) {}
+        record Candidate(Tree tree,Map<String,Object> model) {}
+        State(Engine e,long cap) {
+            this.e=e; this.cap=cap;
+            for(Decl d:e.declarations) callables.put(d.tree,d);
+            for(CompilationUnitTree unit:e.units) new TreeScanner<Void,Void>() {
+                @Override public Void visitClass(ClassTree tree,Void unused) {
+                    if(e.element(tree) instanceof TypeElement type && e.end(unit,tree)>=0 && !tree.getSimpleName().toString().isEmpty()) {
+                        String qualified=e.owner(type);
+                        types.add(new TypeDecl(unit,tree,type,obj("id",e.source(unit).root+"::"+qualified,"name",tree.getSimpleName().toString(),"qualified",qualified,"file",e.source(unit).path,"span",e.span(unit,tree))));
+                    }
+                    return super.visitClass(tree,unused);
+                }
+            }.scan(unit,null);
+            types.sort(Comparator.comparing(t->(String)t.model().get("id")));
+        }
+        List<Object> targets() { List<Object> result=new ArrayList<>(); for(TypeDecl t:types) result.add(t.model()); return result; }
+        Map<String,Object> selectionError(String message,boolean ambiguous) {
+            return obj("selection_error",message,"ambiguous",ambiguous,"diagnostics",e.diagnostics);
+        }
+        Map<String,Object> build(String id,String name) {
+            if(id.isEmpty()) return obj();
+            TypeDecl selected=null;
+            for(TypeDecl type:types) if(type.model().get("id").equals(id)) { selected=type; break; }
+            if(selected==null) return selectionError("Selected type has no retained source declaration",false);
+            if(selected.tree().getKind()!=Tree.Kind.CLASS && selected.tree().getKind()!=Tree.Kind.RECORD)
+                return selectionError("State target must be a source class: "+id,false);
+            List<VariableTree> matches=new ArrayList<>();
+            for(Tree member:selected.tree().getMembers()) if(member instanceof VariableTree variable && variable.getName().contentEquals(name)) matches.add(variable);
+            if(matches.size()!=1) return selectionError("Direct field "+name+" on "+id+" has "+matches.size()+" declarations",matches.size()>1);
+            VariableTree declaration=matches.get(0);
+            if(!(e.element(declaration) instanceof VariableElement variable) || variable.getKind()!=ElementKind.FIELD ||
+               variable.getEnclosingElement()!=selected.element() || e.damagedByParser(selected.unit(),declaration))
+                return selectionError("Compiler could not bind direct field "+name+" on "+id,false);
+            field=variable;
+            TreePath fieldDeclaration=e.trees.getPath(field);
+            if(fieldDeclaration==null || fieldDeclaration.getLeaf()!=declaration || fieldDeclaration.getCompilationUnit()!=selected.unit())
+                return selectionError("Direct field has no unique compiler-backed declaration in selected root: "+id+"."+name,false);
+            TypeMirror fieldType=field.asType();
+            Element typeElement=e.types.asElement(fieldType);
+            if(!fieldType.getKind().isPrimitive() && !fieldType.toString().equals("java.lang.String") &&
+               (typeElement==null || typeElement.getKind()!=ElementKind.ENUM))
+                return selectionError("Unsupported state field type: "+fieldType,false);
+            Map<String,Object> target=new LinkedHashMap<>(selected.model());
+            target.put("field",name); target.put("field_type",fieldType.toString()); target.put("span",e.span(selected.unit(),declaration));
+            e.diagnostic("state.candidates","Assignments are source candidates, not transitions or proof of previous state; implicit/default initialization is not an initial state",selected.unit(),declaration,false);
+            e.diagnostic("state.alias-parallel","Receiver alias/other-instance identity, indirect or reflective calls, external writes and concurrent scheduling are not resolved",selected.unit(),declaration,false);
+            for(CompilationUnitTree unit:e.units) new TreeScanner<Void,Void>() {
+                @Override public Void visitVariable(VariableTree tree,Void unused) {
+                    if(!e.damagedByParser(unit,tree) && e.element(tree) instanceof VariableElement constant) {
+                        TreePath declarationPath=e.trees.getPath(constant);
+                        if(declarationPath==null || declarationPath.getLeaf()!=tree || declarationPath.getCompilationUnit()!=unit) return super.visitVariable(tree,unused);
+                        String key=constantKey(constant);
+                        if(!key.isEmpty()) addValue(unit,tree,constant,key);
+                    }
+                    return super.visitVariable(tree,unused);
+                }
+            }.scan(unit,null);
+            for(CompilationUnitTree unit:e.units) new TreeScanner<Void,Void>() {
+                @Override public Void visitClass(ClassTree tree,Void unused) {
+                    for(TypeDecl type:types) if(type.tree()==tree && type.unit()==unit &&
+                       type.model().get("qualified").equals(target.get("qualified")) && !type.model().get("id").equals(id)) {
+                        e.diagnostic("state.duplicate-type","Duplicate fully qualified class in another source root is not merged into the selected target",unit,tree,false);
+                        return null;
+                    }
+                    return super.visitClass(tree,unused);
+                }
+                @Override public Void visitMethod(MethodTree tree,Void unused) {
+                    return e.damagedByParser(unit,tree)?null:super.visitMethod(tree,unused);
+                }
+                @Override public Void visitVariable(VariableTree tree,Void unused) {
+                    if(e.element(tree)==field && tree.getInitializer()!=null) update(unit,tree,tree,tree.getInitializer(),"initializer");
+                    return super.visitVariable(tree,unused);
+                }
+                @Override public Void visitAssignment(AssignmentTree tree,Void unused) {
+                    update(unit,tree,tree.getVariable(),tree.getExpression(),"assignment"); return super.visitAssignment(tree,unused);
+                }
+                @Override public Void visitCompoundAssignment(CompoundAssignmentTree tree,Void unused) {
+                    update(unit,tree,tree.getVariable(),tree.getExpression(),"compound"); return super.visitCompoundAssignment(tree,unused);
+                }
+                @Override public Void visitUnary(UnaryTree tree,Void unused) {
+                    switch(tree.getKind()) {
+                        case PREFIX_INCREMENT,PREFIX_DECREMENT,POSTFIX_INCREMENT,POSTFIX_DECREMENT -> update(unit,tree,tree.getExpression(),null,"increment");
+                        default -> { }
+                    }
+                    return super.visitUnary(tree,unused);
+                }
+            }.scan(unit,null);
+            boolean limit=false;
+            for(Decl d:e.declarations) {
+                List<Candidate> candidates=writes.get(d);
+                if(candidates==null) continue;
+                Activity activity=new Activity(e,d,cap);
+                activity.treeNodes=new IdentityHashMap<>();
+                Map<String,Object> graph=activity.build();
+                if(Boolean.TRUE.equals(graph.get("limit"))) { limit=true; continue; }
+                graph.remove("diagnostics"); graph.put("language","java"); graph.put("backend","jdk-javac"); graph.put("function",d.model);
+                functions.add(graph);
+                for(Candidate write:candidates) {
+                    List<Integer> ids=activity.treeNodes.get(write.tree());
+                    write.model().put("node_ids",ids==null?List.of():ids);
+                    if(ids==null) e.diagnostic("state.cfg-unmodeled","Source write has no modeled CFG node (unsupported control/evaluation barrier)",d.unit,write.tree(),false);
+                }
+            }
+            return obj("target",target,"values",values,"updates",updates,"functions",functions,"diagnostics",e.diagnostics,"limit",limit);
+        }
+        String text(CompilationUnitTree unit,Tree tree) {
+            if(tree==null) return "";
+            long start=e.start(unit,tree),end=e.end(unit,tree);
+            if(start<0 || end<start) return tree.toString();
+            return e.source(unit).text.substring((int)start,(int)Math.min(end,e.source(unit).text.length()));
+        }
+        String constantKey(VariableElement constant) {
+            if(constant.getKind()==ElementKind.ENUM_CONSTANT) {
+                if(!e.types.isSameType(constant.asType(),field.asType())) return "";
+                TreePath path=e.trees.getPath(constant);
+                if(path==null || e.source(path.getCompilationUnit())==null) return "";
+                return e.source(path.getCompilationUnit()).root+"::"+e.owner(constant)+"."+constant.getSimpleName();
+            }
+            Object value=constant.getConstantValue();
+            return value==null?"":scalarKey(value,constant.asType());
+        }
+        String scalarKey(Object value,TypeMirror type) {
+            TypeKind kind=field.asType().getKind();
+            if(value==null) return kind.isPrimitive()?"":"scalar:null";
+            if(value instanceof String string) return field.asType().toString().equals("java.lang.String")?"scalar:string:"+string:"";
+            if(value instanceof Boolean bool) return kind==TypeKind.BOOLEAN?"scalar:boolean:"+bool:"";
+            if(!(value instanceof Number) && !(value instanceof Character)) return "";
+            if(!kind.isPrimitive() || kind==TypeKind.BOOLEAN) return "";
+            boolean assignable=type!=null && e.types.isAssignable(type,field.asType());
+            long integer=value instanceof Character character?character.charValue():((Number)value).longValue();
+            boolean integral=value instanceof Character || value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long;
+            if(!assignable) {
+                if(!integral || value instanceof Long) return "";
+                boolean fits=switch(kind) {
+                    case BYTE -> integer>=Byte.MIN_VALUE && integer<=Byte.MAX_VALUE;
+                    case SHORT -> integer>=Short.MIN_VALUE && integer<=Short.MAX_VALUE;
+                    case CHAR -> integer>=Character.MIN_VALUE && integer<=Character.MAX_VALUE;
+                    default -> false;
+                };
+                if(!fits) return "";
+            }
+            if(kind==TypeKind.FLOAT) return "scalar:float:"+Float.toHexString(value instanceof Character?(float)integer:((Number)value).floatValue());
+            if(kind==TypeKind.DOUBLE) return "scalar:double:"+Double.toHexString(value instanceof Character?(double)integer:((Number)value).doubleValue());
+            return integral?"scalar:integer:"+integer:"";
+        }
+        void addValue(CompilationUnitTree unit,Tree tree,VariableElement constant,String key) {
+            String qualified=e.owner(constant)+"."+constant.getSimpleName();
+            if(constant.getKind()!=ElementKind.FIELD && constant.getKind()!=ElementKind.ENUM_CONSTANT) qualified+="@"+e.start(unit,tree);
+            String id=e.source(unit).root+"::"+qualified;
+            String literal=tree instanceof VariableTree variable && variable.getInitializer()!=null && constant.getKind()!=ElementKind.ENUM_CONSTANT?text(unit,variable.getInitializer()):constant.getSimpleName().toString();
+            if(valueIDs.add(id)) values.add(obj("id",id,"name",constant.getSimpleName().toString(),"qualified",qualified,"key",key,"literal",literal,"file",e.source(unit).path,"span",e.span(unit,tree)));
+        }
+        String expressionKey(CompilationUnitTree unit,ExpressionTree tree) {
+            if(tree==null) return "";
+            if(tree instanceof ParenthesizedTree p) return expressionKey(unit,p.getExpression());
+            if(e.element(tree) instanceof VariableElement constant) {
+                String key=constantKey(constant);
+                // Platform scalar constants can bind through javac's isolated
+                // platform image. Record their selected-source use, never load
+                // an application classpath or pretend to have a source declaration.
+                if(!key.isEmpty() && e.trees.getPath(constant)==null) {
+                    String qualified=e.owner(constant)+"."+constant.getSimpleName(),id="jdk::"+qualified;
+                    if(valueIDs.add(id)) values.add(obj("id",id,"name",constant.getSimpleName().toString(),"qualified",qualified,"key",key,"literal",String.valueOf(constant.getConstantValue()),"file",e.source(unit).path,"span",e.span(unit,tree)));
+                }
+                return key;
+            }
+            Object value=null; boolean literal=false;
+            if(tree instanceof LiteralTree constant) { value=constant.getValue(); literal=true; }
+            if(tree instanceof UnaryTree unary && unary.getExpression() instanceof LiteralTree constant &&
+               (tree.getKind()==Tree.Kind.UNARY_MINUS || tree.getKind()==Tree.Kind.UNARY_PLUS) && constant.getValue() instanceof Number number) {
+                boolean negative=tree.getKind()==Tree.Kind.UNARY_MINUS;
+                switch(constant.getKind()) {
+                    case INT_LITERAL -> value=negative?-number.intValue():number.intValue();
+                    case LONG_LITERAL -> value=negative?-number.longValue():number.longValue();
+                    case FLOAT_LITERAL -> value=negative?-number.floatValue():number.floatValue();
+                    case DOUBLE_LITERAL -> value=negative?-number.doubleValue():number.doubleValue();
+                    default -> { }
+                }
+                literal=value!=null;
+            }
+            if(!literal) return "";
+            TreePath path=e.paths.get(tree);
+            String key=scalarKey(value,path==null?null:e.trees.getTypeMirror(path));
+            if(key.isEmpty()) return "";
+            String spelling=text(unit,tree),id="literal::"+key+"::"+spelling;
+            if(valueIDs.add(id)) values.add(obj("id",id,"name",spelling,"qualified",spelling,"key",key,"literal",spelling,"file",e.source(unit).path,"span",e.span(unit,tree)));
+            return key;
+        }
+        Decl callable(Tree tree) {
+            for(TreePath path=e.paths.get(tree);path!=null;path=path.getParentPath()) {
+                Decl d=callables.get(path.getLeaf());
+                if(d!=null) return d.tree instanceof VariableTree?null:d;
+            }
+            return null;
+        }
+        List<String> guards(CompilationUnitTree unit,Tree tree,Decl d) {
+            List<String> result=new ArrayList<>();
+            TreePath path=e.paths.get(tree); Tree child=tree;
+            for(path=path==null?null:path.getParentPath();path!=null;child=path.getLeaf(),path=path.getParentPath()) {
+                Tree parent=path.getLeaf();
+                if((d!=null && parent==d.tree) || parent instanceof ClassTree) break;
+                if(parent instanceof IfTree branch && child!=branch.getCondition()) result.add((child==branch.getElseStatement()?"else of if ":"if ")+text(unit,branch.getCondition()));
+                if(parent instanceof CaseTree branch) {
+                    List<String> labels=new ArrayList<>(); for(ExpressionTree expression:branch.getExpressions()) labels.add(text(unit,expression));
+                    result.add(labels.isEmpty()?"default":"case "+String.join(", ",labels));
+                }
+                if(parent instanceof WhileLoopTree loop && child==loop.getStatement()) result.add("while "+text(unit,loop.getCondition()));
+                if(parent instanceof DoWhileLoopTree loop && child==loop.getStatement()) result.add("do/while "+text(unit,loop.getCondition())+" (checked after body)");
+                if(parent instanceof ForLoopTree loop && child==loop.getStatement()) result.add("for "+text(unit,loop.getCondition()));
+                if(parent instanceof EnhancedForLoopTree loop && child==loop.getStatement()) result.add("for each "+text(unit,loop.getExpression()));
+                if(parent instanceof ConditionalExpressionTree branch && child!=branch.getCondition()) result.add((child==branch.getFalseExpression()?"false branch of ":"true branch of ")+text(unit,branch.getCondition()));
+                if(parent instanceof BinaryTree binary && child==binary.getRightOperand() && (parent.getKind()==Tree.Kind.CONDITIONAL_AND || parent.getKind()==Tree.Kind.CONDITIONAL_OR))
+                    result.add((parent.getKind()==Tree.Kind.CONDITIONAL_AND?"right of && ":"right of || ")+text(unit,binary.getLeftOperand()));
+            }
+            Collections.reverse(result); return result;
+        }
+        void update(CompilationUnitTree unit,Tree tree,Tree lhs,ExpressionTree rhs,String kind) {
+            if(e.end(unit,tree)<0 || e.damagedByParser(unit,tree)) return;
+            while(lhs instanceof ParenthesizedTree p) lhs=p.getExpression();
+            Element bound=e.element(lhs);
+            if(bound!=field) {
+                String spelling=lhs instanceof MemberSelectTree member?member.getIdentifier().toString():lhs instanceof IdentifierTree identifier?identifier.getName().toString():"";
+                if(spelling.equals(field.getSimpleName().toString()) && (bound==null || !(bound instanceof VariableElement) || bound.asType().getKind()==TypeKind.ERROR))
+                    e.diagnostic("state.unresolved-write","Unresolved potential field update; absence of other writes is not established",unit,tree,false);
+                return;
+            }
+            String key=kind.equals("assignment") || kind.equals("initializer")?expressionKey(unit,rhs):"";
+            String receiver=lhs instanceof MemberSelectTree member?text(unit,member.getExpression()):field.getModifiers().contains(Modifier.STATIC)?e.owner(field):"this";
+            Decl d=kind.equals("initializer")?null:callable(tree);
+            Map<String,Object> model=obj("kind",kind,"expression",rhs==null?text(unit,tree):text(unit,rhs),"value_key",key,"receiver",receiver,"function_id",d==null?"":d.id(),"file",e.source(unit).path,"span",e.span(unit,tree),"guards",guards(unit,tree,d),"node_ids",List.of());
+            updates.add(model);
+            if(d!=null) writes.computeIfAbsent(d,unused->new ArrayList<>()).add(new Candidate(tree,model));
+            else e.diagnostic("state.initializer","Unmodeled initializer candidate; initialization order and implicit initial state are not inferred",unit,tree,false);
+            if(key.isEmpty()) e.diagnostic("state.unknown-value","Value is not a compiler-bound scalar/enum constant or literal; previous state is unknown",unit,tree,false);
+            if(!receiver.equals("this") && !field.getModifiers().contains(Modifier.STATIC)) e.diagnostic("state.receiver-alias","Selected field write has unresolved alias/other-instance receiver identity",unit,tree,false);
         }
     }
     /** Reverse construction keeps every transfer target explicit, including loop
@@ -446,6 +703,7 @@ class CompilerBridge {
     static class Activity {
         final Engine engine; final Decl d; final long maxNodes;
         final List<Object> nodes=new ArrayList<>(), edges=new ArrayList<>();
+        IdentityHashMap<Tree,List<Integer>> treeNodes;
         int entry, exit;
         static class Limit extends RuntimeException { }
         static class Scope {
@@ -456,7 +714,7 @@ class CompilerBridge {
             }
         }
         Activity(Engine engine,Decl d,long maxNodes) { this.engine=engine; this.d=d; this.maxNodes=maxNodes; }
-        Object build() {
+        Map<String,Object> build() {
             engine.diagnostic("activity.intraprocedural","Calls are atomic actions; callee bodies, implicit exceptions, implicit initialization and scheduling are not expanded",d.unit,d.tree,false);
             try {
                 entry=node("entry","entry",d.tree); exit=node("exit","exit",d.tree);
@@ -471,6 +729,7 @@ class CompilerBridge {
             if(nodes.size()>=maxNodes) throw new Limit();
             int id=nodes.size()+1;
             nodes.add(obj("id",id,"kind",kind,"label",label,"file",d.source.path,"span",engine.span(d.unit,tree)));
+            if(treeNodes!=null && kind.equals("action")) treeNodes.computeIfAbsent(tree,unused->new ArrayList<>()).add(id);
             return id;
         }
         void edge(int from,int to,String kind,String label) { edges.add(obj("from",from,"to",to,"kind",kind,"label",label)); }

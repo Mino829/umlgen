@@ -64,11 +64,15 @@ Java protocolの追加修正: JDK 17／Windowsの非UTF-8既定charsetを想定�
 
 共有する作業規約を[`CONTRIBUTING.md`](../CONTRIBUTING.md)へ追加した。実装依頼は検証・コミット・push・PR作成とURL報告までを完了条件にし、手元変更の保持、依存PRの明記、修正対象CI失敗の解消、無断マージ・リリースを行わないことを定めた。既存のignore方針を維持し、ローカル専用AGENTS.mdからこの規約を参照する。PR #69のマージを確認し、PR #71のbaseはmainへ更新済み。
 
-**Phase 3A（単一関数アクティビティ図）は本開発ブランチで実装・ローカル検証済み。未マージ・未リリース。** `activity --function`がGo／Javaの同じ取得済みAST・宣言から選択関数のCFGを作り、位置付きノードと型付き辺を描く。if／switch／loop・式内短絡・早期return、break／continue・label、Goのgoto／組込みpanic、Javaのthrow／三項を扱う。try/finally・defer/recover等はterminal barrierで、未知の継続を正常終了にしない。既定500ノードのhard cap、専用YAML、説明、既存rendererを接続した。利用方法と限界は[README](../README.md#単一関数アクティビティ図開発版)、設計・受入記録は[開発計画](uml-expansion-proposal.md#phase-3a-単一関数アクティビティ図)を参照。
+**Phase 3A（単一関数アクティビティ図）は[PR #75](https://github.com/Mino829/umlgen/pull/75)で実装・検証済み。全4環境CI成功、レビュー待ち・未マージ・未リリース。** `activity --function`がGo／Javaの同じ取得済みAST・宣言から選択関数のCFGを作り、位置付きノードと型付き辺を描く。if／switch／loop・式内短絡・早期return、break／continue・label、Goのgoto／組込みpanic、Javaのthrow／三項を扱う。try/finally・defer/recover等はterminal barrierで、未知の継続を正常終了にしない。既定500ノードのhard cap、専用YAML、説明、既存rendererを接続した。
 
-確認済み: 全体テスト（22 package成功）・vet・build、両言語の実CLIとlocal SVG／PNG、短絡RHSの接続先・label付きtransfer・returnの終了先・非対応ノードの終端、UTF-8 selector、上限超過による旧図保持。レビューで見つかったGoの定数unsafe演算・generic channel range、Javaのclass literal／constructor referenceを実CLIと失敗前／成功後の回帰で修正した。Javaの対話protocolが継承stdoutを待って期限を越える問題も実プロセスで再現し、cancel時にprotocol pipeを閉じて解消した。既存sequenceの実SVG、全package mode、Java class goldenの一致を維持。追加した4環境共通のactivity smoke shell blockはローカルで実行済みで、actionlintも成功。PR・4環境CIは公開後に結果を確認する。
+Phase 3Aの確認: 全体テスト（22 package成功）・vet・build、両言語の実CLIとlocal SVG／PNG、短絡RHSの接続先・label付きtransfer・returnの終了先・非対応ノードの終端、UTF-8 selector、上限超過による旧図保持。Goの定数unsafe演算・generic channel range、Javaのclass literal／constructor referenceと継承pipe期限を修正し、回帰を保持。既存sequenceの実SVG、全package mode、Java class goldenの一致を維持。CI smoke shellをローカル実行し、[公開後のCI](https://github.com/Mino829/umlgen/actions/runs/42179247787)も4環境すべて成功した。
 
-次の判断はこの単一関数CFGのレビューと統合。次段階のPhase 3Bは、明示状態・event／guard／actionとソース位置の対応を先に契約化し、enumや変数名だけで状態機械を自動決定しない。watch・GUI・実行trace・完全なdispatch解決は今回含めない。リリースと性能保証は別の検証・判断とする。
+**Phase 3B（明示状態図とソース代入候補）も本後続ブランチで実装・ローカル検証済み。** `state --state-config`にversion: 1の型・field・状態・初期状態・event／guard／action・遷移を指定し、configuredな実線と直前状態不明の破線候補を分離する。optionalなsource valueはcompiler定数／enum・観測literalへ意味上のkeyで束縛し、未知・曖昧・矛盾を拒否する。別型・shadowing・別rootを名前だけで混同せず、書込みの所有関数・lexical guard・位置・CFG coverageと未対応範囲を説明する。初期状態・遷移元・runtime instance・実行済み経路は推定しない。利用方法は[README](../README.md#明示状態遷移図開発版)を参照。
+
+Phase 3Bの確認: 全体テスト（23 package成功）・vet・build、両言語の実CLI・local SVG／PNG、明示遷移と候補の分離、未知RHS、field／capエラーによる旧図保持。レビューで見つかったGoの別定義型field混同・未評価initializerの誤ったCFG対応・同表記定数式のID衝突・range target内literalの所属漏れ、Javaの括弧付きreceiverを失敗前／成功後の回帰で修正。Go composite initializerは候補を残し、専用ノードがないことを診断する。既存activity／sequenceの実SVG、全package mode、Java class goldenの一致、追加CI shell blockのローカル実行とactionlint成功を確認。PR #75に依存する別PRとして提出し、公開後のCI結果を確認する。
+
+次の判断はPhase 3A／3Bのレビューと統合。Phase 4Aへは、package／moduleをどの明示境界でcomponentへ集約するかを先に契約化する。watch・GUI・実行trace・完全なdispatch／alias／例外解決、配布リリースと性能保証は今回含めず、別の検証・判断とする。
 
 ## 進め方
 

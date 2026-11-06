@@ -81,6 +81,21 @@ jobs:
             --output "$RUNNER_TEMP/java-activity.puml"
           test -s "$RUNNER_TEMP/go-activity.puml"
           test -s "$RUNNER_TEMP/java-activity.puml"
+      - name: Smoke explicit state CLI
+        shell: bash
+        run: |
+          binary=./umlgen
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=./umlgen.exe
+          fi
+          "$binary" state testdata/state/go \
+            --language go --state-config testdata/state/go/machine.yaml --explain \
+            --output "$RUNNER_TEMP/go-state.puml"
+          "$binary" state testdata/state/java \
+            --language java --state-config testdata/state/java/machine.yaml --java-release 17 --explain \
+            --output "$RUNNER_TEMP/java-state.puml"
+          test -s "$RUNNER_TEMP/go-state.puml"
+          test -s "$RUNNER_TEMP/java-state.puml"
       - name: Test macOS installer
         if: runner.os == 'macOS'
         shell: bash
