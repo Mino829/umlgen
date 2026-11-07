@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mino829/umlgen/internal/activity"
 	"github.com/Mino829/umlgen/internal/sequence"
 
 	"gopkg.in/yaml.v3"
@@ -17,6 +18,7 @@ const DefaultFile = ".umlgen.yaml"
 type DiagramsConfig struct {
 	Package  PackageDiagramConfig  `yaml:"package"`
 	Sequence SequenceDiagramConfig `yaml:"sequence"`
+	Activity ActivityDiagramConfig `yaml:"activity"`
 }
 
 type PackageDiagramConfig struct {
@@ -30,6 +32,13 @@ type SequenceDiagramConfig struct {
 	MaxCallDepth    int           `yaml:"max_call_depth"`
 	MaxParticipants int           `yaml:"max_participants"`
 	MaxMessages     int           `yaml:"max_messages"`
+	JavaRelease     int           `yaml:"java_release"`
+	AnalysisTimeout time.Duration `yaml:"analysis_timeout"`
+}
+
+type ActivityDiagramConfig struct {
+	Function        string        `yaml:"function"`
+	MaxNodes        int           `yaml:"max_nodes"`
 	JavaRelease     int           `yaml:"java_release"`
 	AnalysisTimeout time.Duration `yaml:"analysis_timeout"`
 }
@@ -85,6 +94,9 @@ func Defaults() Config {
 	c.Diagrams.Sequence = SequenceDiagramConfig{
 		MaxCallDepth: limits.MaxCallDepth, MaxParticipants: limits.MaxParticipants, MaxMessages: limits.MaxMessages,
 		JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
+	}
+	c.Diagrams.Activity = ActivityDiagramConfig{
+		MaxNodes: activity.DefaultMaxNodes, JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
 	}
 	c.Visibility.Public = true
 	c.Visibility.Protected = true
@@ -176,6 +188,10 @@ func validateDiagrams(node *yaml.Node) error {
 			if err := validateSequenceDiagram(value); err != nil {
 				return err
 			}
+		case "activity":
+			if err := validateActivityDiagram(value); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown diagrams key %q", key.Value)
 		}
@@ -237,7 +253,7 @@ exclude:
   - generated
 
 output:
-  # Omit file for command-specific class/package/package-change/sequence defaults.
+  # Omit file for command-specific class/package/package-change/sequence/activity defaults.
   # file: diagrams/model.puml
   format: plantuml
 
@@ -278,6 +294,11 @@ diagrams:
     max_call_depth: 3
     max_participants: 30
     max_messages: 200
+    java_release: 17
+    analysis_timeout: 30s
+  activity:
+    function: ""
+    max_nodes: 500
     java_release: 17
     analysis_timeout: 30s
 `

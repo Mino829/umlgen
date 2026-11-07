@@ -44,6 +44,10 @@ var helper []byte
 // Its sole stdout value is a JSON sequence.Program. Calls without a context
 // deadline are bounded to 30 seconds; an explicit caller deadline takes precedence.
 func Analyze(ctx context.Context, sources []sequence.Source, opts Options) (sequence.Program, error) {
+	return analyze(ctx, sources, opts, nil)
+}
+
+func analyze(ctx context.Context, sources []sequence.Source, opts Options, request *activityRequest) (sequence.Program, error) {
 	program := sequence.Program{Language: "java", Backend: "jdk-javac", Files: []sequence.File{}, Callables: []sequence.Callable{}, Diagnostics: []sequence.Diagnostic{}}
 	if opts.Release == 0 {
 		opts.Release = 17
@@ -84,12 +88,19 @@ func Analyze(ctx context.Context, sources []sequence.Source, opts Options) (sequ
 		return program, err
 	}
 	var input bytes.Buffer
-	input.WriteString("UMLSEQJ1")
+	if request == nil {
+		input.WriteString("UMLSEQJ1")
+	} else {
+		input.WriteString("UMLACTJ1")
+	}
 	if uint64(opts.Release) > uint64(^uint32(0)) || uint64(len(sources)) > uint64(^uint32(0)) {
 		return program, errors.New("Java analysis input exceeds framing limits")
 	}
 	binary.Write(&input, binary.BigEndian, uint32(opts.Release))
 	binary.Write(&input, binary.BigEndian, uint32(len(sources)))
+	if request != nil {
+		binary.Write(&input, binary.BigEndian, int64(request.maxNodes))
+	}
 	for _, source := range sources {
 		for _, value := range [][]byte{[]byte(source.Path), []byte(source.Root), source.Content} {
 			if uint64(len(value)) > uint64(^uint32(0)) {
@@ -116,7 +127,11 @@ func Analyze(ctx context.Context, sources []sequence.Source, opts Options) (sequ
 		}
 		cmd.Env = append(cmd.Env, item)
 	}
-	cmd.Stdin = &input
+	if request == nil {
+		cmd.Stdin = &input
+	} else {
+		return runActivity(cmd, &input, program, request, ctx)
+	}
 	stdout := &boundedBuffer{limit: 64 << 20}
 	stderr := &boundedBuffer{limit: 64 << 10}
 	cmd.Stdout, cmd.Stderr = stdout, stderr

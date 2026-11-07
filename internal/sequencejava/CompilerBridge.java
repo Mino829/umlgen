@@ -52,12 +52,16 @@ class CompilerBridge {
     }
     public static void main(String[] args) throws Exception {
         DataInputStream in=new DataInputStream(new BufferedInputStream(System.in));
-        if (!Arrays.equals(in.readNBytes(8), "UMLSEQJ1".getBytes(StandardCharsets.US_ASCII))) throw new IOException("invalid protocol magic");
+        byte[] magic=in.readNBytes(8);
+        boolean activity=Arrays.equals(magic,"UMLACTJ1".getBytes(StandardCharsets.US_ASCII));
+        if (!activity && !Arrays.equals(magic, "UMLSEQJ1".getBytes(StandardCharsets.US_ASCII))) throw new IOException("invalid protocol magic");
         int release=in.readInt(), count=in.readInt();
+        long maxNodes=activity?in.readLong():0;
+        if(activity && maxNodes<1) throw new IOException("invalid activity node limit");
         if (release<17 || count<0) throw new IOException("invalid release or source count");
         List<Input> inputs=new ArrayList<>();
         for (int i=0;i<count;i++) inputs.add(new Input(field(in),field(in),field(in)));
-        if (in.read()!=-1) throw new IOException("trailing framed input");
+        if (!activity && in.read()!=-1) throw new IOException("trailing framed input");
         inputs.sort(Comparator.comparing(s->s.path));
         Engine engine=new Engine(inputs);
         JavaCompiler compiler=ToolProvider.getSystemJavaCompiler();
@@ -80,11 +84,21 @@ class CompilerBridge {
                 Input source=engine.source(d.getSource());
                 engine.diagnostics.add(obj("code",d.getCode(),"message",d.getMessage(Locale.ROOT),"file",source==null?"":source.path,"span",source==null?obj():source.span(d.getStartPosition(),d.getEndPosition()),"error",d.getKind()==Diagnostic.Kind.ERROR));
             }
-            engine.extract();
+            engine.extract(!activity);
         }
-        StringBuilder out=new StringBuilder(); json(engine.program(),out);
         Writer stdout=new OutputStreamWriter(System.out,StandardCharsets.UTF_8);
-        stdout.write(out.toString()); stdout.flush();
+        StringBuilder out=new StringBuilder(); json(engine.program(),out);
+        stdout.write(out.toString()); stdout.write('\n'); stdout.flush();
+        if(activity) {
+            String selected=field(in);
+            if(in.read()!=-1) throw new IOException("trailing framed selection");
+            Object result=obj();
+            for(Decl d:engine.declarations) if(d.id().equals(selected)) {
+                result=new Activity(engine,d,maxNodes).build(); break;
+            }
+            out.setLength(0); json(result,out);
+            stdout.write(out.toString()); stdout.flush();
+        }
     }
     static class Decl {
         final Map<String,Object> model;
@@ -169,7 +183,7 @@ class CompilerBridge {
             Decl d=new Decl(model,source,unit,tree,body,e); declarations.add(d);
             if(e!=null) methods.put(e,d);
         }
-        void extract() {
+        void extract(boolean sequenceBodies) {
             for (CompilationUnitTree unit:units) {
                 new TreePathScanner<Void,Void>() {
                     String className="<source>";
@@ -231,7 +245,7 @@ class CompilerBridge {
                     }
                 }.scan(unit,null);
             }
-            for(Decl d:declarations) {
+            if(sequenceBodies) for(Decl d:declarations) {
                 List<Object> body=new ArrayList<>();
                 if(d.body==null) body.add(event(d,"unsupported","Declaration has no selected source body",d.tree));
                 else {
@@ -425,6 +439,228 @@ class CompilerBridge {
             for(Input input:inputs) files.add(obj("path",input.path,"hash",HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.text.getBytes(StandardCharsets.UTF_8)))));
             for(Decl d:declarations) callables.add(d.model);
             return obj("language","java","backend","jdk-javac","files",files,"callables",callables,"diagnostics",diagnostics);
+        }
+    }
+    /** Reverse construction keeps every transfer target explicit, including loop
+     * updates and labeled targets. Unsupported nodes deliberately have no edge. */
+    static class Activity {
+        final Engine engine; final Decl d; final long maxNodes;
+        final List<Object> nodes=new ArrayList<>(), edges=new ArrayList<>();
+        int entry, exit;
+        static class Limit extends RuntimeException { }
+        static class Scope {
+            final Scope parent; final String label; final int stop, again;
+            final boolean unlabeledBreak;
+            Scope(Scope parent,String label,int stop,int again,boolean unlabeledBreak) {
+                this.parent=parent; this.label=label; this.stop=stop; this.again=again; this.unlabeledBreak=unlabeledBreak;
+            }
+        }
+        Activity(Engine engine,Decl d,long maxNodes) { this.engine=engine; this.d=d; this.maxNodes=maxNodes; }
+        Object build() {
+            engine.diagnostic("activity.intraprocedural","Calls are atomic actions; callee bodies, implicit exceptions, implicit initialization and scheduling are not expanded",d.unit,d.tree,false);
+            try {
+                entry=node("entry","entry",d.tree); exit=node("exit","exit",d.tree);
+                int first=statement(d.body,exit,null,null);
+                edge(entry,first,"normal","");
+                return obj("nodes",nodes,"edges",edges,"entry",entry,"exit",exit,"diagnostics",engine.diagnostics);
+            } catch(Limit limit) {
+                return obj("limit",true,"diagnostics",engine.diagnostics);
+            }
+        }
+        int node(String kind,String label,Tree tree) {
+            if(nodes.size()>=maxNodes) throw new Limit();
+            int id=nodes.size()+1;
+            nodes.add(obj("id",id,"kind",kind,"label",label,"file",d.source.path,"span",engine.span(d.unit,tree)));
+            return id;
+        }
+        void edge(int from,int to,String kind,String label) { edges.add(obj("from",from,"to",to,"kind",kind,"label",label)); }
+        int action(Tree tree,int next) {
+            int id=node("action",engine.text(d,tree),tree); edge(id,next,"normal",""); return id;
+        }
+        int barrier(Tree tree,String reason) {
+            engine.diagnostic("activity.unsupported",reason,d.unit,tree,false);
+            return node("unsupported",reason,tree);
+        }
+        int block(List<? extends Tree> statements,int next,Scope scope) {
+            for(int i=statements.size()-1;i>=0;i--) next=statement(statements.get(i),next,scope,null);
+            return next;
+        }
+        int condition(ExpressionTree tree,int yes,int no) {
+            if(tree instanceof ParenthesizedTree p) return condition(p.getExpression(),yes,no);
+            if(tree instanceof UnaryTree u && tree.getKind()==Tree.Kind.LOGICAL_COMPLEMENT) return condition(u.getExpression(),no,yes);
+            if(tree instanceof BinaryTree b && tree.getKind()==Tree.Kind.CONDITIONAL_AND)
+                return condition(b.getLeftOperand(),condition(b.getRightOperand(),yes,no),no);
+            if(tree instanceof BinaryTree b && tree.getKind()==Tree.Kind.CONDITIONAL_OR)
+                return condition(b.getLeftOperand(),yes,condition(b.getRightOperand(),yes,no));
+            if(tree instanceof ConditionalExpressionTree c)
+                return condition(c.getCondition(),condition(c.getTrueExpression(),yes,no),condition(c.getFalseExpression(),yes,no));
+            int id=node("decision",engine.text(d,tree),tree);
+            if(tree instanceof LiteralTree literal && literal.getValue() instanceof Boolean value) {
+                edge(id,value?yes:no,value?"true":"false",value.toString());
+            } else {
+                edge(id,yes,"true","true"); edge(id,no,"false","false");
+            }
+            return expression(tree,id);
+        }
+        int transfer(Tree tree,Scope scope,String label,boolean continuing) {
+            for(Scope s=scope;s!=null;s=s.parent) {
+                boolean matches=label==null?(continuing?s.again>=0:s.unlabeledBreak):label.equals(s.label);
+                if(matches) {
+                    int target=continuing?s.again:s.stop;
+                    if(target<0) break;
+                    int id=node("action",engine.text(d,tree),tree);
+                    edge(id,target,continuing?"continue":"break",label==null?"":label); return id;
+                }
+            }
+            return barrier(tree,"Unresolved "+(continuing?"continue":"break")+" target (path barrier)");
+        }
+        int statement(Tree tree,int next,Scope scope,String label) {
+            if(tree==null) return next;
+            if(engine.end(d.unit,tree)<0) return next; // compiler-generated constructor/super
+            if(tree instanceof BlockTree b) return block(b.getStatements(),next,scope);
+            if(tree instanceof EmptyStatementTree || tree instanceof ClassTree) return next;
+            if(tree instanceof LabeledStatementTree labeled) {
+                String name=labeled.getLabel().toString();
+                Scope named=new Scope(scope,name,next,-1,false);
+                return statement(labeled.getStatement(),next,named,name);
+            }
+            if(tree instanceof ExpressionStatementTree e) return expression(e.getExpression(),next);
+            if(tree instanceof VariableTree v) return expression(v.getInitializer(),action(tree,next));
+            if(tree instanceof ReturnTree r) {
+                int id=node("return",engine.text(d,tree),tree); edge(id,exit,"return","");
+                return expression(r.getExpression(),id);
+            }
+            if(tree instanceof ThrowTree t) {
+                int id=node("throw",engine.text(d,tree),tree); edge(id,exit,"throw","");
+                return expression(t.getExpression(),id);
+            }
+            if(tree instanceof BreakTree b) return transfer(tree,scope,b.getLabel()==null?null:b.getLabel().toString(),false);
+            if(tree instanceof ContinueTree c) return transfer(tree,scope,c.getLabel()==null?null:c.getLabel().toString(),true);
+            if(tree instanceof IfTree branch) {
+                int join=node("merge","if merge",tree); edge(join,next,"normal","");
+                int yes=statement(branch.getThenStatement(),join,scope,null);
+                int no=statement(branch.getElseStatement(),join,scope,null);
+                return condition(branch.getCondition(),yes,no);
+            }
+            if(tree instanceof WhileLoopTree loop) {
+                int head=node("merge","while condition",tree);
+                int back=node("merge","while back",tree); edge(back,head,"back","");
+                Scope inner=new Scope(scope,label,next,head,true);
+                int body=statement(loop.getStatement(),back,inner,null);
+                edge(head,condition(loop.getCondition(),body,next),"normal","");
+                return head;
+            }
+            if(tree instanceof DoWhileLoopTree loop) {
+                int head=node("merge","do body",tree), test=node("merge","do condition",tree);
+                int back=node("merge","do back",tree); edge(back,head,"back","");
+                Scope inner=new Scope(scope,label,next,test,true);
+                edge(head,statement(loop.getStatement(),test,inner,null),"normal","");
+                edge(test,condition(loop.getCondition(),back,next),"normal","");
+                return head;
+            }
+            if(tree instanceof ForLoopTree loop) {
+                int head=node("merge","for condition",tree), update=node("merge","for update",tree);
+                int back=node("merge","for back",tree); edge(back,head,"back","");
+                int updates=back;
+                for(int i=loop.getUpdate().size()-1;i>=0;i--) updates=expression(loop.getUpdate().get(i).getExpression(),updates);
+                edge(update,updates,"normal","");
+                Scope inner=new Scope(scope,label,next,update,true);
+                int body=statement(loop.getStatement(),update,inner,null);
+                edge(head,loop.getCondition()==null?body:condition(loop.getCondition(),body,next),"normal","");
+                return block(loop.getInitializer(),head,scope);
+            }
+            if(tree instanceof EnhancedForLoopTree loop) {
+                int head=node("decision","enhanced for: next element?",tree);
+                int back=node("merge","enhanced for back",tree); edge(back,head,"back","");
+                Scope inner=new Scope(scope,label,next,head,true);
+                int bind=action(loop.getVariable(),statement(loop.getStatement(),back,inner,null));
+                edge(head,bind,"true","next element"); edge(head,next,"false","exhausted");
+                engine.diagnostic("activity.enhanced-for","Enhanced-for iterator/array operations are represented abstractly; their implicit exceptions are not expanded",d.unit,tree,false);
+                return expression(loop.getExpression(),head);
+            }
+            if(tree instanceof SwitchTree branch) {
+                for(CaseTree c:branch.getCases()) {
+                    // Later releases add pattern labels and combined null/default
+                    // labels. They require matching/binding semantics beyond this
+                    // Java-17 constant-label model, not a guessed default edge.
+                    if((c.getExpressions().isEmpty() && !engine.text(d,c).startsWith("default")) ||
+                       c.getLabels().size()!=Math.max(1,c.getExpressions().size()))
+                        return barrier(tree,"Pattern/combined switch labels are unsupported (path barrier)");
+                }
+                Scope inner=new Scope(scope,label,next,-1,true);
+                int dispatch=node("decision","switch "+engine.text(d,branch.getExpression()),tree);
+                int following=next; boolean hasDefault=false;
+                List<? extends CaseTree> cases=branch.getCases();
+                for(int i=cases.size()-1;i>=0;i--) {
+                    CaseTree c=cases.get(i);
+                    int first;
+                    if(c.getCaseKind()==CaseTree.CaseKind.RULE) {
+                        first=statement(c.getBody(),next,inner,null);
+                    } else {
+                        int fall=node("merge",i+1<cases.size()?"switch fallthrough":"switch exit",c);
+                        edge(fall,following,i+1<cases.size()?"fallthrough":"normal","");
+                        first=block(c.getStatements(),fall,inner);
+                    }
+                    if(c.getExpressions().isEmpty()) {
+                        hasDefault=true; edge(dispatch,first,"default","default");
+                    } else for(ExpressionTree value:c.getExpressions()) edge(dispatch,first,"case",engine.text(d,value));
+                    following=first;
+                }
+                if(!hasDefault) edge(dispatch,next,"default","no matching case");
+                return expression(branch.getExpression(),dispatch);
+            }
+            if(tree instanceof TryTree) return barrier(tree,"try/resource/catch/finally control transfer barrier");
+            if(tree instanceof SynchronizedTree) return barrier(tree,"synchronized monitor acquisition/release control transfer barrier");
+            if(tree instanceof ExpressionTree e) return expression(e,next);
+            return barrier(tree,"Unsupported control statement: "+tree.getKind()+" (path barrier)");
+        }
+        int expressions(List<? extends ExpressionTree> values,int next) {
+            for(int i=values.size()-1;i>=0;i--) next=expression(values.get(i),next);
+            return next;
+        }
+        int expression(ExpressionTree tree,int next) {
+            if(tree==null || engine.end(d.unit,tree)<0) return next;
+            if(tree instanceof ParenthesizedTree p) return expression(p.getExpression(),next);
+            if(tree instanceof ConditionalExpressionTree c)
+                return condition(c.getCondition(),expression(c.getTrueExpression(),next),expression(c.getFalseExpression(),next));
+            if(tree instanceof BinaryTree b) {
+                if(tree.getKind()==Tree.Kind.CONDITIONAL_AND || tree.getKind()==Tree.Kind.CONDITIONAL_OR)
+                    return condition(tree,next,next);
+                return expression(b.getLeftOperand(),expression(b.getRightOperand(),next));
+            }
+            if(tree instanceof MethodInvocationTree call) {
+                int first=expressions(call.getArguments(),action(tree,next));
+                if(call.getMethodSelect() instanceof MemberSelectTree member) first=expression(member.getExpression(),first);
+                return first;
+            }
+            if(tree instanceof NewClassTree call) {
+                // The anonymous class body is a declaration, never an inline call.
+                return expression(call.getEnclosingExpression(),expressions(call.getArguments(),action(tree,next)));
+            }
+            if(tree instanceof LambdaExpressionTree) return action(tree,next);
+            if(tree instanceof MemberReferenceTree r) return expression(r.getQualifierExpression(),action(tree,next));
+            if(tree instanceof AssignmentTree a) return expression(a.getVariable(),expression(a.getExpression(),action(tree,next)));
+            if(tree instanceof CompoundAssignmentTree a) return expression(a.getVariable(),expression(a.getExpression(),action(tree,next)));
+            if(tree instanceof UnaryTree u) {
+                boolean mutates=switch(tree.getKind()) {
+                    case PREFIX_INCREMENT,PREFIX_DECREMENT,POSTFIX_INCREMENT,POSTFIX_DECREMENT -> true;
+                    default -> false;
+                };
+                return expression(u.getExpression(),mutates?action(tree,next):next);
+            }
+            if(tree instanceof TypeCastTree c) return expression(c.getExpression(),next);
+            if(tree instanceof InstanceOfTree i) return expression(i.getExpression(),next);
+            if(tree instanceof MemberSelectTree m) return expression(m.getExpression(),next);
+            if(tree instanceof ArrayAccessTree a) return expression(a.getExpression(),expression(a.getIndex(),next));
+            if(tree instanceof NewArrayTree a) {
+                int first=action(tree,next);
+                if(a.getInitializers()!=null) first=expressions(a.getInitializers(),first);
+                return expressions(a.getDimensions(),first);
+            }
+            if(tree instanceof LiteralTree || tree instanceof IdentifierTree || tree instanceof PrimitiveTypeTree ||
+               tree instanceof ArrayTypeTree || tree instanceof ParameterizedTypeTree) return next;
+            if(tree instanceof SwitchExpressionTree) return barrier(tree,"Switch expression/yield control transfer barrier");
+            return barrier(tree,"Unsupported expression: "+tree.getKind()+" (evaluation barrier)");
         }
     }
     static void json(Object value,StringBuilder out) {

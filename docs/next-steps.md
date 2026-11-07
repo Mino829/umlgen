@@ -64,7 +64,11 @@ Java protocolの追加修正: JDK 17／Windowsの非UTF-8既定charsetを想定�
 
 共有する作業規約を[`CONTRIBUTING.md`](../CONTRIBUTING.md)へ追加した。実装依頼は検証・コミット・push・PR作成とURL報告までを完了条件にし、手元変更の保持、依存PRの明記、修正対象CI失敗の解消、無断マージ・リリースを行わないことを定めた。既存のignore方針を維持し、ローカル専用AGENTS.mdからこの規約を参照する。PR #69のマージを確認し、PR #71のbaseはmainへ更新済み。
 
-次の実装単位は **Phase 3A（単一関数アクティビティ図）**。指定関数のCFGとAST位置を対応付け、if／switch／loop・短絡・早期returnの分岐先と終了先を追える図を目指す。break／continue・label・finally／defer等を正常経路へ平坦化せず、未対応経路は位置付きで可視化する。Go／Javaの実ソース、異常系、元ソースとの対応、実CLIと画像を受入条件にし、PR作成・CI確認・依頼に応じたマージまで進める。CFG／activityはまだ未実装で、実行traceや完全なdispatch解決は約束しない。watch・GUIより先に進める。リリースと性能保証は別の検証・判断とする。
+**Phase 3A（単一関数アクティビティ図）は本開発ブランチで実装・ローカル検証済み。未マージ・未リリース。** `activity --function`がGo／Javaの同じ取得済みAST・宣言から選択関数のCFGを作り、位置付きノードと型付き辺を描く。if／switch／loop・式内短絡・早期return、break／continue・label、Goのgoto／組込みpanic、Javaのthrow／三項を扱う。try/finally・defer/recover等はterminal barrierで、未知の継続を正常終了にしない。既定500ノードのhard cap、専用YAML、説明、既存rendererを接続した。利用方法と限界は[README](../README.md#単一関数アクティビティ図開発版)、設計・受入記録は[開発計画](uml-expansion-proposal.md#phase-3a-単一関数アクティビティ図)を参照。
+
+確認済み: 全体テスト（22 package成功）・vet・build、両言語の実CLIとlocal SVG／PNG、短絡RHSの接続先・label付きtransfer・returnの終了先・非対応ノードの終端、UTF-8 selector、上限超過による旧図保持。レビューで見つかったGoの定数unsafe演算・generic channel range、Javaのclass literal／constructor referenceを実CLIと失敗前／成功後の回帰で修正した。Javaの対話protocolが継承stdoutを待って期限を越える問題も実プロセスで再現し、cancel時にprotocol pipeを閉じて解消した。既存sequenceの実SVG、全package mode、Java class goldenの一致を維持。追加した4環境共通のactivity smoke shell blockはローカルで実行済みで、actionlintも成功。PR・4環境CIは公開後に結果を確認する。
+
+次の判断はこの単一関数CFGのレビューと統合。次段階のPhase 3Bは、明示状態・event／guard／actionとソース位置の対応を先に契約化し、enumや変数名だけで状態機械を自動決定しない。watch・GUI・実行trace・完全なdispatch解決は今回含めない。リリースと性能保証は別の検証・判断とする。
 
 ## 進め方
 
