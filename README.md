@@ -1,10 +1,10 @@
 # umlgen
 
-**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図・アクティビティ図・明示状態遷移図を生成するCLIツール**
+**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図・アクティビティ図・明示状態遷移図・明示コンポーネント図を生成するCLIツール**
 
 umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名・呼び出し式等を含む生成済みPlantUMLを外部送信します。
 
-`package`・package差分・`sequence`・`activity`・`state`は未リリースの開発版です。現在の配布版の機能とは区別してください。
+`package`・package差分・`sequence`・`activity`・`state`・`component`は未リリースの開発版です。現在の配布版の機能とは区別してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -438,9 +438,61 @@ transitions:
 
 `.umlgen.yaml`の`diagrams.state`には`state_config`・`type`・`field`・`max_nodes`・`java_release`・`analysis_timeout`を設定できます。`state_config`は共有設定ファイルのディレクトリ基準、CLIで渡す`--state-config`は現在の作業ディレクトリ基準です。型／フィールドはCLI→`diagrams.state`→状態定義の順。既存output／renderer／exclude／期限の規約を維持します。設定と入力のSHA256、元ソースの位置・抜粋、CFG node IDとcoverageは`--explain`で辿れます。
 
+## 明示コンポーネント図（開発版）
+
+`component`は、既存のpackage依存を**利用者が明示した境界**へ集約します。package名から責務・サービス・実行時通信・配置を推定する機能ではありません。Javaも構文解析のみでJDK不要です。
+
+```bash
+umlgen component testdata/package/go --language go \
+  --boundary-config testdata/component/go/architecture.yaml --explain -o go-component.puml
+umlgen component testdata/package/java --language java \
+  --boundary-config testdata/component/java/architecture.yaml \
+  --format svg --renderer local -o java-component.svg
+```
+
+境界定義は共有設定とは別の、厳密な`version: 1` YAMLです。以下は独自プロジェクト用の例です。
+
+```yaml
+version: 1
+components:
+  - name: API
+    match:
+      - language: go
+        package_prefix: example.test/app/api
+        go_module: example.test/app
+        source_root: ../src
+    provides: [Orders]
+    requires: [Storage]
+  - name: Storage
+    match:
+      - language: go
+        package_prefix: example.test/app/storage
+        go_module: example.test/app
+    provides: [Storage]
+```
+
+- 各selectorは必須`language: go|java`と、1つ以上の制約を持ちます。行内はAND、同じcomponent内の複数行はOR。`package_prefix`はGoの`/`・Javaの`.`の区切り単位で一致し、`api`は`api2`を含みません。glob・正規表現ではありません。
+- `go_module`は取得した`go.mod`のmoduleパスとの完全一致で、Go専用です。Java module・Maven／Gradle・`go.work`・依存ライブラリ一覧は解析しません。
+- `source_root`は境界YAMLからの相対パスまたは絶対パスで、**解析文脈の物理rootとの完全一致**です。Goはmodule root（moduleなしはpackage directory）、Javaは選択targetのroot（単一ファイルなら親directory）。任意のサブdirectory配下を選ぶ条件ではありません。symlink・同一filesystem上の大小文字aliasを同じ物理rootとして扱い、空白・角括弧等は文字どおりのパスです。存在しない通常の将来rootは未使用診断になります。
+- 複数componentに所属するpackageは終了コード2で旧図を保持します。先勝ち・最長prefix優先はありません。同じcomponentの複数selectorに一致することは許容します。未割当packageは文脈別の独立ノード、未使用境界は空ノードと診断で残します。外部packageをcomponentへ所属させません。
+- component内依存は根拠を保持して自己矢印を描かず、境界間の辺には元package／型関係／importを保持します。`--dependency-source declared-types|imports|both`の既定は`both`。型関係レコード数とimport宣言数は別単位で、実行回数ではありません。`--external hide|show`の既定は`hide`で、非表示にしても元根拠は説明に残します。未解決／曖昧参照から架空の端点を作りません。
+- `provides`／`requires`は表示用の明示契約です。**同名でもproviderへ自動接続しません。** ソースから公開API・呼び出し・配線を推定せず、設定値・コード・build tool・processor・scriptを実行しません。
+- `--explain`は境界YAMLの位置／SHA256、Go moduleの取得根拠、元package ID・型関係・推定根拠・importの位置／hash／取得済みソース抜粋、内部／非表示依存、未割当・未使用・元の解析診断を表示します。部分的な解析失敗はファイルごと除外し、診断付きの図と終了コード3。全件失敗は旧図を保持します。未解決・外部非表示・解析失敗を「依存なし」の証拠にしません。
+- 既定出力は`component-diagram.puml`。SVG／PNG・renderer・期限・exclude・`--no-cache`に対応します。focus／include／cycles／relations／layout・component差分・deploymentは今回の対象外で、専用flagを受理しません。
+
+共有`.umlgen.yaml`では次のように設定します。CLIが設定を上書きし、`boundary_config`は共有設定ファイルのdirectory基準、CLIの`--boundary-config`は現在directory基準です。
+
+```yaml
+diagrams:
+  component:
+    boundary_config: architecture.yaml
+    dependency_source: both
+    external: hide
+```
+
 ## 解析キャッシュ
 
-class／packageのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。sequence／activity／stateはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
+class／package／componentのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。componentの境界・module情報は実行ごとに現在の入力へ適用します。sequence／activity／stateはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
 
 Goではpackage節などの構文情報だけを再利用し、packageパスは各実行で現在の`go.mod`とソースの配置から決定します。同じソースを別moduleへ置いた場合や、`go.mod`のmodule名・配置ディレクトリを変更した場合も、以前のpackageパスを引き継ぎません。祖先に`go.mod`がなければpackage節の名前を使います。解析スキーマが変わった場合、旧エントリーは自動的にmissになります。
 

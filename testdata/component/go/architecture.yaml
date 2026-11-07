@@ -1,0 +1,23 @@
+version: 1
+components:
+  - name: Application
+    match:
+      - language: go
+        package_prefix: example.test/packagefixture/app
+        go_module: example.test/packagefixture
+        source_root: ../../package/go
+    provides: [Application]
+    requires: [Service]
+  - name: Service
+    match:
+      - language: go
+        package_prefix: example.test/packagefixture/service
+        go_module: example.test/packagefixture
+    provides: [Service]
+    requires: [Domain]
+  - name: Domain
+    match:
+      - language: go
+        package_prefix: example.test/packagefixture/domain
+        go_module: example.test/packagefixture
+    provides: [Domain]

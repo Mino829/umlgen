@@ -16,10 +16,11 @@ import (
 const DefaultFile = ".umlgen.yaml"
 
 type DiagramsConfig struct {
-	Package  PackageDiagramConfig  `yaml:"package"`
-	Sequence SequenceDiagramConfig `yaml:"sequence"`
-	Activity ActivityDiagramConfig `yaml:"activity"`
-	State    StateDiagramConfig    `yaml:"state"`
+	Package   PackageDiagramConfig   `yaml:"package"`
+	Sequence  SequenceDiagramConfig  `yaml:"sequence"`
+	Activity  ActivityDiagramConfig  `yaml:"activity"`
+	State     StateDiagramConfig     `yaml:"state"`
+	Component ComponentDiagramConfig `yaml:"component"`
 }
 
 type PackageDiagramConfig struct {
@@ -51,6 +52,12 @@ type StateDiagramConfig struct {
 	MaxNodes        int           `yaml:"max_nodes"`
 	JavaRelease     int           `yaml:"java_release"`
 	AnalysisTimeout time.Duration `yaml:"analysis_timeout"`
+}
+
+type ComponentDiagramConfig struct {
+	BoundaryConfig   string `yaml:"boundary_config"`
+	DependencySource string `yaml:"dependency_source"`
+	External         string `yaml:"external"`
 }
 
 type Config struct {
@@ -111,6 +118,7 @@ func Defaults() Config {
 	c.Diagrams.State = StateDiagramConfig{
 		MaxNodes: activity.DefaultMaxNodes, JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
 	}
+	c.Diagrams.Component = ComponentDiagramConfig{DependencySource: "both", External: "hide"}
 	c.Visibility.Public = true
 	c.Visibility.Protected = true
 	c.Visibility.Private = true
@@ -209,6 +217,10 @@ func validateDiagrams(node *yaml.Node) error {
 			if err := validateStateDiagram(value); err != nil {
 				return err
 			}
+		case "component":
+			if err := validateComponentDiagram(value); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown diagrams key %q", key.Value)
 		}
@@ -259,6 +271,9 @@ func ResolvePaths(c *Config, configPath string) {
 	if path := c.Diagrams.State.StateConfig; path != "" && !filepath.IsAbs(path) {
 		c.Diagrams.State.StateConfig = filepath.Join(base, path)
 	}
+	if path := c.Diagrams.Component.BoundaryConfig; path != "" && !filepath.IsAbs(path) {
+		c.Diagrams.Component.BoundaryConfig = filepath.Join(base, path)
+	}
 }
 
 const Template = `language: auto
@@ -273,7 +288,7 @@ exclude:
   - generated
 
 output:
-  # Omit file for command-specific class/package/package-change/sequence/activity/state defaults.
+  # Omit file for command-specific class/package/package-change/sequence/activity/state/component defaults.
   # file: diagrams/model.puml
   format: plantuml
 
@@ -328,4 +343,8 @@ diagrams:
     max_nodes: 500
     java_release: 17
     analysis_timeout: 30s
+  component:
+    boundary_config: ""
+    dependency_source: both
+    external: hide
 `
