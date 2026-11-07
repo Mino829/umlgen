@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Mino829/umlgen/internal/fsidentity"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -117,7 +119,7 @@ func LoadDefinition(path string) (Definition, error) {
 				// Join cleans link/.. before the filesystem can resolve it.
 				root = filepath.Dir(d.Source) + string(os.PathSeparator) + root
 			}
-			s.SourceRoot, err = canonicalBoundaryRoot(root)
+			s.SourceRoot, err = fsidentity.Resolve(root)
 			if err != nil {
 				return zero, fmt.Errorf("%w: source_root at line %d: %v", ErrBoundary, s.Line, err)
 			}
@@ -152,32 +154,6 @@ func boundaryMapping(node *yaml.Node, fields map[string]string) error {
 		}
 	}
 	return nil
-}
-
-// canonicalBoundaryRoot resolves existing symlinks, including an existing parent
-// of an absent configured root. Absent roots remain inert exact identities.
-func canonicalBoundaryRoot(path string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(path)
-	if err == nil {
-		return resolved, nil
-	}
-	if !os.IsNotExist(err) {
-		return "", err
-	}
-	// Resolve the existing prefix before normalizing a future suffix. Both
-	// Windows separators must be stripped when a missing parent recurses.
-	for len(path) > 0 && os.IsPathSeparator(path[len(path)-1]) {
-		path = path[:len(path)-1]
-	}
-	parent, base := filepath.Split(path)
-	if parent == "" || base == "" {
-		return "", err
-	}
-	resolved, err = canonicalBoundaryRoot(parent)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(resolved, base), nil
 }
 
 func (d Definition) Validate() error {
