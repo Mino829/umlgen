@@ -84,6 +84,8 @@ Phase 4Bの確認: `go test ./...`（25 package成功）・vet・build・actionl
 
 watchの確認: 全体テスト（27 package）・vet・build・actionlint成功。実CLIでGoの4連続保存を1更新へ集約し、同mtimeのatomic保存、追加rename削除、設定エラー修復、source/output変更、go.mod変更、最後の削除、generated fileの非循環を確認。Java packageの実PNGとcache、部分parse／renderer失敗で両成果物を保持、描画中のSIGINTが0で速やかに終了することを確認した。空PATHのJava構文watchも成功。内部レビューのauto空図・parent alias経由の出力衝突・umask拡大・観測失敗後の世代取りこぼしを修正し、初回描画中のconfig復帰も実CLIで失敗前／成功後を確認。既存class／packageの両言語cache／説明一致、全図CI shellと新watch scriptのmacOS実行も成功。PR #79をbaseとするレビュー用PRで公開後の4環境CIを確認する。
 
+PR #80の初回Windows CIでは、通常file配下のchildに対するnot-existとUnixのENOTDIRの差を検出した。未作成suffixを補う前に既存prefixがdirectoryであることを確認し、既存の拒否回帰を維持した。Windows skipやassertの緩和は行わず、修正後の4環境CIを確認する。
+
 次の判断はmain統合PR #77・component PR #78・配置図PR #79・watch後続PRのレビューと統合。GUI・他図種watch・実行trace・完全なdispatch／alias／例外解決、配布リリースと性能保証は今回含めない。ユースケース図はactor／goal等の要求モデルの合意後に別途判断する。
 
 ## 進め方

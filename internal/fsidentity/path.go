@@ -42,5 +42,15 @@ func resolve(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Windows reports a missing child below a regular file as not-exist,
+	// unlike Unix ENOTDIR. A resolved existing prefix must still be a directory
+	// before we append a future suffix; otherwise it is not a physical path.
+	info, inspectErr := os.Stat(resolved)
+	if inspectErr == nil && !info.IsDir() {
+		return "", &os.PathError{Op: "resolve", Path: parent, Err: os.ErrInvalid}
+	}
+	if inspectErr != nil && !os.IsNotExist(inspectErr) {
+		return "", inspectErr
+	}
 	return filepath.Join(resolved, base), nil
 }
