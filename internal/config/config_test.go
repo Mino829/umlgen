@@ -259,7 +259,9 @@ func TestLoadRejectsInvalidDiagramYAML(t *testing.T) {
 		input string
 	}{
 		{"unsupported namespace", "diagrams:\n  class: {}\n"},
-		{"future namespace", "diagrams:\n  component: {}\n"},
+		{"unknown component setting", "diagrams:\n  component:\n    package: app\n"},
+		{"component scalar", "diagrams:\n  component: imports\n"},
+		{"component non-string path", "diagrams:\n  component:\n    boundary_config: [architecture.yaml]\n"},
 		{"unknown package setting", "diagrams:\n  package:\n    focus: example\n"},
 		{"misspelled package setting", "diagrams:\n  package:\n    dependency_sources: imports\n"},
 		{"diagrams scalar", "diagrams: package\n"},

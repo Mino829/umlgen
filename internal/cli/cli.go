@@ -59,7 +59,7 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 			continue
 		}
 		switch arg {
-		case "class", "package", "sequence", "activity", "state", "diff", "init", "cache", "version", "help":
+		case "class", "package", "sequence", "activity", "state", "component", "diff", "init", "cache", "version", "help":
 			commandAt = i
 		}
 		if commandAt >= 0 {
@@ -100,6 +100,9 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		case "state":
 			printStateHelp(stdout)
 			return exitOK, nil
+		case "component":
+			printComponentHelp(stdout)
+			return exitOK, nil
 		case "diff":
 			printDiffHelp(stdout)
 			return exitOK, nil
@@ -135,6 +138,8 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return runActivity(rest, common, stdout, stderr)
 	case "state":
 		return runState(rest, common, stdout, stderr)
+	case "component":
+		return runComponent(rest, common, stdout, stderr)
 	case "diff":
 		return runDiff(rest, common, stdout, stderr)
 	default:
@@ -811,6 +816,7 @@ Available Commands:
   sequence    Project static calls and control regions from a selected entry
   activity    Trace explicit control-flow edges inside one selected function
   state       Compare an explicit state machine with source assignment candidates
+  component   Aggregate package dependencies into explicit component boundaries
   cache       Manage the local parse cache
   diff        Generate a diagram for Git changes
   init        Create a configuration file

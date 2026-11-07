@@ -96,6 +96,21 @@ jobs:
             --output "$RUNNER_TEMP/java-state.puml"
           test -s "$RUNNER_TEMP/go-state.puml"
           test -s "$RUNNER_TEMP/java-state.puml"
+      - name: Smoke explicit component CLI
+        shell: bash
+        run: |
+          binary=./umlgen
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=./umlgen.exe
+          fi
+          "$binary" component testdata/package/go \
+            --language go --boundary-config testdata/component/go/architecture.yaml --explain \
+            --output "$RUNNER_TEMP/go-component.puml"
+          "$binary" component testdata/package/java \
+            --language java --boundary-config testdata/component/java/architecture.yaml --explain \
+            --output "$RUNNER_TEMP/java-component.puml"
+          test -s "$RUNNER_TEMP/go-component.puml"
+          test -s "$RUNNER_TEMP/java-component.puml"
       - name: Test macOS installer
         if: runner.os == 'macOS'
         shell: bash

@@ -53,7 +53,7 @@ docs/ examples/ scripts/ .github/workflows/
 
 | 論点 | READMEで案内する仕様 | 実装から確認した範囲・注意点 |
 | --- | --- | --- |
-| 対応図 | Java/Goからclass・package依存図・静的sequence・単一関数activity・明示state図を生成 | 開発版に各コマンドを追加済み。component／deployment以降は未実装 |
+| 対応図 | Java/Goからclass・package依存図・静的sequence・単一関数activity・明示state・明示component図を生成 | 開発版に各コマンドを追加済み。componentは本後続ブランチで実装、deployment以降は未実装 |
 | Goの実行・開発要件 | ソースからの開発版ビルドはGo 1.25以上 | [go.mod](../go.mod)も`1.25`。Java sequence／activity／stateには別途JDK 17以上が必要 |
 | AST／意味解析 | class／packageと意味解析コマンドを分離 | class／packageは宣言モデル。sequence／activity／stateは選択ソースをGo `go/types`／Java `JavacTask`で解析し、AST・宣言を共有 |
 | classのpackage表示 | グルーピング、階層レイアウト | 型を囲む枠で、関係は型同士。独立したpackageコマンドはpackage端点へ集約する別経路 |
@@ -244,12 +244,13 @@ JavaはJDK標準の`JavacTask.parse`／`analyze`を採用し、JDK 17以上、�
 
 ### 4.5 Phase 4: コンポーネント図・配置図
 
-**コンポーネント（提案）:** Phase 1のpackage graphを、明示した境界定義へ投影する。
+**コンポーネント（Phase 4A、開発版で実装）:** Phase 1のpackage graphを、厳密な`version: 1`境界YAMLへ投影する。利用例と設定は[README](../README.md#明示コンポーネント図開発版)を参照。未マージ・未リリースの後続ブランチとしてレビューする。
 
-- package prefix、module、ソースroot等からcomponentへのマッピングを設定する。packageやディレクトリを、そのままアーキテクチャ上の責務だと断定しない。
-- 境界の重複・曖昧な所属はエラーまたは未所属診断とし、先勝ちにしない。内部依存は集約し、component間の辺に元package／型の根拠を残す。
-- Go moduleとJava module／ビルドmoduleは区別する。`go.mod`、`go.work`、Maven等は入力候補だが、依存ライブラリ宣言と実際のソース利用は異なる。任意のGradleスクリプトを自動実行しない。
-- 提供／要求interfaceは明示設定または証拠のあるAPI情報から描く。Goの全interface、Javaの全public型を自動でサービス境界としない。
+- 必須languageと、package prefix／exact Go module／exact物理source rootを指定する。selector内はAND、component内の行はOR。prefixは言語ごとの区切り単位で、globや最長prefix優先ではない。rootはYAML基準のパスで、部分directory選択ではなく解析文脈との完全一致。symlink親参照と大小文字aliasも物理identityで扱う。
+- 異なるcomponentへの重複所属は終了コード2で旧図を保持し、先勝ちにしない。未所属packageは文脈別ノード、未使用境界は空ノードと診断を残す。内部依存に自己矢印を描かず、境界間／非表示外部の辺に元package ID・型関係・推定根拠・import・位置・hashを保持する。
+- `go_module`は取得した`go.mod`のlexicalなmoduleパスだけに対応する。Java module／Maven／Gradle／`go.work`／依存宣言の解析は行わず、任意のbuild・processor・scriptも実行しない。Javaは既存構文parserを使いJDK不要。
+- 提供／要求interfaceは設定由来の表示契約だけとし、同名でもproviderへ自動接続しない。Goの全interface、Javaの全public型をサービス境界やAPI配線としない。
+- 依存sourceの既定は`both`、外部表示は`hide`。型関係レコードとimport宣言の件数を分ける。部分失敗ファイルは除外して診断付き図と終了コード3、全件失敗は旧図を保持する。未解決・曖昧・非表示・失敗を依存不在の根拠にしない。説明には取得済みソース抜粋・境界位置／hash・moduleの取得根拠も残す。
 
 **配置（提案）:** 設定ファイルから読める希望構成を別モデルとして保持する。
 
@@ -372,7 +373,7 @@ flowchart TD
 
 ### 6.1 コマンド体系
 
-**`package`、`diff --diagram package`、`sequence`、`activity`、`state`と対応フラグは開発版で実装済み。component／deployment以降は未実装の仕様案。** `class`／既定class diffは既存の意味を維持する。
+**`package`、`diff --diagram package`、`sequence`、`activity`、`state`、`component`と対応フラグは開発版で実装済み。deployment以降は未実装の仕様案。** `class`／既定class diffは既存の意味を維持する。
 
 ```bash
 umlgen class ./src
@@ -399,7 +400,8 @@ umlgen diff main...HEAD --diagram package
 | sequence | `--entry`、`--max-call-depth`、`--max-participants`、`--max-messages`、`--java-release`、`--analysis-timeout`。一意な単純名・完全名・signature・`context::signature`を受理。`--include`・`--no-cache`・layout・class／package専用flagは拒否 |
 | activity | `--function`、`--max-nodes`（既定500）、`--java-release`、`--analysis-timeout`。sequenceと同じ一意なselector。本体の制御経路を描き、上限超過は旧図を保持。class／package／sequence専用flag・layout・`--no-cache`は拒否 |
 | state | 必須`--state-config`、明示型／fieldを上書きする`--type`／`--state-field`、関数CFGごとの`--max-nodes`（既定500）、Java release／期限。設定とソース候補の出典を区別 |
-| component / deployment | `--boundary-config`、`--manifest`等。複数manifestのmergeは対応仕様が決まるまで自動実行しない |
+| component | 必須`--boundary-config`、`--dependency-source declared-types\|imports\|both`（既定both）、`--external hide\|show`（既定hide）、構文cache。focus／include／cycles／relations／layoutは拒否 |
+| deployment（未実装案） | `--manifest`等。複数manifestのmergeは対応仕様が決まるまで自動実行しない |
 | diffの追加 | `--diagram package`はPhase 1Bで完全snapshot解析を接続済み。sequence等のdiffは今回のPhaseでは追加しない |
 
 packageの`depth/direction`はpackage依存グラフ上で定義する。dependency-source／relationsで選んだ辺を作ってからfocusし、循環判定対象はfocus前の選択済み解析範囲とする。`cycles only`は循環を含むpackageとfocus到達集合の共通部分を表示する。外部非表示も判定後に適用し、隠れた循環・辺があっても解析結果を再分類しない。`cycles off`はSCC処理自体を省き、「循環なし」とは解釈しない。P1-06でCLI接続済みで、クラス図の既存BFS挙動は変更しない。
@@ -408,7 +410,7 @@ packageの`depth/direction`はpackage依存グラフ上で定義する。depende
 
 ### 6.2 `.umlgen.yaml`の拡張
 
-**以下のpackage／sequence設定は開発版で実装済み。** `diagrams.activity`と`diagrams.state`にも対応する（[activity](../README.md#単一関数アクティビティ図開発版)・[state](../README.md#明示状態遷移図開発版)の利用例）。`diagrams`内の未知namespace・キー・型は設定エラー。component／deployment以降の設定は受理しない。
+**以下のpackage／sequence設定は開発版で実装済み。** `diagrams.activity`・`diagrams.state`・`diagrams.component`にも対応する（[activity](../README.md#単一関数アクティビティ図開発版)・[state](../README.md#明示状態遷移図開発版)・[component](../README.md#明示コンポーネント図開発版)の利用例）。`diagrams`内の未知namespace・キー・型は設定エラー。deployment以降の設定は受理しない。
 
 ```yaml
 language: auto
@@ -433,6 +435,10 @@ diagrams:
     max_messages: 200
     java_release: 17
     analysis_timeout: 30s
+  component:
+    boundary_config: architecture.yaml
+    dependency_source: both
+    external: hide
 ```
 
 Phase 1は`diagrams.package`、Phase 2は`diagrams.sequence`を追加した。sequenceは既定`sequence-diagram.puml`、意味解析は毎回実施する。未対応の設定を空実装で受理しない。
@@ -524,6 +530,8 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 - **次のgate:** 状態定義の維持方法、候補の読み方、CFG coverageと非対応範囲のレビュー。Phase 4へはpackage／module境界の明示契約を決めてから進む。
 
 ### Phase 4A/4B: コンポーネント図・配置図
+
+**Phase 4Aは本後続ブランチで実装・ローカル検証済み、4Bは未実装。** 4Aの契約は§4.5とREADMEに固定し、責務・配線・runtime通信を補完しない。4Bのmanifest仕様や実行基盤は今回追加しない。
 
 - **目的:** packageより上位の責務・サービスと、宣言された実行構成を俯瞰する。
 - **実装対象:** 4Aは明示境界への依存集約。4Bは対応仕様を固定したCompose／Kubernetes入力と、component/artifact/workloadの明示対応。
