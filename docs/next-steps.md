@@ -76,11 +76,17 @@ Phase 3Bの確認: 全体テスト（23 package成功）・vet・build、両言�
 
 Phase 4Aの確認: 全体テスト（24 package成功）・vet・build・actionlint、両言語の全3依存modeでcold／warm／`--no-cache`の図・説明一致、実local Go SVG／Java PNG、空PATHで両言語の生成成功。境界競合時の終了コード2と旧SVG／PlantUML保持、部分失敗ファイルの除外と終了コード3、全件失敗時の旧図保持を実CLIで確認した。レビューで見つかったsymlink親参照とcase-insensitive filesystemのroot混同を失敗前／成功後で修正し、将来rootとWindowsの区切りを含む回帰を保持。既存class／packageの両言語cache／説明一致、sequence／activity／state／componentの実CI shell成功を確認した。main統合PR #77のheadをbaseとするレビュー用後続PRとして提出し、公開後のCIを確認する。
 
-**Phase 4B（宣言された配置図）は本後続ブランチで実装・ローカル検証済み。** 単一Compose、固定したKubernetes API／kindとmulti-docを読み、image・network・named volume・起動条件・desired replicas・Service selector候補・未知endpointを分離する。別のstrict mapping YAMLでcomponentと完全一致targetだけを結び、source→imageのbuild来歴やruntime通信・実配置は補わない。環境変数・Secret／ConfigMapの値、labels値、raw YAMLを出力せず、対象ツール・生成script・dotenv読取・変数展開・manifest mergeは行わない。
+**Phase 4B（宣言された配置図）は[PR #79](https://github.com/Mino829/umlgen/pull/79)で実装・4環境CI成功、レビュー待ち・未マージ・未リリース。** 単一Compose、固定したKubernetes API／kindとmulti-docを読み、image・network・named volume・起動条件・desired replicas・Service selector候補・未知endpointを分離する。別のstrict mapping YAMLでcomponentと完全一致targetだけを結び、source→imageのbuild来歴やruntime通信・実配置は補わない。環境変数・Secret／ConfigMapの値、labels値、raw YAMLを出力せず、対象ツール・生成script・dotenv読取・変数展開・manifest mergeは行わない。
 
 Phase 4Bの確認: `go test ./...`（25 package成功）・vet・build・actionlint、Compose／Kubernetesの実CLI・local SVG／PNG・画像確認、空PATHでの図／説明一致、明示対応とsource hash／document行、selectorのnamespace分離を確認した。selectorなしService・未評価継承・unknown imageは図と終了コード3、構文／mappingエラー2・boundary IO1は旧図／画像を保持する。空renderer・1秒期限は5で元PlantUMLを保持。内部レビューのcredential風digest参照・継承からのdefault network誤推定・root YAML mergeのschema回避・boundary IO分類を失敗前／成功後の回帰で修正した。既存class／packageの両言語cache／説明一致、sequence／activity／state／component／deploymentの実CI shellも成功。PR #78をbaseとする別PRでレビューし、公開後のCIを確認する。
 
-次の判断はmain統合PR #77・component PR #78・配置図後続PRのレビューと統合。watch・GUI・実行trace・完全なdispatch／alias／例外解決、配布リリースと性能保証は今回含めない。ユースケース図はactor／goal等の要求モデルの合意後に別途判断する。
+**Issue #14（安全なwatch）は本後続ブランチで実装・ローカル検証済み。** class／packageとJava／Go、内容snapshot・連続保存debounce・serial生成・関連config/module変更・追加削除renameを接続した。stageで完全生成し、部分parse・設定・画像失敗では前回成功したPlantUML／画像を保持する。最後のsource削除は明示的な空図。Ctrl+Cで描画をキャンセルし、未公開stageを破棄する。時間設定はCLIのみで、既存cache／図別flag・設定優先度を維持する。
+
+watchの確認: 全体テスト（27 package）・vet・build・actionlint成功。実CLIでGoの4連続保存を1更新へ集約し、同mtimeのatomic保存、追加rename削除、設定エラー修復、source/output変更、go.mod変更、最後の削除、generated fileの非循環を確認。Java packageの実PNGとcache、部分parse／renderer失敗で両成果物を保持、描画中のSIGINTが0で速やかに終了することを確認した。空PATHのJava構文watchも成功。内部レビューのauto空図・parent alias経由の出力衝突・umask拡大・観測失敗後の世代取りこぼしを修正し、初回描画中のconfig復帰も実CLIで失敗前／成功後を確認。既存class／packageの両言語cache／説明一致、全図CI shellと新watch scriptのmacOS実行も成功。PR #79をbaseとするレビュー用PRで公開後の4環境CIを確認する。
+
+PR #80の初回Windows CIでは、通常file配下のchildに対するnot-existとUnixのENOTDIRの差を検出した。未作成suffixを補う前に既存prefixがdirectoryであることを確認し、既存の拒否回帰を維持した。Windows skipやassertの緩和は行わず、修正後の4環境CIを確認する。
+
+次の判断はmain統合PR #77・component PR #78・配置図PR #79・watch後続PRのレビューと統合。GUI・他図種watch・実行trace・完全なdispatch／alias／例外解決、配布リリースと性能保証は今回含めない。ユースケース図はactor／goal等の要求モデルの合意後に別途判断する。
 
 ## 進め方
 

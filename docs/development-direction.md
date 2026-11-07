@@ -60,6 +60,15 @@ watch／Homebrew／Scoopを次の最優先としていた従来の順序は、�
 
 第一の開発単位の利用結果を確認した後、関係線の追加・削除と根拠の変化を扱うレビュー支援へ進む。その次にwatchと導入改善、最後にエディタ／画面操作へ展開する。各段階は個別にレビュー・検証できるPRにし、実装済みの機能と計画を混同しない。
 
+### 継続利用の実装（開発版）
+
+Issue #14のclass／package向け`watch`を後続ブランチで実装した。Java／Goの選択source・共有設定・関連module／auto判定metadataの内容snapshotを監視し、連続保存をdebounceする。世代を並行実行せず、設定のsource／output変更と追加・削除・renameへ追従する。
+
+parse／設定／renderer失敗時は前回成功したPlantUMLと画像を保持し、入力の修正で再開する。stage内で生成後に入力を再確認し、未公開のまま観測が失敗した世代も復帰後に取りこぼさない。Ctrl+Cはrendererをキャンセルしてstageを片付ける。原子的なfile単位置換と途中失敗rollbackであり、複数file readerへの一括transactionではない。
+
+実CLIでGoの連続保存集約・同mtime置換・追加rename削除・config scope／output変更・module更新・空図、Java packageの実PNG・cache・部分parse／renderer失敗時の両成果物保持・描画中のSIGINTを確認した。内部レビューのauto空scope・未作成出力alias・新規fileのumask・config復帰時の未公開世代を失敗前／成功後で修正した。`go test ./...`（27 package）・vet・build・actionlint成功、追加CIの実watch起動／更新／削除／終了scriptもmacOSで実行済み。配布リリース・GUI・他図種watch・任意command hookは含めない。利用方法は[README](../README.md#保存に追従するwatch開発版)を参照。
+
+
 ## 第一の開発単位の実装状況
 
 PR #66でmainへ統合済み（未リリース）。`internal/explain`にテキスト表示を集約し、関係解析は根拠・未解決参照・図の外の既知の型を構造化して返す。Goの対応メソッドと説明用のソース本文は、説明を要求した実行だけで収集する。

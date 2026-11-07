@@ -27,6 +27,9 @@ const (
 
 // Config controls rendering behaviour.
 type Config struct {
+	// Context allows a caller to cancel rendering independently of its timeout.
+	// A nil context means an ordinary non-cancellable invocation.
+	Context   context.Context
 	Type      Type
 	ServerURL string
 	Timeout   time.Duration
@@ -71,7 +74,10 @@ func Render(format, pumlPath string, cfg Config) (string, error) {
 		return "", fmt.Errorf("output path %q would overwrite the input .puml file", outPath)
 	}
 
-	ctx := context.Background()
+	ctx := cfg.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)

@@ -137,6 +137,9 @@ func runPackageMode(args []string, inherited commonOptions, stdout, stderr io.Wr
 	if set["exclude"] {
 		cfg.Exclude = append([]string(nil), o.excludes...)
 	}
+	if o.watchExcludes != nil {
+		cfg.Exclude = o.watchExcludes
+	}
 	if set["dependency-source"] {
 		cfg.Diagrams.Package.DependencySource = o.dependencySource
 	}
@@ -201,7 +204,7 @@ func runPackageMode(args []string, inherited commonOptions, stdout, stderr io.Wr
 	if set["render-timeout"] {
 		cfg.Renderer.Timeout = o.renderTimeout
 	}
-	renderOpts := renderer.Config{Type: renderer.Type(cfg.Renderer.Type), ServerURL: cfg.Renderer.ServerURL, Timeout: cfg.Renderer.Timeout}
+	renderOpts := renderer.Config{Type: renderer.Type(cfg.Renderer.Type), ServerURL: cfg.Renderer.ServerURL, Timeout: cfg.Renderer.Timeout, Context: o.ctx}
 	if err := renderOpts.Validate(); err != nil {
 		return exitArgs, err
 	}
@@ -211,6 +214,9 @@ func runPackageMode(args []string, inherited commonOptions, stdout, stderr io.Wr
 	}
 	if len(targets) == 0 {
 		targets = []string{"."}
+	}
+	if o.watchTargets != nil {
+		targets = o.watchTargets
 	}
 	if revision != "" {
 		return generatePackageDiff(revision, targets, o, cfg, mode, viewOpts, plantOpts, renderOpts, stdout, stderr)
@@ -263,6 +269,9 @@ func runPackageMode(args []string, inherited commonOptions, stdout, stderr io.Wr
 	var readFailures []packagegraph.Diagnostic
 	warnings, succeeded := 0, 0
 	for _, file := range files {
+		if o.ctx != nil && o.ctx.Err() != nil {
+			return exitError, o.ctx.Err()
+		}
 		result := analysis.parseFile(file)
 		if o.explain && result.Captured {
 			report.Sources[file] = explain.Source{Content: result.Content, Origin: "working tree"}
@@ -287,6 +296,13 @@ func runPackageMode(args []string, inherited commonOptions, stdout, stderr io.Wr
 		}
 	}
 	analysis.reportCache()
+	if o.strictParse && warnings > 0 {
+		if o.explain {
+			report.View = emptyPackageView(mode, viewOpts)
+			fmt.Fprint(stdout, explain.FormatPackage(report))
+		}
+		return exitParse, fmt.Errorf("watch preserves the previous diagram because %d source file(s) failed to parse", warnings)
+	}
 	if backend.Name() == "go" {
 		packageImplementations(sources, backend, o.explain)
 	}
