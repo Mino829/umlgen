@@ -1,0 +1,6 @@
+version: 1
+bindings:
+  - component: API
+    target: {kind: Deployment, namespace: demo, name: api}
+  - component: Storage
+    target: {kind: StatefulSet, namespace: demo, name: storage}

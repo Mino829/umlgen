@@ -19,7 +19,7 @@ func LoadDefinition(path string) (Definition, error) {
 	var zero Definition
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return zero, fmt.Errorf("%w: %v", ErrBoundary, err)
+		return zero, fmt.Errorf("%w: %w", ErrBoundary, err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	var document yaml.Node
