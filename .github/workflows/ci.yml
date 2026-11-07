@@ -111,6 +111,26 @@ jobs:
             --output "$RUNNER_TEMP/java-component.puml"
           test -s "$RUNNER_TEMP/go-component.puml"
           test -s "$RUNNER_TEMP/java-component.puml"
+      - name: Smoke declared deployment CLI
+        shell: bash
+        run: |
+          binary=./umlgen
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=./umlgen.exe
+          fi
+          "$binary" deployment --manifest testdata/deployment/compose.yaml \
+            --boundary-config testdata/deployment/architecture.yaml \
+            --mapping-config testdata/deployment/compose-mapping.yaml --explain \
+            --output "$RUNNER_TEMP/compose-deployment.puml"
+          # The selectorless Service intentionally leaves an unknown endpoint.
+          code=0
+          "$binary" deployment --manifest testdata/deployment/kubernetes.yaml \
+            --boundary-config testdata/deployment/architecture.yaml \
+            --mapping-config testdata/deployment/kubernetes-mapping.yaml --explain \
+            --output "$RUNNER_TEMP/kubernetes-deployment.puml" || code=$?
+          test "$code" -eq 3
+          test -s "$RUNNER_TEMP/compose-deployment.puml"
+          test -s "$RUNNER_TEMP/kubernetes-deployment.puml"
       - name: Test macOS installer
         if: runner.os == 'macOS'
         shell: bash

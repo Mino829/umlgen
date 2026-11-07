@@ -1,10 +1,10 @@
 # umlgen
 
-**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図・アクティビティ図・明示状態遷移図・明示コンポーネント図を生成するCLIツール**
+**Java／Goのソースコードから各種UML図、Compose／Kubernetesの宣言から配置図を生成するCLIツール**
 
-umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名・呼び出し式等を含む生成済みPlantUMLを外部送信します。
+umlgenは、JavaとGoのソースコードや対応する配置manifestを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、生成済みPlantUMLを外部送信します。配置図は環境変数・Secret／ConfigMapの値を取り込みません。
 
-`package`・package差分・`sequence`・`activity`・`state`・`component`は未リリースの開発版です。現在の配布版の機能とは区別してください。
+`package`・package差分・`sequence`・`activity`・`state`・`component`・`deployment`は未リリースの開発版です。現在の配布版の機能とは区別してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -478,7 +478,7 @@ components:
 - component内依存は根拠を保持して自己矢印を描かず、境界間の辺には元package／型関係／importを保持します。`--dependency-source declared-types|imports|both`の既定は`both`。型関係レコード数とimport宣言数は別単位で、実行回数ではありません。`--external hide|show`の既定は`hide`で、非表示にしても元根拠は説明に残します。未解決／曖昧参照から架空の端点を作りません。
 - `provides`／`requires`は表示用の明示契約です。**同名でもproviderへ自動接続しません。** ソースから公開API・呼び出し・配線を推定せず、設定値・コード・build tool・processor・scriptを実行しません。
 - `--explain`は境界YAMLの位置／SHA256、Go moduleの取得根拠、元package ID・型関係・推定根拠・importの位置／hash／取得済みソース抜粋、内部／非表示依存、未割当・未使用・元の解析診断を表示します。部分的な解析失敗はファイルごと除外し、診断付きの図と終了コード3。全件失敗は旧図を保持します。未解決・外部非表示・解析失敗を「依存なし」の証拠にしません。
-- 既定出力は`component-diagram.puml`。SVG／PNG・renderer・期限・exclude・`--no-cache`に対応します。focus／include／cycles／relations／layout・component差分・deploymentは今回の対象外で、専用flagを受理しません。
+- 既定出力は`component-diagram.puml`。SVG／PNG・renderer・期限・exclude・`--no-cache`に対応します。focus／include／cycles／relations／layout・component差分は非対応。manifestの配置宣言は別の`deployment`コマンドで扱います。
 
 共有`.umlgen.yaml`では次のように設定します。CLIが設定を上書きし、`boundary_config`は共有設定ファイルのdirectory基準、CLIの`--boundary-config`は現在directory基準です。
 
@@ -489,6 +489,67 @@ diagrams:
     dependency_source: both
     external: hide
 ```
+
+## 宣言された配置図（開発版）
+
+`deployment`は、**manifestに宣言された希望構成**を描きます。実際の配置node・稼働replica・health・疎通・通信を観測する機能ではありません。ソース解析、Docker／kubectl／Helm／build tool／生成scriptの実行、クラスタ問い合わせは行いません。
+
+```bash
+umlgen deployment --manifest testdata/deployment/compose.yaml \
+  --boundary-config testdata/deployment/architecture.yaml \
+  --mapping-config testdata/deployment/compose-mapping.yaml \
+  --explain --format svg --renderer local -o compose-deployment.svg
+
+# このサンプルはselectorなしServiceを含むため、図を生成して終了コード3を返します。
+umlgen deployment --manifest testdata/deployment/kubernetes.yaml \
+  --boundary-config testdata/deployment/architecture.yaml \
+  --mapping-config testdata/deployment/kubernetes-mapping.yaml \
+  --explain --format png --renderer local -o kubernetes-deployment.png
+```
+
+### 対応する固定subset
+
+- **Compose Specification:** 単一documentの`services`、宣言image、短縮／長形式のport、network所属と暗黙default、named volume mount、外部network／volume宣言、短縮／長形式`depends_on`の起動条件。`service_healthy`等は設定値で、health確認済みではありません。bind mountのhost pathや任意のdriver設定は図へ取り込みません。
+- **Kubernetes:** core `v1`のPod／Service／List、`apps/v1`のDeployment／StatefulSet／DaemonSet、`batch/v1`のJob。multi-documentとList内のresourceを読み、kind・宣言namespace・nameで分離します。同一identityの重複はエラー。省略namespaceを`default`へ補完しません。container／init／ephemeral containerのimage、明示されたdesired replicas、Service／node portを表示します。
+- **Service selectorは候補だけ。** 非空selectorと、同じ宣言namespaceのPod／template labelsの一致だけを破線候補にします。名前の類似、namespace越し、未展開labelから接続を作りません。selectorなし／空／一致なしは端点不明、ExternalNameは宣言DNS aliasで、実endpoint・DNS解決・network通信の証明ではありません。
+- `${...}`・template・未指定build出力・未対応image参照は未解決のままです。`.env`／`env_file`／include／別manifest／Dockerfileを勝手に読みません。`extends`・profiles・network_mode等の未対応構成を診断し、未評価の継承からdefault networkを推定しません。Compose／Kubernetesの完全schema検証ではなく、build・image存在・APIへの適用可否も保証しません。
+- 環境変数・Secret／ConfigMapの値、labelsの値、raw YAML抜粋を保持・表示しません。manifest／mappingのYAML alias／custom tag／重複keyは受理せず、構文・型エラーにも入力値を出しません。imageはliteral名／tagまたは64桁hexの`sha256` digestに対応し、他のdigest・credential風URL・未対応参照は安全なunknownにします。共有設定`.umlgen.yaml`の既存YAML mergeは維持します。
+
+### componentとの明示対応
+
+対応は任意です。省略するとcomponent／sourceとartifactの対応は不明のままです。`--boundary-config`は[component境界定義](#明示コンポーネント図開発版)から名前・位置・hashを読みますが、ソースを走査せず、`match`をmanifestへ適用しません。
+
+`--mapping-config`には別の厳密な`version: 1` YAMLを指定します。mappingを指定する場合はboundaryも必要です。
+
+```yaml
+version: 1
+bindings:
+  - component: API
+    target: {kind: compose-service, name: api}
+  - component: Storage
+    target: {kind: compose-service, name: storage}
+```
+
+Kubernetesではtargetを`{kind: Deployment, namespace: demo, name: api}`等とします。対応するkindは`compose-service`／Pod／Deployment／StatefulSet／DaemonSet／Job／Service。宣言済みcomponentと、取得済みmanifestの**完全一致するidentity**だけを結び、明示的な多対多対応は許容します。不明なcomponent／target・重複binding・未知keyはエラー。同名image／service／componentから自動対応せず、明示対応もsource→imageのbuild来歴を証明しません。未対応componentは空ノードと診断を残します。
+
+### 設定・終了コード・説明
+
+既定出力は`deployment-diagram.puml`。`--manifest-format auto|compose|kubernetes`、SVG／PNG、既存renderer・期限・title・quiet／verboseに対応します。位置引数によるproject走査、language／focus／include／exclude／cache／layout／差分flagは非対応です。入力は毎回、明示ファイルだけを取得します。
+
+```yaml
+diagrams:
+  deployment:
+    manifest: compose.yaml
+    manifest_format: auto
+    boundary_config: architecture.yaml
+    mapping_config: deployment-mapping.yaml
+```
+
+設定内の各パスは共有設定ファイル基準、明示CLIパスは現在directory基準です。CLIが設定を上書きします。
+
+- 正常0。未対応構成・未解決image／endpoint等は診断付き図と**終了コード3**。Secret／ConfigMapの意図的な値省略だけでは3にしません。
+- 入力IO失敗1、構文・schema・重複identity・不明binding等は2で旧図を保持します。対応するtopologyが1件もない入力も2。出力失敗4、画像失敗5では生成済みPlantUMLと説明を残します。
+- `--explain`はmanifest・boundary・mappingのSHA256、元document番号と行、各宣言・辺の種類と不確かさを表示します。機密値を含み得るraw snippetsは再読込・表示せず、端点不明や非対応箇所を「通信なし」の証拠にしません。
 
 ## 解析キャッシュ
 
