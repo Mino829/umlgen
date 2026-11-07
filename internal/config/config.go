@@ -19,6 +19,7 @@ type DiagramsConfig struct {
 	Package  PackageDiagramConfig  `yaml:"package"`
 	Sequence SequenceDiagramConfig `yaml:"sequence"`
 	Activity ActivityDiagramConfig `yaml:"activity"`
+	State    StateDiagramConfig    `yaml:"state"`
 }
 
 type PackageDiagramConfig struct {
@@ -38,6 +39,15 @@ type SequenceDiagramConfig struct {
 
 type ActivityDiagramConfig struct {
 	Function        string        `yaml:"function"`
+	MaxNodes        int           `yaml:"max_nodes"`
+	JavaRelease     int           `yaml:"java_release"`
+	AnalysisTimeout time.Duration `yaml:"analysis_timeout"`
+}
+
+type StateDiagramConfig struct {
+	StateConfig     string        `yaml:"state_config"`
+	Type            string        `yaml:"type"`
+	Field           string        `yaml:"field"`
 	MaxNodes        int           `yaml:"max_nodes"`
 	JavaRelease     int           `yaml:"java_release"`
 	AnalysisTimeout time.Duration `yaml:"analysis_timeout"`
@@ -96,6 +106,9 @@ func Defaults() Config {
 		JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
 	}
 	c.Diagrams.Activity = ActivityDiagramConfig{
+		MaxNodes: activity.DefaultMaxNodes, JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
+	}
+	c.Diagrams.State = StateDiagramConfig{
 		MaxNodes: activity.DefaultMaxNodes, JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
 	}
 	c.Visibility.Public = true
@@ -192,6 +205,10 @@ func validateDiagrams(node *yaml.Node) error {
 			if err := validateActivityDiagram(value); err != nil {
 				return err
 			}
+		case "state":
+			if err := validateStateDiagram(value); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown diagrams key %q", key.Value)
 		}
@@ -239,6 +256,9 @@ func ResolvePaths(c *Config, configPath string) {
 	if c.Output.File != "" && !filepath.IsAbs(c.Output.File) {
 		c.Output.File = filepath.Join(base, c.Output.File)
 	}
+	if path := c.Diagrams.State.StateConfig; path != "" && !filepath.IsAbs(path) {
+		c.Diagrams.State.StateConfig = filepath.Join(base, path)
+	}
 }
 
 const Template = `language: auto
@@ -253,7 +273,7 @@ exclude:
   - generated
 
 output:
-  # Omit file for command-specific class/package/package-change/sequence/activity defaults.
+  # Omit file for command-specific class/package/package-change/sequence/activity/state defaults.
   # file: diagrams/model.puml
   format: plantuml
 
@@ -298,6 +318,13 @@ diagrams:
     analysis_timeout: 30s
   activity:
     function: ""
+    max_nodes: 500
+    java_release: 17
+    analysis_timeout: 30s
+  state:
+    state_config: ""
+    type: ""
+    field: ""
     max_nodes: 500
     java_release: 17
     analysis_timeout: 30s

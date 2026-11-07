@@ -1,0 +1,21 @@
+version: 1
+type: Connection
+field: state
+initial: closed
+states:
+  - name: closed
+    value: Closed
+  - name: open
+    value: Open
+  - name: unused
+    value: Unused
+transitions:
+  - from: closed
+    to: open
+    event: Open
+    guard: connection accepted
+    action: open transport
+  - from: open
+    to: closed
+    event: Close
+    action: close transport
