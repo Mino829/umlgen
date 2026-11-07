@@ -30,7 +30,7 @@ func AnalyzeActivity(ctx context.Context, sources []sequence.Source, selector st
 	if maxNodes < 1 {
 		return activity.Graph{Language: "java", Backend: "jdk-javac"}, errors.New("activity max-nodes must be positive")
 	}
-	program, err := analyze(ctx, sources, opts, request)
+	program, err := analyze(ctx, sources, opts, request, nil)
 	request.graph.Language, request.graph.Backend = program.Language, program.Backend
 	request.graph.Files = program.Files
 	if request.graph.Diagnostics == nil {

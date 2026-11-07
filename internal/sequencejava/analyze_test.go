@@ -290,7 +290,7 @@ func TestTargetCodeAndAmbientProcessorsAreNeverExecuted(t *testing.T) {
 	t.Setenv("JAVA_TOOL_OPTIONS", "-XX:UmlgenMustNeverAcceptThisOption")
 	t.Setenv("JDK_JAVA_OPTIONS", "--umlgen-must-never-accept-this-option")
 	t.Setenv("_JAVA_OPTIONS", "-XX:UmlgenMustNeverAcceptThisOption")
-	target := fmt.Sprintf(`class Sample { static { try { java.nio.file.Files.writeString(java.nio.file.Path.of(%q),"target executed"); } catch(Exception e) {} } static void entry() {} }`, marker)
+	target := fmt.Sprintf(`class Sample { static int state=1; static { try { java.nio.file.Files.writeString(java.nio.file.Path.of(%q),"target executed"); } catch(Exception e) {} } static void entry() {} }`, marker)
 	program, err := Analyze(context.Background(), []sequence.Source{{Path: filepath.Join(root, "Sample.java"), Root: root, Content: []byte(target)}}, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -302,6 +302,13 @@ func TestTargetCodeAndAmbientProcessorsAreNeverExecuted(t *testing.T) {
 	}
 	if len(graph.Nodes) != 2 || graph.Function.Body != nil {
 		t.Fatalf("activity executed initializer or built sequence events: %+v", graph)
+	}
+	stateAnalysis, err := AnalyzeState(context.Background(), []sequence.Source{{Path: filepath.Join(root, "Sample.java"), Root: root, Content: []byte(target)}}, "Sample", "state", 20, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stateAnalysis.Updates) != 1 || len(stateAnalysis.Functions) != 0 || stateAnalysis.Updates[0].FunctionID != "" {
+		t.Fatalf("state executed initializer or built a fake callable graph: %+v", stateAnalysis)
 	}
 	if _, err = os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("target code or ambient annotation processor executed: %v", err)

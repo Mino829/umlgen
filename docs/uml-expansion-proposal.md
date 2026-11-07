@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **Phase 1A（P1-01〜08）、Phase 1B（P1B-01〜04、完全Git snapshotのpackage差分）、Phase 2（範囲を明示した静的シーケンス図）、Phase 3A（単一関数CFG／activity）は開発版で実装・検証済み**。Phase 3B〜4は未実装の計画。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0` の作業コピー。Phase 1A／1B／2はPR #71までの統合でmainへマージ済み。Phase 3Aは本開発ブランチの実装で、まだマージ・リリースしていない。個別開発時の記録と現在の統合状況を区別する。
+- 状態: **Phase 1A・1B、Phase 2（静的シーケンス図）、Phase 3A（単一関数CFG／activity）、Phase 3B（明示状態図とソース代入候補）は開発版で実装・検証済み**。Phase 4は未実装の計画。
+- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0`。Phase 1A／1B／2はPR #71までの統合でmainへマージ済み。Phase 3AはPR #75（全4環境CI成功・レビュー待ち）、Phase 3Bはその後続ブランチで、未マージ・未リリース。個別開発時の記録と統合状況を区別する。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -53,9 +53,9 @@ docs/ examples/ scripts/ .github/workflows/
 
 | 論点 | READMEで案内する仕様 | 実装から確認した範囲・注意点 |
 | --- | --- | --- |
-| 対応図 | Java/GoからPlantUMLクラス図・package依存図・静的シーケンス図・単一関数activityを生成 | 開発版に`package`、`diff --diagram package`、`sequence`、`activity`を追加済み。state以降は未実装 |
-| Goの実行・開発要件 | ソースからの開発版ビルドはGo 1.25以上 | [go.mod](../go.mod)の`go`ディレクティブも`1.25`。Java sequence／activityには別途JDK 17以上が必要 |
-| AST／意味解析 | class／packageとsequence／activityで経路を分離 | class／packageはJava Tree-sitter・Go標準ASTによる宣言モデル。sequence／activityは選択ソースをGo `go/types`／Java `JavacTask`で意味解析し、activityは同じ解析のAST・宣言を再利用 |
+| 対応図 | Java/Goからclass・package依存図・静的sequence・単一関数activity・明示state図を生成 | 開発版に各コマンドを追加済み。component／deployment以降は未実装 |
+| Goの実行・開発要件 | ソースからの開発版ビルドはGo 1.25以上 | [go.mod](../go.mod)も`1.25`。Java sequence／activity／stateには別途JDK 17以上が必要 |
+| AST／意味解析 | class／packageと意味解析コマンドを分離 | class／packageは宣言モデル。sequence／activity／stateは選択ソースをGo `go/types`／Java `JavacTask`で解析し、AST・宣言を共有 |
 | classのpackage表示 | グルーピング、階層レイアウト | 型を囲む枠で、関係は型同士。独立したpackageコマンドはpackage端点へ集約する別経路 |
 | class／packageのGo interface実装 | 暗黙実装を可視化 | 構文的シグネチャ照合による推定。sequenceのgo/typesによるdispatch候補とは区別する |
 | Git差分 | 追加・変更・削除を色分け | class diffは変更ファイル内の型が基本。package diffは両commitの完全な選択snapshot。sequence diffは未対応 |
@@ -233,15 +233,14 @@ JavaはJDK標準の`JavacTask.parse`／`analyze`を採用し、JDK 17以上、�
 
 ### 4.4 Phase 3B: 状態遷移図
 
-**提案:** enum抽出と状態機械の復元を分ける。最初は明示定義＋ソースで確認できる代入の照合を提供する。
+**開発版で実装済み:** enum抽出と状態機械の復元を分け、明示定義＋ソースで確認できる代入候補の照合を提供する。自動復元された実行時状態機械とは扱わない。
 
-- 対象型、状態フィールド、状態集合、初期状態、イベント、guard、action、遷移をYAMLで指定可能にする。設定由来の遷移には`configured`という根拠を付ける。
-- enumや定数、対象フィールドへの代入は候補として抽出する。フィールド名に`state`を含むことや`Open/Closed`の名前だけで状態・遷移を確定しない。
-- 代入先は分かっても直前状態が分からない場合、`unknown -> Closed`という観測候補に留めるか診断する。全状態からClosedへの辺を生成しない。
-- guard、別関数経由の更新、alias、永続化からの復元、並行更新は解析範囲を表示する。JavaのコンストラクターやGoのゼロ初期化だけでシステムの初期状態を断定しない。
-- 複合状態、履歴状態、並行状態、時間制約、完全なライフサイクル検証は初回に含めない。明示定義の矛盾や未宣言状態の参照はエラーとして扱う。
-
-状態定義の実行は行わず、guard/actionは表示用の文字列・ソース参照とする。コードを任意評価する設定機構にしない。
+- 対象型・直接フィールド、状態集合、必須の初期状態、event／guard／actionと遷移を厳密な`version: 1` YAMLで指定する。実線と初期マーカーには`configured`の根拠を付け、定義ファイルとSHA256・行位置を保存する。
+- optionalな状態の`value`はselected-source定数／enum member／観測定数式へ意味上のkeyで束縛する。未知・曖昧なselector、重複状態、未宣言状態、矛盾する同じfrom／event／guard、同じ値への複数状態束縛はエラー。valueを省略しても状態を自動補完しない。
+- 代入はすべて直前状態不明の候補。guardの文字列一致から遷移元を証明せず、全状態からの辺を生成しない。同じ代入先の候補を集約した破線に位置・CFG coverageを残す。RHSが未知なら未対応付け候補として表示する。
+- Goは型付きfield objectと所有named type、Javaはfield／enum elementを照合し、別型・同名定数・shadowing・別rootを混同しない。別関数・constructor・lambdaにも所属IDを持たせ、alias／並行／間接更新・初期化の限界を位置付き診断にする。Java同一FQNの複数rootはjavacの不完全な帰属を成功扱いせず、診断と選択失敗を維持する。
+- 同じロード済みAST／宣言から候補関数のCFGを作り、書込みactionの位置を対応付ける。非接続・未対応barrier・初期化を親ノードの広いspanで実行済みにしない。Go composite initializerの専用actionは未実装で、候補と未対応位置を保持する。初期化処理やゼロ値からシステムの初期状態を断定しない。
+- 複合／履歴／並行状態、時間制約、完全なライフサイクル検証は含めない。guard／actionは表示用文字列で、状態定義や任意コードは実行しない。
 
 ### 4.5 Phase 4: コンポーネント図・配置図
 
@@ -373,7 +372,7 @@ flowchart TD
 
 ### 6.1 コマンド体系
 
-**`package`、`diff --diagram package`、`sequence`、`activity`と対応フラグは開発版で実装済み。state以降は未実装の仕様案。** `class`／既定class diffは既存の意味を維持する。
+**`package`、`diff --diagram package`、`sequence`、`activity`、`state`と対応フラグは開発版で実装済み。component／deployment以降は未実装の仕様案。** `class`／既定class diffは既存の意味を維持する。
 
 ```bash
 umlgen class ./src
@@ -381,14 +380,14 @@ umlgen package ./src --dependency-source declared-types --cycles mark
 umlgen package ./src --dependency-source both --external show --explain
 umlgen sequence ./src --entry main --max-call-depth 3
 umlgen activity ./src --function processOrder
-umlgen state ./src --type Connection --state-field status
+umlgen state ./src --state-config machine.yaml --type Connection --state-field status
 umlgen component . --boundary-config architecture.yaml
 umlgen deployment . --manifest compose.yaml
 # Phase 1Bで実装済み。省略時のdiffは引き続きクラス図。
 umlgen diff main...HEAD --diagram package
 ```
 
-`main`、`processOrder`、`Connection`は一意な場合だけ短縮指定を許す例。曖昧な場合は完全名／signatureを要求する。`--type Connection`だけで状態変数を自動決定せず、明示定義または一意に検証できる追加条件を必要とする。
+`main`、`processOrder`、`Connection`は一意な場合だけ短縮指定を許す例。曖昧なら完全名／canonical ID等を要求する。stateは型・フィールド・機械定義を明示し、`--type Connection`だけで状態変数や状態集合を自動決定しない。
 
 | 区分 | フラグ案・現行との関係 |
 | --- | --- |
@@ -399,7 +398,7 @@ umlgen diff main...HEAD --diagram package
 | packageの型関係選択 | `--relations`はdeclared-types部分だけを絞る。importsのみとの組合せはエラー。bothではimport宣言を消さない。表示メンバーの可視性とは独立 |
 | sequence | `--entry`、`--max-call-depth`、`--max-participants`、`--max-messages`、`--java-release`、`--analysis-timeout`。一意な単純名・完全名・signature・`context::signature`を受理。`--include`・`--no-cache`・layout・class／package専用flagは拒否 |
 | activity | `--function`、`--max-nodes`（既定500）、`--java-release`、`--analysis-timeout`。sequenceと同じ一意なselector。本体の制御経路を描き、上限超過は旧図を保持。class／package／sequence専用flag・layout・`--no-cache`は拒否 |
-| state | `--type`、`--state-field`、`--state-config`。明示定義の出典を維持 |
+| state | 必須`--state-config`、明示型／fieldを上書きする`--type`／`--state-field`、関数CFGごとの`--max-nodes`（既定500）、Java release／期限。設定とソース候補の出典を区別 |
 | component / deployment | `--boundary-config`、`--manifest`等。複数manifestのmergeは対応仕様が決まるまで自動実行しない |
 | diffの追加 | `--diagram package`はPhase 1Bで完全snapshot解析を接続済み。sequence等のdiffは今回のPhaseでは追加しない |
 
@@ -409,7 +408,7 @@ packageの`depth/direction`はpackage依存グラフ上で定義する。depende
 
 ### 6.2 `.umlgen.yaml`の拡張
 
-**以下のpackage／sequence設定は開発版で実装済み。** `diagrams.activity`も`function`・`max_nodes`・`java_release`・`analysis_timeout`に対応する（[利用例](../README.md#単一関数アクティビティ図開発版)）。`diagrams`内の未知namespace・キー・型は設定エラーとする。state以降の設定は受理しない。
+**以下のpackage／sequence設定は開発版で実装済み。** `diagrams.activity`と`diagrams.state`にも対応する（[activity](../README.md#単一関数アクティビティ図開発版)・[state](../README.md#明示状態遷移図開発版)の利用例）。`diagrams`内の未知namespace・キー・型は設定エラー。component／deployment以降の設定は受理しない。
 
 ```yaml
 language: auto
@@ -516,13 +515,13 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 ### Phase 3B: 明示定義を中心とする状態遷移図
 
 - **目的:** 状態の語彙と遷移条件を共有し、ソースの更新箇所を確認する。
-- **実装対象:** 状態フィールド／enum選択、明示的な状態と遷移定義、ソースで確認できる代入・guard候補との対応。
-- **必要な内部変更:** StateModel、設定検証、代入箇所とCFGの対応、configured/inferredの表現。
-- **依存する既存機能:** 型・enum、SourceUnit、Phase 3Aの制御領域、renderer。
-- **技術的リスク:** 状態の誤同定、事前状態不明、並行更新、永続化・外部入力からの復元、設定と実装の乖離。
-- **テスト方針:** 不正な状態参照、初期状態未定義、guardありの代入、別関数／alias更新、遷移元不明、同名enum、並行更新候補を確認する。
-- **MVP完成条件:** 明示定義の図を完全に生成・検証でき、確認済み代入と未証明の遷移を区別できる。enumを列挙しただけで完成した自動状態機械と称しない。
-- **次へ進む条件:** 根拠の区別と設定の維持方法が利用者に理解され、未証明な遷移を断定しない。
+- **実装済み:** 明示型・直接state fieldの選択、strict YAMLの状態・初期状態・event／guard／actionと遷移、compiler定数／enumとソース代入・lexical guardの照合、位置・CFG coverage付きのunknown-prestate候補。
+- **内部変更:** `state.Definition`、`Analysis`、`View`を分離し、設定された遷移をsource-provenへ格上げしない。Goはshared loader、Javaは既存compilerプロセスとASTを共有して型・field・値を束縛し、候補関数のCFGだけ作る。設定YAMLも1回のparseから検証と位置を得る。
+- **依存:** Phase 3AのCFG・AST／型・宣言、既存output／renderer／source説明。PR #75への依存を持つ別PRとして提出する。
+- **限界:** 直前状態・同一runtime instance・callee／alias／並行更新・暗黙初期化・永続化復元は証明しない。非対応初期化やbarrier内の書込みも候補と診断を保持し、CFGに偽の接続を作らない。
+- **回帰・実CLI確認:** 不正／矛盾定義、初期状態未宣言、同名型・定数、guard・別関数・lambda・initializer・alias、未知RHS、非接続CFG、hard cap・既存図保持、ソース部分失敗、実SVG／PNG。別定義型のfield混同、未評価initializerの親nodeへの誤対応、定数式のID衝突、range target内literalの所属漏れ、Java括弧付きreceiverを失敗前／成功後の回帰で修正した。
+- **完成条件（開発版で確認済み）:** 明示定義を完全に検証・描画し、ソース代入候補と未証明遷移を区別する。enumを並べたものを完成した自動状態機械とは称さない。全体テスト・vet・build、実CLI・画像とCI smoke shellの結果はPRと進捗文書に記録する。マージ・配布リリース・性能保証は別判断。
+- **次のgate:** 状態定義の維持方法、候補の読み方、CFG coverageと非対応範囲のレビュー。Phase 4へはpackage／module境界の明示契約を決めてから進む。
 
 ### Phase 4A/4B: コンポーネント図・配置図
 
@@ -816,7 +815,7 @@ endlegend
 | entry／function selector文法 | sequence／activityとも単純名・完全名・signature・context付きID。一意でなければ候補付きエラー。同じ選択器で優先順位を維持 |
 | package diffのhead／working-tree規約 | Phase 1Bで固定済み。REV..HEAD／A..B／merge-base(A,B)..Bの固定commit比較のみで、dirty／staged／untrackedは常に除外。既存class diffの規約は変更しない |
 | CFGの例外精度と非構造化表現 | Phase 3Aで明示ノード・型付き制御辺を採用。try/finally・defer/recover等は位置付きterminal barrier、暗黙の例外／callee内部は展開しない。完全な例外解析は未実装 |
-| 状態定義YAMLのschema | 値domain、初期状態、event/guard/action、ソースとの対応をPhase 3B前に決定 |
+| 状態定義YAMLのschema | Phase 3Bでversion: 1、明示状態と初期状態、from/to/event/guard/action、optionalなsource value selectorを固定。未知・曖昧・矛盾を拒否し、configuredとunknown-prestate候補を分離 |
 | manifestの対応版・merge | Phase 4B前に対応仕様と入力条件を固定。生成コマンドの自動実行はしない |
 | 図の上限・性能目標 | 既存・大規模fixtureの実測で決定。本文の例の数値を既定仕様にしない |
 

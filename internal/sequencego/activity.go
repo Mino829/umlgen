@@ -44,8 +44,14 @@ func AnalyzeActivity(ctx context.Context, sources []sequence.Source, selector st
 			break
 		}
 	}
+	return a.activityDeclaration(decl, g, maxNodes)
+}
+
+// activityDeclaration projects an already loaded declaration; state evidence and
+// activity analysis share both semantic bindings and CFG construction.
+func (a *analyzer) activityDeclaration(decl *declaration, g activity.Graph, maxNodes int) (activity.Graph, error) {
 	b := activityBuilder{a: a, pkg: decl.pkg, graph: &g, maxNodes: maxNodes, labels: map[string]int{}}
-	g.Entry = b.node("entry", selected.Name, decl.node)
+	g.Entry = b.node("entry", decl.callable.Name, decl.node)
 	g.Exit = b.node("exit", "exit", decl.node)
 	// Go labels have function scope, including forward gotos. Nested literal
 	// bodies belong to other functions and must not contribute labels or paths.
@@ -74,7 +80,7 @@ func AnalyzeActivity(ctx context.Context, sources []sequence.Source, selector st
 	if err := g.Validate(maxNodes); err != nil {
 		return g, err
 	}
-	return g, ctx.Err()
+	return g, a.ctx.Err()
 }
 
 type activityPending struct {

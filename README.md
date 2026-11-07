@@ -1,10 +1,10 @@
 # umlgen
 
-**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図・単一関数アクティビティ図を生成するCLIツール**
+**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図・アクティビティ図・明示状態遷移図を生成するCLIツール**
 
 umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名・呼び出し式等を含む生成済みPlantUMLを外部送信します。
 
-`package`・package差分・`sequence`・`activity`は未リリースの開発版です。現在の配布版の機能とは区別してください。
+`package`・package差分・`sequence`・`activity`・`state`は未リリースの開発版です。現在の配布版の機能とは区別してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -69,8 +69,8 @@ umlgen class ./src --include com.example.service
 ## 💡 主な機能
 
 ### 📊 多言語対応
-- **Java**: class／packageはTree-sitter、sequence／activityはJDKコンパイラーによる意味解析
-- **Go**: class／packageは標準AST、sequence／activityは選択済みローカルソースの`go/types`による意味解析
+- **Java**: class／packageはTree-sitter、sequence／activity／stateはJDKコンパイラーによる意味解析
+- **Go**: class／packageは標準AST、sequence／activity／stateは選択済みローカルソースの`go/types`による意味解析
 
 ### 🎨 柔軟な出力
 - PlantUML（編集可能）
@@ -95,7 +95,7 @@ umlgen class ./src --include com.example.service
 - GitHub Actionsでの自動生成
 
 ### ⚡ 高速キャッシュ
-- class／packageの構文解析結果をキャッシュして2回目以降を高速化。sequence／activityの意味解析は毎回実行
+- class／packageの構文解析結果をキャッシュして2回目以降を高速化。sequence／activity／stateの意味解析は毎回実行
 - ファイル内容と設定に基づいた安全なキャッシュ
 
 
@@ -356,7 +356,7 @@ umlgen sequence ./src --entry 'sample.Checkout.PlaceOrder(boolean,sample.Reposit
 - entryは一意な単純名・完全名・引数型を含むsignature・`context::signature`。曖昧なら候補を表示して終了コード2にします。
 - 既定上限は展開深さ3・参加者30・メッセージ200。再帰・上限・非対応の位置と省略を残します。動的dispatchは代替候補で、全候補の本体を直列に展開しません。Goの`go`／`defer`も同期呼び出しとして展開しません。
 - Goは選択済みローカルpackageと`unsafe`だけを解決し、goコマンド・driver・download・cgo・外部ソース読み込みを行いません。標準ライブラリも`unsafe`以外はロードせず、不足する型情報を診断します。
-- Java sequence／activityのみ**JDK 17以上**が必要です（既定`--java-release 17`）。組込みの信頼済みhelperでparse／analyzeのみを行い、対象コード・annotation processor・build・pluginを実行しません。project classpath／sourcepathは使わず、外部依存不足は診断します。既存Java class／packageにJDKは不要です。
+- Java sequence／activity／stateのみ**JDK 17以上**が必要です（既定`--java-release 17`）。組込みの信頼済みhelperでparse／analyzeのみを行い、対象コード・annotation processor・build・pluginを実行しません。project classpath／sourcepathは使わず、外部依存不足は診断します。既存Java class／packageにJDKは不要です。
 - `--analysis-timeout`は既定30秒。Java helperを期限付きで終了し、Goは解析段階間の協調的な期限確認を行います。Goの型検査中を強制中断する制限ではありません。
 - 構文／型エラーがあってもentryが利用可能なら診断付きの図を出し終了コード3。entryが利用不能なら既存図を保持します。非対応構文は位置付きの警告・barrier・省略で示します。
 - 既定出力は`sequence-diagram.puml`。共有output／renderer／相対パス規約は従来どおり。`diagrams.sequence`にentry・上限・Java release・解析期限を設定できます。class／package専用flag・layout・`--no-cache`・sequence差分は対応していません。
@@ -395,9 +395,52 @@ diagrams:
 
 CLI指定は設定より優先します。未知のnamespace／キーや型違いは設定エラーです。全フラグは`umlgen activity --help`で確認できます。
 
+## 明示状態遷移図（開発版）
+
+`state`は、YAMLで明示した状態機械と、指定した型・フィールドのソース代入候補を照合します。**enumの列挙や変数名から、実行時の状態機械を自動復元する機能ではありません。**
+
+```bash
+umlgen state testdata/state/go --language go \
+  --state-config testdata/state/go/machine.yaml --explain -o go-state.puml
+umlgen state testdata/state/java --language java \
+  --state-config testdata/state/java/machine.yaml \
+  --format svg --renderer local -o java-state.svg
+```
+
+状態定義は通常の`.umlgen.yaml`とは別の、厳密な`version: 1` YAMLです。以下はGoのサンプルに対応します。Javaでは定数名を`NEW`／`OPEN`／`CLOSED`等の実ソースに合わせます。
+
+```yaml
+version: 1
+type: Connection
+field: state
+initial: closed
+states:
+  - name: closed
+    value: Closed
+  - name: open
+    value: Open
+transitions:
+  - from: closed
+    to: open
+    event: Open
+    guard: connection accepted
+    action: open transport
+```
+
+- 実線と初期マーカーは`configured`な宣言です。guard／actionは表示用文字列で、任意コード・シェル・条件式を評価しません。初期状態は必須で、Goのゼロ値やJavaの初期化から推定しません。
+- 型は一意な単純名・完全名・`context::qualified-name`で選び、直接宣言されたフィールドを指定します。名前だけのフィールド照合はせず、別の型・隠されたフィールド・ローカル変数を混同しません。`--type`／`--state-field`で明示的に上書きできます。
+- `states[].value`は任意です。指定すると、取得済みソースに束縛された定数／enum member／対応する観測literal・定数式へ、canonical ID→完全名→単純名→literal表記の順で対応付けます。Goは`go/types`の定数値を使用し、Javaは定数参照・literal・対応する括弧／単項式に限定します（一般の算術式は未知値として保持）。未知・曖昧な指定、同じ値への複数状態の束縛はエラーです。省略した状態は設定由来のままで、ソースの値を補いません。利用可能なselectorとkeyは`--explain`で確認できます。
+- **破線は、直前状態が不明なソース代入候補です。** lexical guardが一致しても遷移元・event・同一実行インスタンスを証明しません。代入候補から全状態への辺を作ったり、設定の実線を自動追加したりしません。同じ代入先の候補は1本の破線に位置とCFG coverageを併記します。
+- 実行時の値が不明なRHSは未対応付け候補として表示します。別関数・constructor・lambda・alias・並行更新や初期化の範囲も診断します。CFG上で非接続の代入や未対応barrier内の書込みを「実行された」としません。Goのcomposite initializerは候補を残しますが、専用の書込みノードがないため親のreturn／assignmentへ便宜的に対応付けません。
+- `--max-nodes`は候補を含む**関数ごとのCFG**のhard capで既定500。class／package／sequence専用flag・layout・`--no-cache`・state差分は非対応です。複合／履歴／並行状態、時間制約、完全なライフサイクル検証も行いません。
+- 定義の未知キー・型違い・未宣言状態・重複／矛盾した同一from／event／guardの遷移、型／フィールド／値の選択失敗、上限超過は終了コード2で既存図を保持します。解析可能な対象に構文／型エラーが残る場合は診断付きの図と終了コード3。画像失敗は従来どおり5で元のPlantUMLを残します。
+- 既定出力は`state-diagram.puml`。JavaはJDK 17以上、Goは選択済みソースのみで、対象build・実行・processor・downloadなし。既存AST／宣言とCFGを共有し、別parse／二重compileはしません。Javaの同一完全名classが複数rootで競合する場合はjavac診断を維持し、不確かなフィールド束縛を作りません。
+
+`.umlgen.yaml`の`diagrams.state`には`state_config`・`type`・`field`・`max_nodes`・`java_release`・`analysis_timeout`を設定できます。`state_config`は共有設定ファイルのディレクトリ基準、CLIで渡す`--state-config`は現在の作業ディレクトリ基準です。型／フィールドはCLI→`diagrams.state`→状態定義の順。既存output／renderer／exclude／期限の規約を維持します。設定と入力のSHA256、元ソースの位置・抜粋、CFG node IDとcoverageは`--explain`で辿れます。
+
 ## 解析キャッシュ
 
-class／packageのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。sequence／activityはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
+class／packageのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。sequence／activity／stateはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
 
 Goではpackage節などの構文情報だけを再利用し、packageパスは各実行で現在の`go.mod`とソースの配置から決定します。同じソースを別moduleへ置いた場合や、`go.mod`のmodule名・配置ディレクトリを変更した場合も、以前のpackageパスを引き継ぎません。祖先に`go.mod`がなければpackage節の名前を使います。解析スキーマが変わった場合、旧エントリーは自動的にmissになります。
 
