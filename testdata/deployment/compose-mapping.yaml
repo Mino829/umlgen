@@ -1,0 +1,6 @@
+version: 1
+bindings:
+  - component: API
+    target: {kind: compose-service, name: api}
+  - component: Storage
+    target: {kind: compose-service, name: storage}

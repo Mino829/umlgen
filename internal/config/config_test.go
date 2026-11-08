@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -259,7 +260,15 @@ func TestLoadRejectsInvalidDiagramYAML(t *testing.T) {
 		input string
 	}{
 		{"unsupported namespace", "diagrams:\n  class: {}\n"},
-		{"future namespace", "diagrams:\n  component: {}\n"},
+		{"unknown component setting", "diagrams:\n  component:\n    package: app\n"},
+		{"component scalar", "diagrams:\n  component: imports\n"},
+		{"component non-string path", "diagrams:\n  component:\n    boundary_config: [architecture.yaml]\n"},
+		{"deployment scalar", "diagrams:\n  deployment: private\n"},
+		{"deployment unknown key", "diagrams:\n  deployment:\n    source: private\n"},
+		{"deployment non-string manifest", "diagrams:\n  deployment:\n    manifest: 42\n"},
+		{"deployment null format", "diagrams:\n  deployment:\n    manifest_format: null\n"},
+		{"deployment non-string boundary", "diagrams:\n  deployment:\n    boundary_config: [private]\n"},
+		{"deployment mapping shape", "diagrams:\n  deployment:\n    mapping_config: {private: private}\n"},
 		{"unknown package setting", "diagrams:\n  package:\n    focus: example\n"},
 		{"misspelled package setting", "diagrams:\n  package:\n    dependency_sources: imports\n"},
 		{"diagrams scalar", "diagrams: package\n"},
@@ -414,4 +423,42 @@ func loadConfigYAML(t *testing.T, input string) (Config, string) {
 		t.Fatalf("loaded path = %q, want %q", loaded, path)
 	}
 	return cfg, loaded
+}
+
+func TestDeploymentConfigResolvesDeclaredInputPaths(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.yaml")
+	input := "diagrams:\n  deployment:\n    manifest: manifests/compose.yaml\n    manifest_format: compose\n    boundary_config: architecture.yaml\n    mapping_config: bindings.yaml\n"
+	if err := os.WriteFile(path, []byte(input), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, loaded, err := Load(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ResolvePaths(&cfg, loaded)
+	got := cfg.Diagrams.Deployment
+	if got.Manifest != filepath.Join(dir, "manifests/compose.yaml") || got.BoundaryConfig != filepath.Join(dir, "architecture.yaml") || got.MappingConfig != filepath.Join(dir, "bindings.yaml") {
+		t.Fatalf("declared inputs not config-relative: %#v", got)
+	}
+}
+
+func TestDeploymentInvalidConfigSuppressesValues(t *testing.T) {
+	for _, input := range []string{
+		"diagrams:\n  deployment:\n    manifest: [PRIVATE_SENTINEL]\n",
+		"diagrams:\n  deployment:\n    PRIVATE_SENTINEL: value\n",
+		"diagrams:\n  deployment:\n    manifest: [PRIVATE_SENTINEL\n",
+	} {
+		path := filepath.Join(t.TempDir(), "settings.yaml")
+		if err := os.WriteFile(path, []byte(input), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := Load(path, true)
+		if err == nil {
+			t.Fatal("invalid config accepted")
+		}
+		if strings.Contains(err.Error(), "PRIVATE_SENTINEL") {
+			t.Fatalf("configuration value disclosed: %v", err)
+		}
+	}
 }

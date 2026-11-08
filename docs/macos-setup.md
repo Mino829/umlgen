@@ -16,6 +16,8 @@ bash "$installer"
 
 インストーラーはMacの種類を自動判定し、対応するumlgenを`~/.local/bin`へインストールします。GitHub Releaseの`SHA256SUMS.txt`と照合してから配置します。
 
+この通常導入の対象は公開安定版（現在v0.5.0）です。v0.6.0候補のJava `sequence`／`activity`／`state`にはフルJDK 17以上が別途必要です。`java -version`と`javac -version`を確認してください。Javaのclass／package／componentおよびclass／packageのwatchはJDK不要です。画像生成のPlantUML要件は別です。
+
 ## 2. インストールを確認する
 
 ターミナルを閉じて、新しく開き直します。次を実行します。
@@ -83,6 +85,19 @@ GitHub Actionsを使うと、MacへPlantUMLを追加しなくてもGitHub上で�
 ```bash
 bash "$installer" --version v0.5.0
 ```
+
+## 公開前の候補版を試す
+
+リリース準備PRの成功したCIからartifact `release-assets`をダウンロードし、アーカイブと`SHA256SUMS.txt`を同じフォルダーへ展開します。**artifactを作ったcommitのinstaller**を使い、版を明示します（下は配布リハーサル用`0.6.0-rc.1`）。通常の`latest`は未公開候補を取得しません。
+
+```bash
+# 候補checkoutのrepository rootで実行。既存の安定版とは別の場所へ配置
+bash scripts/install-macos.sh --archive-dir "$HOME/Downloads/release-assets" \
+  --version 0.6.0-rc.1 --install-dir "$HOME/.local/umlgen-rc" --skip-path-update
+"$HOME/.local/umlgen-rc/umlgen" version
+```
+
+このmodeはネットワークを使わず、native archiveのchecksum・member・実行ファイルの版を検証してから配置します。出所を信頼できるartifactだけを使ってください。checksumだけで発行者を認証できるわけではありません。PATHは変更しません。終了時は同じcheckoutのuninstallerで`--install-dir "$HOME/.local/umlgen-rc" --skip-path-update`を指定できます。
 
 ## アンインストール
 

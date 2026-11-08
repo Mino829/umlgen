@@ -1,0 +1,20 @@
+version: 1
+components:
+  - name: Application
+    match:
+      - language: java
+        package_prefix: sample.app
+        source_root: ../../package/java
+    provides: [Application]
+    requires: [Service]
+  - name: Service
+    match:
+      - language: java
+        package_prefix: sample.service
+    provides: [Service]
+    requires: [Domain]
+  - name: Domain
+    match:
+      - language: java
+        package_prefix: sample.domain
+    provides: [Domain]

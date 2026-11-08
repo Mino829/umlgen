@@ -1,0 +1,144 @@
+name: Release build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Strict SemVer version without the v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and smoke ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            asset: umlgen-linux-amd64
+            archive: tar.gz
+          - runner: macos-15
+            asset: umlgen-darwin-arm64
+            archive: tar.gz
+          - runner: macos-15-intel
+            asset: umlgen-darwin-amd64
+            archive: tar.gz
+          - runner: windows-latest
+            asset: umlgen-windows-amd64
+            archive: zip
+    runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: go.sum
+      - name: Set up minimum supported semantic-analysis JDK
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Check release vulnerabilities
+        if: runner.os == 'Linux'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: Build native archive and local checksum manifest
+        shell: bash
+        run: python scripts/package-release.py --version "$RELEASE_VERSION" --output-dir dist
+      - name: Install and smoke Linux archive
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          install_dir="$(mktemp -d "$RUNNER_TEMP/umlgen-release-install.XXXXXX")"
+          tar -xzf dist/umlgen-linux-amd64.tar.gz -C "$install_dir" umlgen-linux-amd64
+          python scripts/smoke-release.py \
+            --binary "$install_dir/umlgen-linux-amd64" \
+            --version "$RELEASE_VERSION" \
+            --work-dir "$RUNNER_TEMP/umlgen-release-smoke"
+      - name: Install and smoke macOS candidate
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          install_dir="$(mktemp -d "$RUNNER_TEMP/umlgen-release-install.XXXXXX")"
+          ./scripts/install-macos.sh \
+            --archive-dir "$PWD/dist" \
+            --version "$RELEASE_VERSION" \
+            --install-dir "$install_dir" \
+            --skip-path-update
+          python scripts/smoke-release.py \
+            --binary "$install_dir/umlgen" \
+            --version "$RELEASE_VERSION" \
+            --work-dir "$RUNNER_TEMP/umlgen-release-smoke"
+          python scripts/smoke-installer.py \
+            --archive-dir "$PWD/dist" --version "$RELEASE_VERSION" --install-dir "$install_dir"
+          ./scripts/uninstall-macos.sh --install-dir "$install_dir" --skip-path-update
+          test ! -e "$install_dir/umlgen"
+      - name: Install and smoke Windows candidate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'umlgen-release-install'
+          ./scripts/install-windows.ps1 `
+            -ArchiveDirectory (Join-Path $PWD 'dist') `
+            -Version $env:RELEASE_VERSION `
+            -InstallDir $installDir `
+            -SkipPathUpdate
+          python scripts/smoke-release.py `
+            --binary (Join-Path $installDir 'umlgen.exe') `
+            --version $env:RELEASE_VERSION `
+            --work-dir (Join-Path $env:RUNNER_TEMP 'umlgen-release-smoke')
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Installed Windows release smoke failed.'
+          }
+          python scripts/smoke-installer.py `
+            --archive-dir (Join-Path $PWD 'dist') --version $env:RELEASE_VERSION --install-dir $installDir
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Windows installer preservation smoke failed.'
+          }
+          ./scripts/uninstall-windows.ps1 -InstallDir $installDir -SkipPathUpdate -Confirm:$false
+          if (Test-Path -LiteralPath $installDir) {
+            throw 'Windows candidate uninstall left its install directory.'
+          }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  assemble:
+    name: Assemble public release artifacts
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: umlgen-*
+          path: dist
+          merge-multiple: true
+      - name: Generate and verify exact public archive checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python scripts/package-release.py --version "$RELEASE_VERSION" --output-dir dist --checksums-only
+          (cd dist && sha256sum --check --strict SHA256SUMS.txt)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-assets
+          path: |
+            dist/umlgen-linux-amd64.tar.gz
+            dist/umlgen-darwin-arm64.tar.gz
+            dist/umlgen-darwin-amd64.tar.gz
+            dist/umlgen-windows-amd64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

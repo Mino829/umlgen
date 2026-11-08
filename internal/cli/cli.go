@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,7 +22,7 @@ import (
 	"github.com/Mino829/umlgen/internal/renderer"
 )
 
-var Version = "0.5.0-dev"
+var Version = "0.6.0-dev"
 
 const (
 	exitOK     = 0
@@ -41,9 +42,12 @@ func (s *stringList) Set(v string) error {
 }
 
 type commonOptions struct {
-	configPath string
-	verbose    bool
-	quiet      bool
+	ctx                         context.Context
+	strictParse                 bool
+	watchTargets, watchExcludes []string
+	configPath                  string
+	verbose                     bool
+	quiet                       bool
 }
 
 func Run(args []string, stdout, stderr io.Writer) (int, error) {
@@ -59,7 +63,7 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 			continue
 		}
 		switch arg {
-		case "class", "package", "sequence", "activity", "state", "diff", "init", "cache", "version", "help":
+		case "class", "package", "sequence", "activity", "state", "component", "deployment", "watch", "diff", "init", "cache", "version", "help":
 			commandAt = i
 		}
 		if commandAt >= 0 {
@@ -100,6 +104,15 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		case "state":
 			printStateHelp(stdout)
 			return exitOK, nil
+		case "component":
+			printComponentHelp(stdout)
+			return exitOK, nil
+		case "deployment":
+			printDeploymentHelp(stdout)
+			return exitOK, nil
+		case "watch":
+			printWatchHelp(stdout)
+			return exitOK, nil
 		case "diff":
 			printDiffHelp(stdout)
 			return exitOK, nil
@@ -135,6 +148,12 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		return runActivity(rest, common, stdout, stderr)
 	case "state":
 		return runState(rest, common, stdout, stderr)
+	case "component":
+		return runComponent(rest, common, stdout, stderr)
+	case "deployment":
+		return runDeployment(rest, common, stdout, stderr)
+	case "watch":
+		return runWatch(rest, common, stdout, stderr)
 	case "diff":
 		return runDiff(rest, common, stdout, stderr)
 	default:
@@ -411,6 +430,9 @@ func runClassMode(
 	if o.excludesSet {
 		cfg.Exclude = append([]string(nil), o.excludes...)
 	}
+	if o.watchExcludes != nil {
+		cfg.Exclude = o.watchExcludes
+	}
 	if o.hideFieldsSet && o.hideFields {
 		cfg.Members.Fields = false
 	}
@@ -458,6 +480,9 @@ func runClassMode(
 		} else {
 			targets = []string{"."}
 		}
+	}
+	if o.watchTargets != nil {
+		targets = o.watchTargets
 	}
 	var changedPaths []string
 	if diffSelection != nil {
@@ -525,6 +550,9 @@ func runClassMode(
 	warnings := 0
 	changedParseFailures := 0
 	for _, file := range files {
+		if o.ctx != nil && o.ctx.Err() != nil {
+			return exitError, o.ctx.Err()
+		}
 		changedFile := false
 		if diffSelection != nil {
 			_, changedFile = diffSelection.ChangeFor(file)
@@ -606,6 +634,12 @@ func runClassMode(
 		}
 		return exitParse, fmt.Errorf("failed to parse all %s files", sourceParser.DisplayName())
 	}
+	if o.strictParse && warnings > 0 {
+		if o.explain {
+			writeExplanation(stdout, explanation, types, knownTypes, opts)
+		}
+		return exitParse, fmt.Errorf("watch preserves the previous diagram because %d source file(s) failed to parse", warnings)
+	}
 	types = sourceParser.Finalize(types, o.explain)
 	var noChanges bool
 	if diffSelection != nil {
@@ -677,7 +711,7 @@ func runClassMode(
 	}
 	return renderDiagram(cfg.Output.Format, pumlPath, renderer.Config{
 		Type: renderer.Type(cfg.Renderer.Type), ServerURL: cfg.Renderer.ServerURL,
-		Timeout: cfg.Renderer.Timeout,
+		Timeout: cfg.Renderer.Timeout, Context: o.ctx,
 	}, o.quiet, stdout, stderr)
 }
 
@@ -811,6 +845,9 @@ Available Commands:
   sequence    Project static calls and control regions from a selected entry
   activity    Trace explicit control-flow edges inside one selected function
   state       Compare an explicit state machine with source assignment candidates
+  component   Aggregate package dependencies into explicit component boundaries
+  deployment  Draw declared Compose or Kubernetes topology without runtime inspection
+  watch       Regenerate class/package diagrams safely after source changes
   cache       Manage the local parse cache
   diff        Generate a diagram for Git changes
   init        Create a configuration file

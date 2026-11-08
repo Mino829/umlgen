@@ -16,10 +16,12 @@ import (
 const DefaultFile = ".umlgen.yaml"
 
 type DiagramsConfig struct {
-	Package  PackageDiagramConfig  `yaml:"package"`
-	Sequence SequenceDiagramConfig `yaml:"sequence"`
-	Activity ActivityDiagramConfig `yaml:"activity"`
-	State    StateDiagramConfig    `yaml:"state"`
+	Package    PackageDiagramConfig    `yaml:"package"`
+	Sequence   SequenceDiagramConfig   `yaml:"sequence"`
+	Activity   ActivityDiagramConfig   `yaml:"activity"`
+	State      StateDiagramConfig      `yaml:"state"`
+	Component  ComponentDiagramConfig  `yaml:"component"`
+	Deployment DeploymentDiagramConfig `yaml:"deployment"`
 }
 
 type PackageDiagramConfig struct {
@@ -51,6 +53,12 @@ type StateDiagramConfig struct {
 	MaxNodes        int           `yaml:"max_nodes"`
 	JavaRelease     int           `yaml:"java_release"`
 	AnalysisTimeout time.Duration `yaml:"analysis_timeout"`
+}
+
+type ComponentDiagramConfig struct {
+	BoundaryConfig   string `yaml:"boundary_config"`
+	DependencySource string `yaml:"dependency_source"`
+	External         string `yaml:"external"`
 }
 
 type Config struct {
@@ -111,6 +119,8 @@ func Defaults() Config {
 	c.Diagrams.State = StateDiagramConfig{
 		MaxNodes: activity.DefaultMaxNodes, JavaRelease: 17, AnalysisTimeout: 30 * time.Second,
 	}
+	c.Diagrams.Component = ComponentDiagramConfig{DependencySource: "both", External: "hide"}
+	c.Diagrams.Deployment.ManifestFormat = "auto"
 	c.Visibility.Public = true
 	c.Visibility.Protected = true
 	c.Visibility.Private = true
@@ -144,10 +154,7 @@ func Load(path string, explicit bool) (Config, string, error) {
 
 	var document yaml.Node
 	if err := yaml.Unmarshal(data, &document); err != nil {
-		return c, path, fmt.Errorf("invalid configuration in %s: %w", path, err)
-	}
-	if err := document.Decode(&c); err != nil {
-		return c, path, fmt.Errorf("invalid configuration in %s: %w", path, err)
+		return c, path, fmt.Errorf("invalid configuration in %s: malformed YAML (values suppressed)", path)
 	}
 	var settings struct {
 		Diagrams yaml.Node `yaml:"diagrams"`
@@ -162,6 +169,9 @@ func Load(path string, explicit bool) (Config, string, error) {
 		if err := validateDiagrams(&settings.Diagrams); err != nil {
 			return c, path, fmt.Errorf("invalid configuration in %s: %w", path, err)
 		}
+	}
+	if err := document.Decode(&c); err != nil {
+		return c, path, fmt.Errorf("invalid configuration in %s: %w", path, err)
 	}
 	file := &settings.Output.File
 	for file.Kind == yaml.AliasNode {
@@ -209,6 +219,14 @@ func validateDiagrams(node *yaml.Node) error {
 			if err := validateStateDiagram(value); err != nil {
 				return err
 			}
+		case "component":
+			if err := validateComponentDiagram(value); err != nil {
+				return err
+			}
+		case "deployment":
+			if err := validateDeploymentDiagram(value); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown diagrams key %q", key.Value)
 		}
@@ -248,6 +266,7 @@ func ResolvePaths(c *Config, configPath string) {
 		return
 	}
 	base := filepath.Dir(configPath)
+	resolveDeploymentPaths(&c.Diagrams.Deployment, base)
 	for i, source := range c.Source {
 		if !filepath.IsAbs(source) {
 			c.Source[i] = filepath.Join(base, source)
@@ -258,6 +277,9 @@ func ResolvePaths(c *Config, configPath string) {
 	}
 	if path := c.Diagrams.State.StateConfig; path != "" && !filepath.IsAbs(path) {
 		c.Diagrams.State.StateConfig = filepath.Join(base, path)
+	}
+	if path := c.Diagrams.Component.BoundaryConfig; path != "" && !filepath.IsAbs(path) {
+		c.Diagrams.Component.BoundaryConfig = filepath.Join(base, path)
 	}
 }
 
@@ -273,7 +295,7 @@ exclude:
   - generated
 
 output:
-  # Omit file for command-specific class/package/package-change/sequence/activity/state defaults.
+  # Omit file for command-specific class/package/package-change/sequence/activity/state/component/deployment defaults.
   # file: diagrams/model.puml
   format: plantuml
 
@@ -328,4 +350,13 @@ diagrams:
     max_nodes: 500
     java_release: 17
     analysis_timeout: 30s
+  component:
+    boundary_config: ""
+    dependency_source: both
+    external: hide
+  deployment:
+    manifest: ""
+    manifest_format: auto
+    boundary_config: ""
+    mapping_config: ""
 `
