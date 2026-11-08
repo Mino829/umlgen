@@ -6,9 +6,11 @@ We release security updates for the latest minor version and the previous minor 
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 0.5.x   | :white_check_mark: |
 | 0.4.x   | :white_check_mark: |
-| 0.3.x   | :white_check_mark: |
-| < 0.3.0 | :x:                |
+| < 0.4.0 | :x:                |
+
+v0.6.0 is currently a release candidate, not a published stable version. Candidate CI artifacts do not change the supported-release policy above.
 
 ## Reporting a Vulnerability
 
