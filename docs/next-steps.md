@@ -1,6 +1,35 @@
 # 次にやること
 
-確認日: 2026-11-06
+確認日: 2026-11-08
+
+## v0.6.0のリリース候補
+
+**到達点は、機能追加を止めてレビュー・公開判断ができる候補版を揃えること。まだv0.6.0を公開していない。** 通常のinstaller／PR差分workflowの既定版は、公開済みのv0.5.0を維持する。
+
+### 含める変更（v0.5.0から）
+
+- 関係の根拠・ソース抜粋・解析限界の`--explain`、package grouping・レイアウト・安全なskinparam、rendererの期限／空画像エラー修正。
+- Java／Goのpackage図、循環・依存根拠・完全なGit snapshotによるpackage差分。
+- 静的sequence、単一関数activity、明示状態遷移とソース代入候補を区別するstate。
+- 明示component境界と契約、Compose／限定したKubernetes宣言のdeployment。通信実績・実配置・build来歴は推定せず、秘密値を図や説明に出さない。
+- class／packageの安全なwatch。debounce、追加／削除、関連設定の再読込、失敗時の旧成果物保持、Ctrl+Cの中断。
+- PR本文の許可された範囲指定、4環境の候補アーカイブ生成・インストール・実CLI受入検証、公開前artifactからのオフライン導入。
+
+PR #77はmainへマージ済み。#78→#79→#80は既にmainへ統合済みの古いfeatureブランチへ順にマージされたため、PRの`merged`表示だけではmainに全機能が揃わなかった。リリース準備ブランチで現在のmainと最後の統合tipを合わせ、**mainをbaseにした1本のPR**として不足分と配布準備をレビューする。下の個別開発記録は当時の検証・統合状況であり、現在の状態は本節を優先する。
+
+### 公開前の受入条件
+
+1. リリース準備PRの通常CI（Linux／macOS arm64・amd64／Windows、JDK 17、全体テスト・vet・脆弱性検査・実CLI）と候補配布CIを通す。
+2. `.github/workflows/release-build.yml`で`0.6.0-rc.1`の**ネイティブCGOバイナリー**を4種類生成する。Linuxの配布ビルドはUbuntu 22.04（glibc 2.35）を基準とする。
+3. `release-assets`に4アーカイブと正確な`SHA256SUMS.txt`を集約する。実際に展開／候補インストールしたバイナリーで版・各図種・cache一致・Git差分の作業ツリー分離・配置図の秘密値非表示・watchの更新／削除／ネイティブ中断を確認する。macOS／Windowsでは未公開アーカイブのオフラインinstallerを使う。
+4. 実PlantUMLで代表的なSVG／PNGを生成・確認し、候補artifactをダウンロードしてチェックサムと内容を確認する。各図の解析限界とJDK／renderer要件はREADME・利用例を維持する。
+5. レビュー承認後にmainへマージし、別途公開を承認したうえで`v0.6.0`タグを作る。タグ専用workflowが同じ配布ビルド・受入検証を再実行し、成功後だけGitHub Releaseを作成する。RCタグを明示公開する場合はprerelease扱いでlatestにしない。**本準備作業ではタグもReleaseも作成しない。**
+
+配布リハーサルはPR権限のread-only buildであり、タグもGitHub Releaseも不要。`scripts/package-release.py`はローカルのネイティブ候補を生成し、`scripts/smoke-release.py`はインストールしたCLIを検証する。macOS／Windowsの`--archive-dir`／`-ArchiveDirectory`は明示版とチェックサムを要求し、破損・重複checksum・不正member・版違いでは既存の実行ファイルを置き換えない。
+
+### 今回の非対象
+
+GUI／エディタ連携、他図種のwatch、実行trace、完全なdispatch／alias／例外解決、ユースケース要求モデル、追加OS／arch配布、新しい性能保証は追加しない。機能ごとの既知の解析限界を「完全解析」として売り出さない。
 
 ## 完了済み
 

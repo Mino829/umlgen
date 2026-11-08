@@ -138,3 +138,25 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 ### 再利用ワークフローを呼び出せない
 
 呼び出し側リポジトリのActions設定で、公開リポジトリのaction／reusable workflow利用が許可されているか確認する。
+
+## メンテナー向け: 公開前の配布リハーサル
+
+これは上記の利用者向けPR差分workflowとは別です。umlgen自身のCIは`.github/workflows/release-build.yml`を版`0.6.0-rc.1`で呼び、Linux amd64／macOS arm64・amd64／Windows amd64をネイティブビルドします。Go 1.26.10と意味解析の最小JDK 17を使用し、Linux配布はUbuntu 22.04（glibc 2.35）を基準にします。
+
+- チェックアウトの開発用CLIではなく、**アーカイブから取り出し／候補installerで配置したCLI**を`scripts/smoke-release.py`で検証します。版、全図種、cache一致、Git snapshot差分、秘密値非表示、watchの更新・削除・OS固有の中断が対象です。
+- macOS／Windowsではローカルarchive modeと`scripts/smoke-installer.py`も使用し、破損・版違い・重複checksum・不正／重複memberの拒否、既存CLI／PATH保持、アンインストールを検証します。従来の公開版ダウンロードとWindows PlantUMLの画像生成も通常CIに残します。
+- artifact `release-assets`には4つの公開形式アーカイブと`SHA256SUMS.txt`だけを保存します。候補artifactはrun／commitに紐付き、GitHub Releaseやlatest版の代用ではありません。成功したrunからダウンロードしてchecksumを検証してください。
+- buildは`contents: read`のみ。`.github/workflows/release.yml`の検証済み`v*`タグpushだけが同じビルドを呼び、成功後のpublish jobに限って`contents: write`を使います。prereleaseタグはlatestにしません。通常PRや候補ビルドからの公開経路はありません。
+
+ローカルでもネイティブ環境で候補を生成できます（Python 3、Go／CGO／Cコンパイラーが必要）。macOSの例:
+
+```bash
+GOTOOLCHAIN=go1.26.10 python3 scripts/package-release.py \
+  --version 0.6.0-rc.1 --output-dir /tmp/umlgen-rc-dist
+bash scripts/install-macos.sh --archive-dir /tmp/umlgen-rc-dist \
+  --version 0.6.0-rc.1 --install-dir /tmp/umlgen-rc-install --skip-path-update
+python3 scripts/smoke-release.py --binary /tmp/umlgen-rc-install/umlgen \
+  --version 0.6.0-rc.1 --work-dir /tmp/umlgen-rc-smoke
+```
+
+smokeのwork directoryは空の新しい場所を指定します。意味解析にはフルJDK 17以上、Git差分にはGitが必要です。公開の判断・タグ作成は[リリース候補の受入条件](next-steps.md#公開前の受入条件)に従って別途行います。

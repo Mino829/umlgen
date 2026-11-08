@@ -20,7 +20,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $installer -InstallPlantUML
 - SVG生成用のPlantUML
 - コマンド名だけで起動するためのユーザーPATH設定
 
-インストール先は`%LOCALAPPDATA%\Programs\umlgen`です。管理者権限やJavaの別途インストールは不要です。
+インストール先は`%LOCALAPPDATA%\Programs\umlgen`です。クラス図の生成と同梱PlantUMLによるSVG出力には、管理者権限やJavaの別途インストールは不要です。v0.6.0候補のJava `sequence`／`activity`／`state`には、**別途フルJDK 17以上**をPATHに設定し、`java -version`と`javac -version`を確認してください（PlantUMLの実行環境では代用できません）。class／package／componentおよびclass／packageのwatchはJDK不要です。
 
 インストーラーはGitHub Releasesからだけファイルを取得し、Release APIに記録されたSHA-256と一致することを確認してから展開します。
 
@@ -93,6 +93,21 @@ GitHub Actionsを使う場合、Windows PCへumlgenをインストールしな�
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.5.0 -InstallPlantUML
 ```
+
+## 公開前の候補版を試す
+
+通常導入は公開安定版（現在v0.5.0）を取得します。候補を試す場合は、リリース準備PRの成功したCIからartifact `release-assets`をダウンロードし、ZIPと`SHA256SUMS.txt`を同じフォルダーへ展開します。**artifactを作ったcommitのinstaller**を使ってください。
+
+```powershell
+# 候補checkoutのrepository rootで実行。安定版とは別の場所へ配置
+$candidateDir = Join-Path $env:LOCALAPPDATA 'Programs\umlgen-rc'
+./scripts/install-windows.ps1 `
+  -ArchiveDirectory "$HOME\Downloads\release-assets" `
+  -Version 0.6.0-rc.1 -InstallDir $candidateDir -SkipPathUpdate
+& "$candidateDir\umlgen.exe" version
+```
+
+これは配布リハーサル用の版で、GitHub Release公開を意味しません。ローカルmodeは明示版を要求し、ネットワークを使わず、checksum・member・実行ファイルの版を検証してから配置します。PATHは変更せず、`-InstallPlantUML`は併用できません。画像には既存のローカルrendererを使ってください。出所を信頼できるartifactだけを使用し、checksumを発行者の認証と混同しないでください。削除は同じcheckoutのuninstallerに`-InstallDir $candidateDir -SkipPathUpdate -Confirm:$false`を指定します。
 
 ## アンインストール
 

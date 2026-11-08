@@ -4,7 +4,7 @@
 
 umlgenは、JavaとGoのソースコードや対応する配置manifestを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、生成済みPlantUMLを外部送信します。配置図は環境変数・Secret／ConfigMapの値を取り込みません。
 
-`package`・package差分・`sequence`・`activity`・`state`・`component`・`deployment`・`watch`は未リリースの開発版です。現在の配布版の機能とは区別してください。
+`package`・package差分・`sequence`・`activity`・`state`・`component`・`deployment`・`watch`は**v0.6.0のリリース候補**です。現在の公開安定版はv0.5.0で、通常のインストーラーは引き続き公開版を取得します。候補版の範囲・配布検証・公開条件は[次にやること](docs/next-steps.md#v060のリリース候補)を参照してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -134,7 +134,7 @@ bash "$installer"
 
 ### Windows（おすすめ）
 
-PowerShellインストーラーを使うと、管理者権限やJavaの事前準備なしでumlgenとSVG生成環境をセットアップできます。
+PowerShellインストーラーを使うと、管理者権限やJavaの事前準備なしでumlgenとクラス図のSVG生成環境をセットアップできます。Javaの`sequence`／`activity`／`state`には、別途フルJDK 17以上が必要です（PlantUML同梱の実行環境では代用できません）。
 
 ```powershell
 $installer = "$env:TEMP\install-umlgen.ps1"
@@ -162,6 +162,20 @@ macOS／Linuxの例：
 chmod +x umlgen
 mv umlgen ~/.local/bin/
 ```
+
+### v0.6.0候補の動作環境
+
+| 用途 | 要件 |
+| --- | --- |
+| 配布バイナリー | Linux amd64（glibc 2.35以上）、macOS arm64／amd64、Windows amd64。macOS 15／Windows runnerでネイティブ配布検証。Alpine／Linux arm64は配布対象外 |
+| ソースビルド | Go 1.25以上、CGO有効、Cコンパイラー。通常の配布バイナリー利用にはGo不要 |
+| Java class／package／component、class／packageのwatch | JDK不要（構文解析） |
+| Java sequence／activity／state | フルJDK 17以上をPATHに設定（`java -version`と`javac -version`を確認）。必要なら`--java-release 17`で対象言語レベルを固定 |
+| Goの各図 | 配布バイナリーだけでローカル解析。対象のbuild／実行／依存downloadは行わない |
+| SVG／PNG | ローカルPlantUML。server方式は明示選択時だけ送信。PlantUMLのJava要件は意味解析用JDKとは別 |
+| Git差分 | GitをPATHに設定 |
+
+候補版はPRのCI artifact `release-assets`（4種類のアーカイブと`SHA256SUMS.txt`）から確認できます。展開後は必ずチェックサムを検証してください。候補の番号`0.6.0-rc.1`は配布リハーサル用で、GitHub Releaseを公開したという意味ではありません。候補インストールは[macOS](docs/macos-setup.md#公開前の候補版を試す)／[Windows](docs/windows-setup.md#公開前の候補版を試す)の手順を参照してください。
 
 ## 基本的な使い方
 

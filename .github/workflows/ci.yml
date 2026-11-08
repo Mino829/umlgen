@@ -11,6 +11,14 @@ permissions:
   contents: read
 
 jobs:
+  release-candidate:
+    name: Rehearse release candidate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-build.yml
+    with:
+      version: 0.6.0-rc.1
+
   test:
     name: Test (${{ matrix.name }})
     strategy:
@@ -132,45 +140,15 @@ jobs:
           test -s "$RUNNER_TEMP/compose-deployment.puml"
           test -s "$RUNNER_TEMP/kubernetes-deployment.puml"
       - name: Smoke safe watch regeneration
-        shell: python {0}
+        shell: bash
         run: |
-          import os, pathlib, signal, subprocess, time
-          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "watch-smoke"
-          source = root / "src"
-          source.mkdir(parents=True, exist_ok=True)
-          code = source / "app.go"
-          code.write_text("package app\ntype WatchInitial struct{}\n", encoding="utf-8")
-          output = root / "model.puml"
-          binary = pathlib.Path("umlgen.exe" if os.name == "nt" else "umlgen").resolve()
-          flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-          with (root / "stderr.log").open("w", encoding="utf-8") as errors:
-              process = subprocess.Popen(
-                  [str(binary), "watch", str(source), "--language", "go",
-                   "--interval", "25ms", "--debounce", "75ms", "--quiet",
-                   "--output", str(output)],
-                  stdout=subprocess.DEVNULL, stderr=errors, creationflags=flags)
-              def await_output(predicate):
-                  deadline = time.monotonic() + 30
-                  while True:
-                      assert process.poll() is None, (root / "stderr.log").read_text()
-                      text = output.read_text(encoding="utf-8") if output.exists() else ""
-                      if predicate(text):
-                          return
-                      assert time.monotonic() < deadline, text
-                      time.sleep(0.025)
-              try:
-                  await_output(lambda text: "WatchInitial" in text)
-                  code.write_text("package app\ntype WatchUpdated struct{}\n", encoding="utf-8")
-                  await_output(lambda text: "WatchUpdated" in text and "WatchInitial" not in text)
-                  code.unlink()
-                  await_output(lambda text: "@enduml" in text and "WatchUpdated" not in text)
-                  process.send_signal(signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGINT)
-                  assert process.wait(timeout=10) == 0
-                  assert not list(root.glob(".umlgen-watch-*"))
-              finally:
-                  if process.poll() is None:
-                      process.kill()
-                      process.wait(timeout=10)
+          binary=./umlgen
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=./umlgen.exe
+          fi
+          python scripts/smoke-watch.py \
+            --binary "$binary" \
+            --work-dir "$RUNNER_TEMP/watch-smoke"
       - name: Test macOS installer
         if: runner.os == 'macOS'
         shell: bash

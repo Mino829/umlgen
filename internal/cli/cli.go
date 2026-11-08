@@ -22,7 +22,7 @@ import (
 	"github.com/Mino829/umlgen/internal/renderer"
 )
 
-var Version = "0.5.0-dev"
+var Version = "0.6.0-dev"
 
 const (
 	exitOK     = 0
