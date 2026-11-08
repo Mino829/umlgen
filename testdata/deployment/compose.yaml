@@ -1,0 +1,26 @@
+name: declared-example
+services:
+  api:
+    image: example.test/orders-api:v1
+    depends_on:
+      storage:
+        condition: service_healthy
+    ports:
+      - target: 8080
+        published: "8080"
+        protocol: tcp
+    networks: [frontend, backend]
+    environment:
+      EXAMPLE_PRIVATE_VALUE: fixture-only-do-not-display
+  storage:
+    image: postgres:17
+    networks: [backend]
+    volumes: [data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, fixture-command-never-executed]
+networks:
+  frontend:
+    external: true
+  backend: {}
+volumes:
+  data: {}

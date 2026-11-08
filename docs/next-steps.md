@@ -64,15 +64,29 @@ Java protocolの追加修正: JDK 17／Windowsの非UTF-8既定charsetを想定�
 
 共有する作業規約を[`CONTRIBUTING.md`](../CONTRIBUTING.md)へ追加した。実装依頼は検証・コミット・push・PR作成とURL報告までを完了条件にし、手元変更の保持、依存PRの明記、修正対象CI失敗の解消、無断マージ・リリースを行わないことを定めた。既存のignore方針を維持し、ローカル専用AGENTS.mdからこの規約を参照する。PR #69のマージを確認し、PR #71のbaseはmainへ更新済み。
 
-**Phase 3A（単一関数アクティビティ図）は[PR #75](https://github.com/Mino829/umlgen/pull/75)で実装・検証済み。全4環境CI成功、レビュー待ち・未マージ・未リリース。** `activity --function`がGo／Javaの同じ取得済みAST・宣言から選択関数のCFGを作り、位置付きノードと型付き辺を描く。if／switch／loop・式内短絡・早期return、break／continue・label、Goのgoto／組込みpanic、Javaのthrow／三項を扱う。try/finally・defer/recover等はterminal barrierで、未知の継続を正常終了にしない。既定500ノードのhard cap、専用YAML、説明、既存rendererを接続した。
+**Phase 3A（単一関数アクティビティ図）は[PR #75](https://github.com/Mino829/umlgen/pull/75)で実装・検証済み。全4環境CI成功、mainへマージ済み・未リリース。** `activity --function`がGo／Javaの同じ取得済みAST・宣言から選択関数のCFGを作り、位置付きノードと型付き辺を描く。if／switch／loop・式内短絡・早期return、break／continue・label、Goのgoto／組込みpanic、Javaのthrow／三項を扱う。try/finally・defer/recover等はterminal barrierで、未知の継続を正常終了にしない。既定500ノードのhard cap、専用YAML、説明、既存rendererを接続した。
 
 Phase 3Aの確認: 全体テスト（22 package成功）・vet・build、両言語の実CLIとlocal SVG／PNG、短絡RHSの接続先・label付きtransfer・returnの終了先・非対応ノードの終端、UTF-8 selector、上限超過による旧図保持。Goの定数unsafe演算・generic channel range、Javaのclass literal／constructor referenceと継承pipe期限を修正し、回帰を保持。既存sequenceの実SVG、全package mode、Java class goldenの一致を維持。CI smoke shellをローカル実行し、[公開後のCI](https://github.com/Mino829/umlgen/actions/runs/42179247787)も4環境すべて成功した。
 
-**Phase 3B（明示状態図とソース代入候補）も本後続ブランチで実装・ローカル検証済み。** `state --state-config`にversion: 1の型・field・状態・初期状態・event／guard／action・遷移を指定し、configuredな実線と直前状態不明の破線候補を分離する。optionalなsource valueはcompiler定数／enum・観測literalへ意味上のkeyで束縛し、未知・曖昧・矛盾を拒否する。別型・shadowing・別rootを名前だけで混同せず、書込みの所有関数・lexical guard・位置・CFG coverageと未対応範囲を説明する。初期状態・遷移元・runtime instance・実行済み経路は推定しない。利用方法は[README](../README.md#明示状態遷移図開発版)を参照。
+**Phase 3B（明示状態図とソース代入候補）は[PR #76](https://github.com/Mino829/umlgen/pull/76)で実装・4環境CI成功後、featureブランチへマージ済み。main統合は[PR #77](https://github.com/Mino829/umlgen/pull/77)でレビュー待ち・未リリース。** `state --state-config`にversion: 1の型・field・状態・初期状態・event／guard／action・遷移を指定し、configuredな実線と直前状態不明の破線候補を分離する。optionalなsource valueはcompiler定数／enum・観測literalへ意味上のkeyで束縛し、未知・曖昧・矛盾を拒否する。別型・shadowing・別rootを名前だけで混同せず、書込みの所有関数・lexical guard・位置・CFG coverageと未対応範囲を説明する。初期状態・遷移元・runtime instance・実行済み経路は推定しない。利用方法は[README](../README.md#明示状態遷移図開発版)を参照。
 
-Phase 3Bの確認: 全体テスト（23 package成功）・vet・build、両言語の実CLI・local SVG／PNG、明示遷移と候補の分離、未知RHS、field／capエラーによる旧図保持。レビューで見つかったGoの別定義型field混同・未評価initializerの誤ったCFG対応・同表記定数式のID衝突・range target内literalの所属漏れ、Javaの括弧付きreceiverを失敗前／成功後の回帰で修正。Go composite initializerは候補を残し、専用ノードがないことを診断する。既存activity／sequenceの実SVG、全package mode、Java class goldenの一致、追加CI shell blockのローカル実行とactionlint成功を確認。PR #75に依存する別PRとして提出し、公開後のCI結果を確認する。
+Phase 3Bの確認: 全体テスト（23 package成功）・vet・build、両言語の実CLI・local SVG／PNG、明示遷移と候補の分離、未知RHS、field／capエラーによる旧図保持。レビューで見つかったGoの別定義型field混同・未評価initializerの誤ったCFG対応・同表記定数式のID衝突・range target内literalの所属漏れ、Javaの括弧付きreceiverを失敗前／成功後の回帰で修正。Go composite initializerは候補を残し、専用ノードがないことを診断する。既存activity／sequenceの実SVG、全package mode、Java class goldenの一致、追加CI shell blockのローカル実行とactionlint成功を確認。#76のマージ先は既に#75がマージされた後のfeatureブランチだったため、mainにはまだ状態図が含まれない。#77で状態図だけのmain統合差分を分離した。
 
-次の判断はPhase 3A／3Bのレビューと統合。Phase 4Aへは、package／moduleをどの明示境界でcomponentへ集約するかを先に契約化する。watch・GUI・実行trace・完全なdispatch／alias／例外解決、配布リリースと性能保証は今回含めず、別の検証・判断とする。
+**Phase 4A（明示コンポーネント境界）は[PR #78](https://github.com/Mino829/umlgen/pull/78)で実装・4環境CI成功、レビュー待ち・未マージ・未リリース。** 厳密なversion: 1 YAMLからpackage prefix・exact Go module・exact物理source rootをAND／ORで照合し、重複所属をhard errorにする。未割当・空境界・外部を混同せず、内部／境界間／非表示依存に元package・型・import・推定根拠・位置・hashを保持する。provides／requiresは明示契約だけで同名providerへ自動接続しない。`component`・専用YAML・構文cache・renderer・説明を接続し、JavaもJDK不要。利用例と契約は[README](../README.md#明示コンポーネント図開発版)を参照。
+
+Phase 4Aの確認: 全体テスト（24 package成功）・vet・build・actionlint、両言語の全3依存modeでcold／warm／`--no-cache`の図・説明一致、実local Go SVG／Java PNG、空PATHで両言語の生成成功。境界競合時の終了コード2と旧SVG／PlantUML保持、部分失敗ファイルの除外と終了コード3、全件失敗時の旧図保持を実CLIで確認した。レビューで見つかったsymlink親参照とcase-insensitive filesystemのroot混同を失敗前／成功後で修正し、将来rootとWindowsの区切りを含む回帰を保持。既存class／packageの両言語cache／説明一致、sequence／activity／state／componentの実CI shell成功を確認した。main統合PR #77のheadをbaseとするレビュー用後続PRとして提出し、公開後のCIを確認する。
+
+**Phase 4B（宣言された配置図）は[PR #79](https://github.com/Mino829/umlgen/pull/79)で実装・4環境CI成功、レビュー待ち・未マージ・未リリース。** 単一Compose、固定したKubernetes API／kindとmulti-docを読み、image・network・named volume・起動条件・desired replicas・Service selector候補・未知endpointを分離する。別のstrict mapping YAMLでcomponentと完全一致targetだけを結び、source→imageのbuild来歴やruntime通信・実配置は補わない。環境変数・Secret／ConfigMapの値、labels値、raw YAMLを出力せず、対象ツール・生成script・dotenv読取・変数展開・manifest mergeは行わない。
+
+Phase 4Bの確認: `go test ./...`（25 package成功）・vet・build・actionlint、Compose／Kubernetesの実CLI・local SVG／PNG・画像確認、空PATHでの図／説明一致、明示対応とsource hash／document行、selectorのnamespace分離を確認した。selectorなしService・未評価継承・unknown imageは図と終了コード3、構文／mappingエラー2・boundary IO1は旧図／画像を保持する。空renderer・1秒期限は5で元PlantUMLを保持。内部レビューのcredential風digest参照・継承からのdefault network誤推定・root YAML mergeのschema回避・boundary IO分類を失敗前／成功後の回帰で修正した。既存class／packageの両言語cache／説明一致、sequence／activity／state／component／deploymentの実CI shellも成功。PR #78をbaseとする別PRでレビューし、公開後のCIを確認する。
+
+**Issue #14（安全なwatch）は本後続ブランチで実装・ローカル検証済み。** class／packageとJava／Go、内容snapshot・連続保存debounce・serial生成・関連config/module変更・追加削除renameを接続した。stageで完全生成し、部分parse・設定・画像失敗では前回成功したPlantUML／画像を保持する。最後のsource削除は明示的な空図。Ctrl+Cで描画をキャンセルし、未公開stageを破棄する。時間設定はCLIのみで、既存cache／図別flag・設定優先度を維持する。
+
+watchの確認: 全体テスト（27 package）・vet・build・actionlint成功。実CLIでGoの4連続保存を1更新へ集約し、同mtimeのatomic保存、追加rename削除、設定エラー修復、source/output変更、go.mod変更、最後の削除、generated fileの非循環を確認。Java packageの実PNGとcache、部分parse／renderer失敗で両成果物を保持、描画中のSIGINTが0で速やかに終了することを確認した。空PATHのJava構文watchも成功。内部レビューのauto空図・parent alias経由の出力衝突・umask拡大・観測失敗後の世代取りこぼしを修正し、初回描画中のconfig復帰も実CLIで失敗前／成功後を確認。既存class／packageの両言語cache／説明一致、全図CI shellと新watch scriptのmacOS実行も成功。PR #79をbaseとするレビュー用PRで公開後の4環境CIを確認する。
+
+PR #80の初回Windows CIでは、通常file配下のchildに対するnot-existとUnixのENOTDIRの差を検出した。未作成suffixを補う前に既存prefixがdirectoryであることを確認し、既存の拒否回帰を維持した。Windows skipやassertの緩和は行わず、修正後の4環境CIを確認する。
+
+次の判断はmain統合PR #77・component PR #78・配置図PR #79・watch後続PRのレビューと統合。GUI・他図種watch・実行trace・完全なdispatch／alias／例外解決、配布リリースと性能保証は今回含めない。ユースケース図はactor／goal等の要求モデルの合意後に別途判断する。
 
 ## 進め方
 

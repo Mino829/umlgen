@@ -1,0 +1,6 @@
+version: 1
+components:
+  - name: API
+    match: [{language: go, package_prefix: example.test/orders/api}]
+  - name: Storage
+    match: [{language: go, package_prefix: example.test/orders/storage}]

@@ -1,10 +1,10 @@
 # umlgen
 
-**Java／Goのソースコードからクラス図・パッケージ依存図・静的シーケンス図・アクティビティ図・明示状態遷移図を生成するCLIツール**
+**Java／Goのソースコードから各種UML図、Compose／Kubernetesの宣言から配置図を生成するCLIツール**
 
-umlgenは、JavaとGoのソースコードを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、型名・package名・呼び出し式等を含む生成済みPlantUMLを外部送信します。
+umlgenは、JavaとGoのソースコードや対応する配置manifestを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、生成済みPlantUMLを外部送信します。配置図は環境変数・Secret／ConfigMapの値を取り込みません。
 
-`package`・package差分・`sequence`・`activity`・`state`は未リリースの開発版です。現在の配布版の機能とは区別してください。
+`package`・package差分・`sequence`・`activity`・`state`・`component`・`deployment`・`watch`は未リリースの開発版です。現在の配布版の機能とは区別してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -438,9 +438,149 @@ transitions:
 
 `.umlgen.yaml`の`diagrams.state`には`state_config`・`type`・`field`・`max_nodes`・`java_release`・`analysis_timeout`を設定できます。`state_config`は共有設定ファイルのディレクトリ基準、CLIで渡す`--state-config`は現在の作業ディレクトリ基準です。型／フィールドはCLI→`diagrams.state`→状態定義の順。既存output／renderer／exclude／期限の規約を維持します。設定と入力のSHA256、元ソースの位置・抜粋、CFG node IDとcoverageは`--explain`で辿れます。
 
+## 明示コンポーネント図（開発版）
+
+`component`は、既存のpackage依存を**利用者が明示した境界**へ集約します。package名から責務・サービス・実行時通信・配置を推定する機能ではありません。Javaも構文解析のみでJDK不要です。
+
+```bash
+umlgen component testdata/package/go --language go \
+  --boundary-config testdata/component/go/architecture.yaml --explain -o go-component.puml
+umlgen component testdata/package/java --language java \
+  --boundary-config testdata/component/java/architecture.yaml \
+  --format svg --renderer local -o java-component.svg
+```
+
+境界定義は共有設定とは別の、厳密な`version: 1` YAMLです。以下は独自プロジェクト用の例です。
+
+```yaml
+version: 1
+components:
+  - name: API
+    match:
+      - language: go
+        package_prefix: example.test/app/api
+        go_module: example.test/app
+        source_root: ../src
+    provides: [Orders]
+    requires: [Storage]
+  - name: Storage
+    match:
+      - language: go
+        package_prefix: example.test/app/storage
+        go_module: example.test/app
+    provides: [Storage]
+```
+
+- 各selectorは必須`language: go|java`と、1つ以上の制約を持ちます。行内はAND、同じcomponent内の複数行はOR。`package_prefix`はGoの`/`・Javaの`.`の区切り単位で一致し、`api`は`api2`を含みません。glob・正規表現ではありません。
+- `go_module`は取得した`go.mod`のmoduleパスとの完全一致で、Go専用です。Java module・Maven／Gradle・`go.work`・依存ライブラリ一覧は解析しません。
+- `source_root`は境界YAMLからの相対パスまたは絶対パスで、**解析文脈の物理rootとの完全一致**です。Goはmodule root（moduleなしはpackage directory）、Javaは選択targetのroot（単一ファイルなら親directory）。任意のサブdirectory配下を選ぶ条件ではありません。symlink・同一filesystem上の大小文字aliasを同じ物理rootとして扱い、空白・角括弧等は文字どおりのパスです。存在しない通常の将来rootは未使用診断になります。
+- 複数componentに所属するpackageは終了コード2で旧図を保持します。先勝ち・最長prefix優先はありません。同じcomponentの複数selectorに一致することは許容します。未割当packageは文脈別の独立ノード、未使用境界は空ノードと診断で残します。外部packageをcomponentへ所属させません。
+- component内依存は根拠を保持して自己矢印を描かず、境界間の辺には元package／型関係／importを保持します。`--dependency-source declared-types|imports|both`の既定は`both`。型関係レコード数とimport宣言数は別単位で、実行回数ではありません。`--external hide|show`の既定は`hide`で、非表示にしても元根拠は説明に残します。未解決／曖昧参照から架空の端点を作りません。
+- `provides`／`requires`は表示用の明示契約です。**同名でもproviderへ自動接続しません。** ソースから公開API・呼び出し・配線を推定せず、設定値・コード・build tool・processor・scriptを実行しません。
+- `--explain`は境界YAMLの位置／SHA256、Go moduleの取得根拠、元package ID・型関係・推定根拠・importの位置／hash／取得済みソース抜粋、内部／非表示依存、未割当・未使用・元の解析診断を表示します。部分的な解析失敗はファイルごと除外し、診断付きの図と終了コード3。全件失敗は旧図を保持します。未解決・外部非表示・解析失敗を「依存なし」の証拠にしません。
+- 既定出力は`component-diagram.puml`。SVG／PNG・renderer・期限・exclude・`--no-cache`に対応します。focus／include／cycles／relations／layout・component差分は非対応。manifestの配置宣言は別の`deployment`コマンドで扱います。
+
+共有`.umlgen.yaml`では次のように設定します。CLIが設定を上書きし、`boundary_config`は共有設定ファイルのdirectory基準、CLIの`--boundary-config`は現在directory基準です。
+
+```yaml
+diagrams:
+  component:
+    boundary_config: architecture.yaml
+    dependency_source: both
+    external: hide
+```
+
+## 宣言された配置図（開発版）
+
+`deployment`は、**manifestに宣言された希望構成**を描きます。実際の配置node・稼働replica・health・疎通・通信を観測する機能ではありません。ソース解析、Docker／kubectl／Helm／build tool／生成scriptの実行、クラスタ問い合わせは行いません。
+
+```bash
+umlgen deployment --manifest testdata/deployment/compose.yaml \
+  --boundary-config testdata/deployment/architecture.yaml \
+  --mapping-config testdata/deployment/compose-mapping.yaml \
+  --explain --format svg --renderer local -o compose-deployment.svg
+
+# このサンプルはselectorなしServiceを含むため、図を生成して終了コード3を返します。
+umlgen deployment --manifest testdata/deployment/kubernetes.yaml \
+  --boundary-config testdata/deployment/architecture.yaml \
+  --mapping-config testdata/deployment/kubernetes-mapping.yaml \
+  --explain --format png --renderer local -o kubernetes-deployment.png
+```
+
+### 対応する固定subset
+
+- **Compose Specification:** 単一documentの`services`、宣言image、短縮／長形式のport、network所属と暗黙default、named volume mount、外部network／volume宣言、短縮／長形式`depends_on`の起動条件。`service_healthy`等は設定値で、health確認済みではありません。bind mountのhost pathや任意のdriver設定は図へ取り込みません。
+- **Kubernetes:** core `v1`のPod／Service／List、`apps/v1`のDeployment／StatefulSet／DaemonSet、`batch/v1`のJob。multi-documentとList内のresourceを読み、kind・宣言namespace・nameで分離します。同一identityの重複はエラー。省略namespaceを`default`へ補完しません。container／init／ephemeral containerのimage、明示されたdesired replicas、Service／node portを表示します。
+- **Service selectorは候補だけ。** 非空selectorと、同じ宣言namespaceのPod／template labelsの一致だけを破線候補にします。名前の類似、namespace越し、未展開labelから接続を作りません。selectorなし／空／一致なしは端点不明、ExternalNameは宣言DNS aliasで、実endpoint・DNS解決・network通信の証明ではありません。
+- `${...}`・template・未指定build出力・未対応image参照は未解決のままです。`.env`／`env_file`／include／別manifest／Dockerfileを勝手に読みません。`extends`・profiles・network_mode等の未対応構成を診断し、未評価の継承からdefault networkを推定しません。Compose／Kubernetesの完全schema検証ではなく、build・image存在・APIへの適用可否も保証しません。
+- 環境変数・Secret／ConfigMapの値、labelsの値、raw YAML抜粋を保持・表示しません。manifest／mappingのYAML alias／custom tag／重複keyは受理せず、構文・型エラーにも入力値を出しません。imageはliteral名／tagまたは64桁hexの`sha256` digestに対応し、他のdigest・credential風URL・未対応参照は安全なunknownにします。共有設定`.umlgen.yaml`の既存YAML mergeは維持します。
+
+### componentとの明示対応
+
+対応は任意です。省略するとcomponent／sourceとartifactの対応は不明のままです。`--boundary-config`は[component境界定義](#明示コンポーネント図開発版)から名前・位置・hashを読みますが、ソースを走査せず、`match`をmanifestへ適用しません。
+
+`--mapping-config`には別の厳密な`version: 1` YAMLを指定します。mappingを指定する場合はboundaryも必要です。
+
+```yaml
+version: 1
+bindings:
+  - component: API
+    target: {kind: compose-service, name: api}
+  - component: Storage
+    target: {kind: compose-service, name: storage}
+```
+
+Kubernetesではtargetを`{kind: Deployment, namespace: demo, name: api}`等とします。対応するkindは`compose-service`／Pod／Deployment／StatefulSet／DaemonSet／Job／Service。宣言済みcomponentと、取得済みmanifestの**完全一致するidentity**だけを結び、明示的な多対多対応は許容します。不明なcomponent／target・重複binding・未知keyはエラー。同名image／service／componentから自動対応せず、明示対応もsource→imageのbuild来歴を証明しません。未対応componentは空ノードと診断を残します。
+
+### 設定・終了コード・説明
+
+既定出力は`deployment-diagram.puml`。`--manifest-format auto|compose|kubernetes`、SVG／PNG、既存renderer・期限・title・quiet／verboseに対応します。位置引数によるproject走査、language／focus／include／exclude／cache／layout／差分flagは非対応です。入力は毎回、明示ファイルだけを取得します。
+
+```yaml
+diagrams:
+  deployment:
+    manifest: compose.yaml
+    manifest_format: auto
+    boundary_config: architecture.yaml
+    mapping_config: deployment-mapping.yaml
+```
+
+設定内の各パスは共有設定ファイル基準、明示CLIパスは現在directory基準です。CLIが設定を上書きします。
+
+- 正常0。未対応構成・未解決image／endpoint等は診断付き図と**終了コード3**。Secret／ConfigMapの意図的な値省略だけでは3にしません。
+- 入力IO失敗1、構文・schema・重複identity・不明binding等は2で旧図を保持します。対応するtopologyが1件もない入力も2。出力失敗4、画像失敗5では生成済みPlantUMLと説明を残します。
+- `--explain`はmanifest・boundary・mappingのSHA256、元document番号と行、各宣言・辺の種類と不確かさを表示します。機密値を含み得るraw snippetsは再読込・表示せず、端点不明や非対応箇所を「通信なし」の証拠にしません。
+
+## 保存に追従するwatch（開発版）
+
+`watch`はJava／Goの**class／package図**を継続再生成します。既定はclass。既存の解析キャッシュ・設定・図別flagを再利用し、ソースや任意のhook／buildを実行しません。
+
+```bash
+# classは省略可能。設定変更・追加・削除・renameにも追従
+umlgen watch ./src --language go -o diagrams/classes.puml
+
+# package図と画像も監視。ローカル画像生成にはPlantUMLが必要
+umlgen watch package ./src --language java --dependency-source both \
+  --format svg --renderer local -o diagrams/packages.svg
+
+# 大きなscopeではポーリング間隔を調整
+umlgen watch class ./src --interval 1s --debounce 300ms --verbose
+```
+
+- **Ctrl+Cで終了**します。進行中のrendererをキャンセルし、未公開stageを破棄して終了コード0で戻ります。通常のCLIと同じrenderer設定・期限・明示server送信規約を維持します。
+- `--interval`は内容snapshotのポーリング間隔で既定`500ms`、正数。`--debounce`は最後の変更後の静穏期間で既定`250ms`、0以上。連続保存をまとめ、世代を並行実行しません。生成中の変更も次の観測で処理し、入力が変わっていない失敗を無限retryしません。
+- 対象sourceの内容とファイル集合、共有設定ファイル（省略時`.umlgen.yaml`の新規作成も）、関係する`go.mod`とauto言語選択markerを監視します。同じmtimeを保った保存も内容hashで検知します。include／focusで非表示になる型も通常解析に必要なsourceなら対象です。exclude・Goのtest file除外は通常の規約を維持します。
+- 設定は毎回再読込し、source範囲・output・renderer等の変更を適用します。新しい出力先へ成功図を公開しても、以前の出力先は勝手に削除しません。起動時は有効な設定と存在するtargetが必要ですが、空directoryは明示的な空図を生成できます。開始後の最後のsource削除やroot削除でも古い型を空図へ置き換えます。
+- **完全成功した世代だけ公開**します。部分的なparse／読取失敗、設定エラー、画像失敗では、前回成功した`.puml`と画像を両方保持します。入力の修正で再開し、生成中に設定が壊れて同じ内容へ戻った場合も未公開世代を取りこぼしません。単発class／packageの部分図仕様は変更しません。未解決参照等の通常診断を解析成功と混同せず、図の限界は従来の説明に残します。
+- 出力parent内の専用`.umlgen-watch-*` directoryで生成し、入力の再確認後に公開します。生成物・stage・非source拡張子のeditor一時ファイルは観測対象から外します。source／設定／moduleへの出力衝突は、未作成fileやparentのsymlink aliasも検査して拒否します。最終出力fileそのものがsymlink・directory等の場合も受理しません。
+- 各fileの置換はatomicで、複数fileの途中失敗・キャンセルでは既に置換したfileを戻します。**同時readerに対する複数file一括のOS transactionではありません。** 新規fileはstageのumaskを、既存fileは現在のpermissionを維持します。
+- `--quiet`は通常の更新通知を抑え、失敗はstderrへ残します。`--explain`・`--verbose`・`--no-cache`も通常どおり利用できます。watchの時間設定はCLI専用で、新しいYAML namespaceは追加しません。
+
+変更がない回も、選択sourceの内容と関連metadataを読みます。大きなrepositoryでは対象／exclude／間隔を調整してください。Javaの構文解析はJDK不要ですが、画像はrenderer要件に従います。sequence／activity／state／component／deployment、Git diff、ブラウザ自動更新、任意commandの監視は対象外です。
+
 ## 解析キャッシュ
 
-class／packageのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。sequence／activity／stateはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
+class／package／componentのJava／Go構文解析結果はOSのユーザーキャッシュ領域へ保存され、変更のない2回目以降の実行で再利用されます。キャッシュキーにはファイル内容、umlgenバージョン、言語別解析スキーマ、設定が含まれます。出力先だけを変えた場合は安全に再利用します。componentの境界・module情報は実行ごとに現在の入力へ適用します。sequence／activity／stateはこのキャッシュを使用せず、取得した現在の入力から毎回意味解析します。
 
 Goではpackage節などの構文情報だけを再利用し、packageパスは各実行で現在の`go.mod`とソースの配置から決定します。同じソースを別moduleへ置いた場合や、`go.mod`のmodule名・配置ディレクトリを変更した場合も、以前のpackageパスを引き継ぎません。祖先に`go.mod`がなければpackage節の名前を使います。解析スキーマが変わった場合、旧エントリーは自動的にmissになります。
 
