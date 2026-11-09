@@ -180,7 +180,7 @@ Options:
   --explain                      Explain declared evidence and limitations
   --renderer TYPE                auto, local or server
   --server-url URL               PlantUML server
-  --render-timeout DURATION      Rendering timeout
+  --render-timeout DURATION      Rendering timeout (default 30s; 0 disables timeout)
   --config FILE                  Shared configuration
   --quiet, -q                    Suppress progress
   --verbose, -v                  Verbose output

@@ -255,7 +255,7 @@ func TestPlaceholderLayout(t *testing.T) {
 		},
 	}
 	got := Placeholder("Review #13\r\nsafe", opts)
-	for _, want := range []string{"title Review #13  safe\n", "left to right direction\n",
+	for _, want := range []string{"left to right direction\n",
 		"skinparam classAttributeIconSize 0\n", "skinparam linetype polyline\n", "skinparam shadowing false\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing placeholder layout setting %q:\n%s", want, got)

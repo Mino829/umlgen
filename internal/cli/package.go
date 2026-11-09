@@ -516,7 +516,7 @@ Flags:
       --skinparam key=value       linetype or shadowing (repeatable)
       --renderer string           auto, local, jar, or server
       --server-url string         server URL, only for explicit server renderer
-      --render-timeout duration   rendering timeout (default 30s)
+      --render-timeout duration   rendering timeout (default 30s; 0 disables timeout)
       --config string             configuration file path
   -q, --quiet                     suppress normal output (not requested explanations)
   -v, --verbose                   enable verbose output
