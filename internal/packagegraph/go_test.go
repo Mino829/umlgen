@@ -393,3 +393,79 @@ func TestGoInferredCanonicalNameDoesNotCaptureFileAlias(t *testing.T) {
 		t.Fatalf("field ignored its import binding: %#v", field)
 	}
 }
+
+func TestGoPackageGraphHonorsGenericScopesAndOmitsAliasReceivers(t *testing.T) {
+	declarations := goSource(t, "module", "example.com/app", "app/types.go", `package app
+import real "example.com/real"
+type Pair[A, B any] struct{}
+type Box[T, Missing any] struct {
+ Generic T
+ Unknown Missing
+ Nested Pair[T, real.T]
+}
+type ID = real.T
+`)
+	methods := goSource(t, "module", "example.com/app", "app/methods.go", `package app
+import . "example.com/dep"
+import real "example.com/real"
+func (b Box[U, V]) Take(value U, concrete T, unknown V) {}
+func (ID) Hidden(value real.T) {}
+`)
+	dep := goSource(t, "module", "example.com/dep", "dep/types.go", "package dep\ntype T struct{}\ntype U struct{}")
+	real := goSource(t, "module", "example.com/real", "real/types.go", "package real\ntype T struct{}")
+	graph := goBuild(t, []Source{declarations, methods, dep, real}, DeclaredTypes)
+	if len(graph.Diagnostics) != 0 || len(graph.Dependencies) != 2 {
+		t.Fatalf("generic package graph = %#v", graph)
+	}
+	for _, test := range []struct {
+		target Source
+		label  string
+	}{
+		{dep, "Take(concrete)"},
+		{real, "Nested"},
+	} {
+		dependency := goDependency(t, graph, packageID(declarations), packageID(test.target))
+		if len(dependency.TypeRelations) != 1 || dependency.TypeRelations[0].From != "example.com/app.Box" ||
+			dependency.TypeRelations[0].Label != test.label || dependency.TypeRelations[0].To != packageID(test.target).Name+".T" {
+			t.Fatalf("scoped package relations = %#v", dependency.TypeRelations)
+		}
+	}
+}
+
+func TestGoPackageGraphDistinguishesAliasAndUnknownReceivers(t *testing.T) {
+	aliases := goSource(t, "module", "example.com/app", "app/aliases.go", `package app
+import dep "example.com/dep"
+type Alias = dep.Item
+`)
+	methods := goSource(t, "module", "example.com/app", "app/methods.go", `package app
+import dep "example.com/dep"
+func (Alias) Hidden(value dep.Item) {}
+func (Unknown) Use(value dep.Item) {}
+`)
+	dep := goSource(t, "module", "example.com/dep", "dep/types.go", "package dep\ntype Item struct{}")
+	// An alias in another analysis context must not hide a partial declaration.
+	foreign := goSource(t, "other", "example.com/app", "other/aliases.go", "package app\ntype Unknown = string")
+	for _, sources := range [][]Source{
+		{aliases, methods, dep, foreign},
+		{methods, foreign, dep, aliases},
+	} {
+		index := newResolverIndex(sources)
+		if result := index.resolveGoType(aliases, "Alias", false); result.Status != Unresolved {
+			t.Fatalf("alias gained a declaration target: %#v", result)
+		}
+		for _, mode := range []DependencySource{DeclaredTypes, Both} {
+			graph := goBuild(t, sources, mode)
+			if len(graph.Diagnostics) != 0 || len(graph.Dependencies) != 1 {
+				t.Fatalf("alias and method-only graph = %#v", graph)
+			}
+			dependency := goDependency(t, graph, packageID(aliases), packageID(dep))
+			if len(dependency.TypeRelations) != 1 || dependency.TypeRelations[0].From != "example.com/app.Unknown" ||
+				dependency.TypeRelations[0].To != "example.com/dep.Item" || dependency.TypeRelations[0].Label != "Use(value)" {
+				t.Fatalf("alias and method-only relations = %#v", dependency.TypeRelations)
+			}
+			if mode == Both && len(dependency.Imports) != 2 {
+				t.Fatalf("alias source imports were lost: %#v", dependency.Imports)
+			}
+		}
+	}
+}

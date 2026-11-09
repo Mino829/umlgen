@@ -54,9 +54,6 @@ func OpenFor(
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create %s cache: %w", language, err)
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("secure %s cache: %w", language, err)
-	}
 	markerPath := filepath.Join(root, markerFile)
 	if err := os.WriteFile(markerPath, []byte(markerContent), 0o600); err != nil {
 		return nil, fmt.Errorf("mark umlgen cache: %w", err)

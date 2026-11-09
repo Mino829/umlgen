@@ -228,7 +228,22 @@ func (b *graphBuilder) addTypes(index *resolverIndex, source Source) {
 		}
 		return token, true
 	}
-	analysis := relations.AnalyzeWithResolver(source.Unit.Types, resolve)
+	types := source.Unit.Types
+	for position, typ := range types {
+		if index.projectsType(source, typ) {
+			continue
+		}
+		// Preserve canonical source units and allocate only when removing alias
+		// declarations or their receiver projections from graph evidence.
+		types = append(make([]model.Type, 0, len(types)-1), types[:position]...)
+		for _, remaining := range source.Unit.Types[position+1:] {
+			if index.projectsType(source, remaining) {
+				types = append(types, remaining)
+			}
+		}
+		break
+	}
+	analysis := relations.AnalyzeWithResolver(types, resolve)
 	from, file := packageID(source), sourceFile(source)
 	for _, diagnostic := range analysis.Diagnostics {
 		result := resolved[lookup{diagnostic.From, diagnostic.Reference, diagnostic.Evidence.Inferred}]

@@ -311,3 +311,39 @@ func TestJavaAmbiguousWildcardOwnerDoesNotInferMissingMembers(t *testing.T) {
 		})
 	}
 }
+
+func TestJavaPackageGraphHonorsDeclarationAndMethodParameterScopes(t *testing.T) {
+	app := javaSource(t, "root", "App.java", `package app;
+import dep.T;
+import dep.U;
+import dep.Pair;
+class Box<T> {
+ T value;
+ Pair<T, U> nested;
+ <U> U hidden(U input) { return input; }
+ U concrete(U input) { return input; }
+ class Inner<V> { T enclosing; V own; }
+ static class Static { T value; }
+}
+`)
+	dep := javaSource(t, "root", "Dep.java", "package dep; class T {} class U {} class Pair<A, B> {}")
+	graph := javaBuild(t, []Source{app, dep}, DeclaredTypes)
+	if len(graph.Diagnostics) != 0 || len(graph.Dependencies) != 1 {
+		t.Fatalf("generic package graph = %+v", graph)
+	}
+	dependency := javaDependency(t, graph, packageID(app), packageID(dep))
+	got := map[string]bool{}
+	for _, relation := range dependency.TypeRelations {
+		got[relation.From+"|"+relation.Label+"|"+relation.To] = true
+	}
+	want := map[string]bool{
+		"app.Box|nested|dep.Pair":       true,
+		"app.Box|nested|dep.U":          true,
+		"app.Box|concrete(input)|dep.U": true,
+		"app.Box|concrete|dep.U":        true,
+		"app.Box.Static|value|dep.T":    true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scoped package relations = %#v, want %#v", got, want)
+	}
+}

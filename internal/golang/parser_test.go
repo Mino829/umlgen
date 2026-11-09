@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/relations"
 	"github.com/Mino829/umlgen/internal/scanner"
 )
 
@@ -781,5 +782,134 @@ func TestBindContextRebindsUnitsIncludingFilesWithoutTypes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAliasesRetainIdentityWithoutBecomingClassProjections(t *testing.T) {
+	unit, err := ParseSource("aliases.go", []byte(`package sample
+import dep "example.com/dep"
+type Handler = func(dep.Input)
+type ID = string
+type Lookup[K comparable, V any] = map[K]V
+type Named string
+func (ID) Hidden() {}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unit.Package.Name != "sample" || len(unit.Imports) != 1 || unit.Imports[0].Alias != "dep" {
+		t.Fatalf("alias source facts = %#v", unit)
+	}
+	if len(unit.Types) != 4 {
+		t.Fatalf("source declarations = %#v", unit.Types)
+	}
+	for index, name := range []string{"Handler", "ID", "Lookup"} {
+		alias := unit.Types[index]
+		if alias.Name != name || alias.Kind != model.Alias || alias.ReceiverOnly ||
+			alias.Source != "aliases.go" || alias.Line != index+3 ||
+			len(alias.Fields) != 0 || len(alias.Methods) != 0 {
+			t.Fatalf("alias declaration metadata = %#v", alias)
+		}
+	}
+	if !reflect.DeepEqual(unit.Types[2].TypeParameterNames, []string{"K", "V"}) {
+		t.Fatalf("generic alias scope = %#v", unit.Types[2])
+	}
+	if named := unit.Types[3]; named.Name != "Named" || named.Kind != model.Class ||
+		len(named.Fields) != 1 || named.Fields[0].Type != "string" {
+		t.Fatalf("defined type projection = %#v", named)
+	}
+	methods, err := ParseSource("methods.go", []byte("package sample\nfunc (ID) Hidden(value Named) {}\nfunc (Named) Visible() {}\nfunc (Unknown) Use(value Named) {}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, types := range [][]model.Type{
+		append(append([]model.Type(nil), unit.Types...), methods.Types...),
+		append(append([]model.Type(nil), methods.Types...), unit.Types...),
+	} {
+		analysis := relations.Analyze(types, types)
+		if len(analysis.Diagnostics) != 0 || len(analysis.Relations) != 1 ||
+			analysis.Relations[0].From != "sample.Unknown" || analysis.Relations[0].To != "sample.Named" {
+			t.Fatalf("alias and method-only source relations = %#v", analysis)
+		}
+		index := relations.NewIndex(types)
+		if _, ok := index.Type("sample.ID"); ok {
+			t.Fatal("alias receiver became a class declaration")
+		}
+		for _, finalize := range []func([]model.Type) []model.Type{Finalize, FinalizeWithEvidence} {
+			got := finalize(types)
+			if len(got) != 2 || got[0].Name != "Named" || got[0].ReceiverOnly ||
+				len(got[0].Methods) != 1 || got[0].Methods[0].Name != "Visible" {
+				t.Fatalf("receiver projections resurrected an alias: %#v", got)
+			}
+			if got[1].Name != "Unknown" || !got[1].ReceiverOnly || got[1].Line != 0 ||
+				len(got[1].Methods) != 1 || got[1].Methods[0].Name != "Use" {
+				t.Fatalf("unknown method-only type was discarded: %#v", got)
+			}
+		}
+	}
+	onlyAliases, err := ParseSource("only.go", []byte("package sample\nimport \"example.com/dep\"\ntype ID = string"))
+	if err != nil || len(onlyAliases.Types) != 1 || onlyAliases.Types[0].Kind != model.Alias ||
+		onlyAliases.Package.Name != "sample" || len(onlyAliases.Imports) != 1 {
+		t.Fatalf("alias-only source = %#v, %v", onlyAliases, err)
+	}
+	for _, finalize := range []func([]model.Type) []model.Type{Finalize, FinalizeWithEvidence} {
+		if got := finalize(onlyAliases.Types); len(got) != 0 {
+			t.Fatalf("alias-only source projected classes: %#v", got)
+		}
+	}
+}
+
+func TestGenericParameterScopesExcludeOnlyDeclaredNames(t *testing.T) {
+	declarations, err := ParseSource("types.go", []byte(`package sample
+type T struct{}
+type U struct{}
+type Concrete struct{}
+type Pair[A, B any] struct{}
+type Box[T interface{ ~int }, Missing any] struct {
+ Value T
+ Other Missing
+ Nested Pair[T, Concrete]
+ Qualified sample.T
+}
+type Contract[T any] interface { Take(T) }
+type Outside struct { Value T }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	methods, err := ParseSource("methods.go", []byte(`package sample
+func (b Box[U, V]) Use(value U, concrete T, other V) Pair[U, Concrete] { panic("") }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := Finalize(append(append([]model.Type(nil), methods.Types...), declarations.Types...))
+	for _, typ := range types {
+		if typ.Name == "Box" {
+			if !reflect.DeepEqual(typ.TypeParameterNames, []string{"T", "Missing"}) ||
+				len(typ.Methods) != 1 || !reflect.DeepEqual(typ.Methods[0].TypeParameterNames, []string{"U", "V"}) {
+				t.Fatalf("receiver and declaration scopes = %#v", typ)
+			}
+		}
+	}
+	analysis := relations.Analyze(types, types)
+	if len(analysis.Diagnostics) != 0 {
+		t.Fatalf("generic placeholders produced diagnostics: %#v", analysis.Diagnostics)
+	}
+	got := map[string]bool{}
+	for _, relation := range analysis.Relations {
+		got[relation.From+"|"+relation.Label+"|"+relation.To] = true
+	}
+	want := map[string]bool{
+		"sample.Box|Nested|sample.Pair":     true,
+		"sample.Box|Nested|sample.Concrete": true,
+		"sample.Box|Qualified|sample.T":     true,
+		"sample.Box|Use(concrete)|sample.T": true,
+		"sample.Box|Use|sample.Pair":        true,
+		"sample.Box|Use|sample.Concrete":    true,
+		"sample.Outside|Value|sample.T":     true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("generic relations = %#v, want %#v", got, want)
 	}
 }

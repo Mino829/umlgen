@@ -19,7 +19,7 @@ import (
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
-const SchemaVersion = "go-ast-v4"
+const SchemaVersion = "go-ast-v6"
 
 func ParseFile(path string) (*model.SourceUnit, error) {
 	source, err := os.ReadFile(path)
@@ -85,10 +85,15 @@ func ParseSource(path string, source []byte) (*model.SourceUnit, error) {
 		if receiver == "" {
 			continue
 		}
+		index, declared := byName[receiver]
+		if declared && types[index].Kind == model.Alias {
+			continue
+		}
 		method := parseMethod(function.Name.Name, function.Type, fset, path, function.Pos())
 		method.Visibility = visibility(function.Name.Name)
 		method.PointerReceiver = isPointerReceiver(function.Recv.List[0].Type)
-		if index, ok := byName[receiver]; ok {
+		method.TypeParameterNames = receiverParameters(function.Recv.List[0].Type)
+		if declared {
 			types[index].Methods = append(types[index].Methods, method)
 			continue
 		}
@@ -97,6 +102,7 @@ func ParseSource(path string, source []byte) (*model.SourceUnit, error) {
 			Package: pkg, Name: receiver, Kind: model.Struct,
 			Visibility: visibility(receiver), Imports: unit.Imports,
 			Methods: []model.Method{method}, Source: path,
+			ReceiverOnly: true,
 		})
 	}
 	SortTypes(types)
@@ -109,6 +115,11 @@ func parseType(spec *ast.TypeSpec, fset *token.FileSet, pkg, path string, import
 		Package: pkg, Name: spec.Name.Name, Kind: model.Class,
 		Visibility: visibility(spec.Name.Name), Imports: imports, Source: path,
 		Line: fset.PositionFor(spec.Pos(), false).Line,
+	}
+	t.TypeParameterNames = typeParameterNames(spec.TypeParams)
+	if spec.Assign.IsValid() {
+		t.Kind = model.Alias
+		return t
 	}
 	switch declared := spec.Type.(type) {
 	case *ast.StructType:
@@ -160,6 +171,7 @@ func parseInterface(t *model.Type, declared *ast.InterfaceType, fset *token.File
 		for _, name := range field.Names {
 			method := parseMethod(name.Name, function, fset, t.Source, name.Pos())
 			method.Visibility = visibility(name.Name)
+			method.TypeParameterNames = t.TypeParameterNames
 			t.Methods = append(t.Methods, method)
 		}
 	}
@@ -251,6 +263,39 @@ func expressionText(fset *token.FileSet, expression ast.Expr) string {
 		return ""
 	}
 	return output.String()
+}
+
+func typeParameterNames(fields *ast.FieldList) []string {
+	if fields == nil {
+		return nil
+	}
+	var names []string
+	for _, field := range fields.List {
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+	}
+	return names
+}
+
+func receiverParameters(expression ast.Expr) []string {
+	switch value := expression.(type) {
+	case *ast.StarExpr:
+		return receiverParameters(value.X)
+	case *ast.IndexExpr:
+		if name, ok := value.Index.(*ast.Ident); ok {
+			return []string{name.Name}
+		}
+	case *ast.IndexListExpr:
+		var names []string
+		for _, argument := range value.Indices {
+			if name, ok := argument.(*ast.Ident); ok {
+				names = append(names, name.Name)
+			}
+		}
+		return names
+	}
+	return nil
 }
 
 func receiverName(expression ast.Expr) string {
@@ -367,15 +412,26 @@ func finalize(types []model.Type, withEvidence bool) []model.Type {
 		current.Imports = current.Imports[:len(current.Imports):len(current.Imports)]
 		merged = append(merged, current)
 	}
+	declarations := merged[:0]
+	for _, current := range merged {
+		if current.Kind != model.Alias {
+			declarations = append(declarations, current)
+		}
+	}
+	merged = declarations
 	inferImplementations(merged, withEvidence)
 	SortTypes(merged)
 	return merged
 }
 
 func mergeType(target *model.Type, source model.Type) {
+	target.ReceiverOnly = target.ReceiverOnly && source.ReceiverOnly
 	if target.Line == 0 && source.Line != 0 {
 		target.Source = source.Source
 		target.Line = source.Line
+	}
+	if !source.ReceiverOnly {
+		target.TypeParameterNames = source.TypeParameterNames
 	}
 	if target.Kind == model.Struct && source.Kind != model.Struct {
 		target.Kind = source.Kind

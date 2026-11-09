@@ -64,6 +64,7 @@ type Analysis struct {
 type Index struct {
 	types     []model.Type
 	qualified map[string]int
+	aliases   map[string]bool
 }
 
 func NewIndex(types []model.Type) *Index {
@@ -71,15 +72,27 @@ func NewIndex(types []model.Type) *Index {
 		types:     types,
 		qualified: make(map[string]int, len(types)),
 	}
+	for _, t := range types {
+		if t.Kind == model.Alias {
+			if index.aliases == nil {
+				index.aliases = make(map[string]bool)
+			}
+			index.aliases[t.QualifiedName()] = true
+		}
+	}
 	for i, t := range types {
-		index.qualified[t.QualifiedName()] = i
+		name := t.QualifiedName()
+		if index.aliases[name] {
+			continue
+		}
+		index.qualified[name] = i
 	}
 	return index
 }
 
 func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 	reference = Base(reference)
-	if reference == "" || isBuiltin(reference) {
+	if reference == "" || isBuiltin(reference) || isTypeParameter(owner, reference) {
 		return "", false
 	}
 	if _, ok := i.qualified[reference]; ok {
@@ -152,6 +165,15 @@ func (i *Index) Resolve(owner model.Type, reference string) (string, bool) {
 	return "", false
 }
 
+func isTypeParameter(owner model.Type, reference string) bool {
+	for _, name := range owner.TypeParameterNames {
+		if reference == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (i *Index) has(name string) bool {
 	_, ok := i.qualified[name]
 	return ok
@@ -183,8 +205,9 @@ func AnalyzeWithResolver(types []model.Type, resolve func(model.Type, string, bo
 }
 
 func build(types, known []model.Type, explain bool, resolve func(model.Type, string, bool) (string, bool)) Analysis {
+	var index *Index
 	if resolve == nil {
-		index := NewIndex(types)
+		index = NewIndex(types)
 		resolve = func(owner model.Type, reference string, _ bool) (string, bool) {
 			return index.Resolve(owner, reference)
 		}
@@ -199,7 +222,7 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 	var diagnostics []ReferenceDiagnostic
 	var seenDiagnostics map[ReferenceDiagnostic]bool
 	diagnose := func(owner model.Type, ref string, kind Kind, evidence Evidence) {
-		if !explain || ref == "" || isBuiltin(Base(ref)) {
+		if !explain || ref == "" || isBuiltin(Base(ref)) || isTypeParameter(owner, Base(ref)) {
 			return
 		}
 		diagnostic := ReferenceDiagnostic{
@@ -238,6 +261,9 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 			evidence = locateEvidence(owner, evidence)
 		}
 		for _, ref := range References(raw) {
+			if isTypeParameter(owner, ref) {
+				continue
+			}
 			target, ok := resolve(owner, ref, evidence.Inferred)
 			if !ok {
 				diagnose(owner, ref, kind, evidence)
@@ -253,11 +279,17 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 		}
 	}
 	for _, t := range types {
+		if t.Kind == model.Alias || index != nil && index.aliases != nil && index.aliases[t.QualifiedName()] {
+			continue
+		}
 		for _, parents := range []struct {
 			refs []model.TypeReference
 			kind Kind
 		}{{t.Extends, Inheritance}, {t.Implements, Implementation}} {
 			for _, parent := range parents.refs {
+				if isTypeParameter(t, Base(parent.Name)) {
+					continue
+				}
 				evidence := Evidence{Type: parent.Name, Source: parent.Source, Line: parent.Line, Inferred: parent.Inferred}
 				if explain {
 					evidence = locateEvidence(t, evidence)
@@ -286,6 +318,8 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 			})
 		}
 		for _, method := range t.Methods {
+			methodOwner := t
+			methodOwner.TypeParameterNames = method.TypeParameterNames
 			var member string
 			if explain {
 				var signature strings.Builder
@@ -305,12 +339,12 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 				if explain {
 					parameterMember = parameter.Name + " of " + member
 				}
-				add(t, parameter.Type, Parameter, method.Name+"("+parameter.Name+")", Multiplicity(parameter.Type), Evidence{
+				add(methodOwner, parameter.Type, Parameter, method.Name+"("+parameter.Name+")", Multiplicity(parameter.Type), Evidence{
 					Member: parameterMember, Type: parameter.Type, Source: method.Source, Line: parameter.Line,
 				})
 			}
 			if !method.Constructor {
-				add(t, method.ReturnType, Return, method.Name, Multiplicity(method.ReturnType), Evidence{
+				add(methodOwner, method.ReturnType, Return, method.Name, Multiplicity(method.ReturnType), Evidence{
 					Member: member, Type: method.ReturnType, Source: method.Source, Line: method.Line,
 				})
 			}

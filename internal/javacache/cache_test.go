@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -257,6 +258,16 @@ func TestSourceUnitCachePreservesFileScopeAtAnotherPath(t *testing.T) {
 			parse:  golang.ParseSource,
 		},
 		{
+			name: "Go aliases only", language: "go", schema: golang.SchemaVersion,
+			source: "package demo\nimport dep \"example.com/dependency\"\ntype Handler = func(dep.Input)\ntype ID = string",
+			parse:  golang.ParseSource,
+		},
+		{
+			name: "Go generic scopes and receiver projections", language: "go", schema: golang.SchemaVersion,
+			source: "package demo\ntype ID = string\ntype Named string\ntype Box[T any] struct { Value T }\nfunc (b Box[U]) Get(value U) U { return value }\nfunc (o Other[V]) Take(value V) {}",
+			parse:  golang.ParseSource,
+		},
+		{
 			name: "Java package only", language: "java", schema: java.SchemaVersion,
 			source: "package demo;\r\nimport example.dependency.Outer.Inner;",
 			parse:  java.ParseSource,
@@ -264,6 +275,11 @@ func TestSourceUnitCachePreservesFileScopeAtAnotherPath(t *testing.T) {
 		{
 			name: "Java multiple types", language: "java", schema: java.SchemaVersion,
 			source: "package demo;\nimport example.dependency.Target;\nclass A { Target value; }\nclass B {}",
+			parse:  java.ParseSource,
+		},
+		{
+			name: "Java generic declaration and member scopes", language: "java", schema: java.SchemaVersion,
+			source: "package demo; class Box<T extends Bound<T>> { T value; <U> Box(U value) {} <V> V get(V value) { return value; } class Inner<U> { T outer; U own; } static class Static { T concrete; } }",
 			parse:  java.ParseSource,
 		},
 		{
@@ -284,6 +300,10 @@ func TestSourceUnitCachePreservesFileScopeAtAnotherPath(t *testing.T) {
 			if err != nil || first.Hit {
 				t.Fatalf("initial=%#v err=%v", first, err)
 			}
+			uncachedFirst, err := scenario.parse(firstPath, source)
+			if err != nil || !reflect.DeepEqual(first.Unit, uncachedFirst) {
+				t.Fatalf("cold cache differs from uncached syntax: got %#v, want %#v, err=%v", first.Unit, uncachedFirst, err)
+			}
 			secondPath := filepath.Join(t.TempDir(), "second")
 			want, err := scenario.parse(secondPath, source)
 			if err != nil {
@@ -302,5 +322,52 @@ func TestSourceUnitCachePreservesFileScopeAtAnotherPath(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOpenPreservesExistingLanguageDirectoryPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not implement POSIX directory permission bits")
+	}
+	for _, mode := range []os.FileMode{0o750, 0o500} {
+		t.Run(mode.String(), func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "cache")
+			dir := filepath.Join(root, "java")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(dir, mode); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(cacheDirectoryEnv, root)
+			if _, err := Open("permissions", nil); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := info.Mode().Perm(); got != mode {
+				t.Fatalf("existing cache directory permissions = %04o, want %04o", got, mode)
+			}
+		})
+	}
+}
+
+func TestOpenCreatesPrivateLanguageDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not implement POSIX directory permission bits")
+	}
+	root := filepath.Join(t.TempDir(), "cache")
+	t.Setenv(cacheDirectoryEnv, root)
+	if _, err := Open("permissions", nil); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(root, "java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("new cache directory is not private: %s", info.Mode())
 	}
 }

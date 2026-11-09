@@ -8,18 +8,12 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/Mino829/umlgen/internal/config"
-	"github.com/Mino829/umlgen/internal/explain"
-	"github.com/Mino829/umlgen/internal/focus"
 	"github.com/Mino829/umlgen/internal/gitdiff"
 	"github.com/Mino829/umlgen/internal/javacache"
-	"github.com/Mino829/umlgen/internal/language"
 	"github.com/Mino829/umlgen/internal/model"
-	"github.com/Mino829/umlgen/internal/plantuml"
 	"github.com/Mino829/umlgen/internal/relations"
-	"github.com/Mino829/umlgen/internal/renderer"
 )
 
 var Version = "0.6.0-dev"
@@ -55,33 +49,18 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		printRootHelp(stdout)
 		return exitOK, nil
 	}
-	commandAt := -1
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--config" || arg == "-config" {
-			i++
-			continue
-		}
-		switch arg {
-		case "class", "package", "sequence", "activity", "state", "component", "deployment", "watch", "diff", "init", "cache", "version", "help":
-			commandAt = i
-		}
-		if commandAt >= 0 {
-			break
-		}
+	common, commandArgs, err := parseCommon(args)
+	if errors.Is(err, flag.ErrHelp) {
+		printRootHelp(stdout)
+		return exitOK, nil
 	}
-	if commandAt < 0 {
-		if has(args, "-h") || has(args, "--help") {
-			printRootHelp(stdout)
-			return exitOK, nil
-		}
-		return exitArgs, fmt.Errorf("unknown command: %s", args[0])
-	}
-	common, err := parseCommon(args[:commandAt])
 	if err != nil {
 		return exitArgs, err
 	}
-	command, rest := args[commandAt], args[commandAt+1:]
+	if len(commandArgs) == 0 {
+		return exitArgs, errors.New("a command is required")
+	}
+	command, rest := commandArgs[0], commandArgs[1:]
 	switch command {
 	case "help":
 		if len(rest) == 0 {
@@ -157,11 +136,11 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 	case "diff":
 		return runDiff(rest, common, stdout, stderr)
 	default:
-		return exitError, errors.New("unreachable command")
+		return exitArgs, fmt.Errorf("unknown command: %s", command)
 	}
 }
 
-func parseCommon(args []string) (commonOptions, error) {
+func parseCommon(args []string) (commonOptions, []string, error) {
 	var c commonOptions
 	fs := flag.NewFlagSet("umlgen", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -171,15 +150,15 @@ func parseCommon(args []string) (commonOptions, error) {
 	fs.BoolVar(&c.quiet, "quiet", false, "")
 	fs.BoolVar(&c.quiet, "q", false, "")
 	if err := fs.Parse(args); err != nil {
-		return c, cleanFlagError(err)
-	}
-	if fs.NArg() > 0 {
-		return c, fmt.Errorf("unexpected argument before command: %s", fs.Arg(0))
+		if errors.Is(err, flag.ErrHelp) {
+			return c, nil, err
+		}
+		return c, nil, cleanFlagError(err)
 	}
 	if c.verbose && c.quiet {
-		return c, errors.New("--verbose and --quiet cannot be used together")
+		return c, nil, errors.New("--verbose and --quiet cannot be used together")
 	}
-	return c, nil
+	return c, fs.Args(), nil
 }
 
 func runInit(args []string, common commonOptions, stdout io.Writer) (int, error) {
@@ -232,35 +211,6 @@ func runCache(args []string, common commonOptions, stdout io.Writer) (int, error
 	return exitOK, nil
 }
 
-type classOptions struct {
-	commonOptions
-	output, format, include, title       string
-	focus                                string
-	direction                            string
-	relationKinds                        string
-	language                             string
-	depth                                int
-	excludes                             stringList
-	hideFields, hideMethods, hidePrivate bool
-	noRelations, showRelationLabels      bool
-	noCache                              bool
-	explain                              bool
-	packageGrouping, layoutDirection     string
-	skinParams                           stringList
-	rendererType                         string
-	serverURL                            string
-	renderTimeout                        time.Duration
-	outputSet, formatSet, excludesSet    bool
-	hideFieldsSet, hideMethodsSet        bool
-	depthSet                             bool
-	rendererTypeSet, serverURLSet        bool
-	renderTimeoutSet                     bool
-}
-
-func runClass(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
-	return runClassMode(args, inherited, stdout, stderr, nil)
-}
-
 func runDiff(args []string, inherited commonOptions, stdout, stderr io.Writer) (int, error) {
 	if has(args, "-h") || has(args, "--help") {
 		printDiffHelp(stdout)
@@ -281,438 +231,6 @@ func runDiff(args []string, inherited commonOptions, stdout, stderr io.Writer) (
 		return exitError, err
 	}
 	return runClassMode(remaining, inherited, stdout, stderr, &selection)
-}
-
-func registerClassFlags(fs *flag.FlagSet, o *classOptions) {
-	fs.StringVar(&o.output, "output", "", "")
-	fs.StringVar(&o.output, "o", "", "")
-	fs.StringVar(&o.format, "format", "", "")
-	fs.StringVar(&o.format, "f", "", "")
-	fs.StringVar(&o.include, "include", "", "")
-	fs.StringVar(&o.focus, "focus", "", "")
-	fs.StringVar(&o.direction, "direction", "both", "")
-	fs.IntVar(&o.depth, "depth", 1, "")
-	fs.StringVar(&o.relationKinds, "relations", "", "")
-	fs.StringVar(&o.language, "language", "", "")
-	fs.Var(&o.excludes, "exclude", "")
-	fs.BoolVar(&o.hideFields, "hide-fields", false, "")
-	fs.BoolVar(&o.hideMethods, "hide-methods", false, "")
-	fs.BoolVar(&o.hidePrivate, "hide-private", false, "")
-	fs.BoolVar(&o.noRelations, "no-relations", false, "")
-	fs.BoolVar(&o.showRelationLabels, "show-relation-labels", false, "")
-	fs.BoolVar(&o.noCache, "no-cache", false, "")
-	fs.BoolVar(&o.explain, "explain", false, "")
-	fs.StringVar(&o.packageGrouping, "package-grouping", "", "")
-	fs.StringVar(&o.layoutDirection, "layout-direction", "", "")
-	fs.Var(&o.skinParams, "skinparam", "")
-	fs.StringVar(&o.title, "title", "", "")
-	fs.StringVar(&o.rendererType, "renderer", "", "")
-	fs.StringVar(&o.serverURL, "server-url", "", "")
-	fs.DurationVar(&o.renderTimeout, "render-timeout", 0, "")
-	fs.StringVar(&o.configPath, "config", o.configPath, "")
-	fs.BoolVar(&o.verbose, "verbose", o.verbose, "")
-	fs.BoolVar(&o.verbose, "v", o.verbose, "")
-	fs.BoolVar(&o.quiet, "quiet", o.quiet, "")
-	fs.BoolVar(&o.quiet, "q", o.quiet, "")
-}
-
-func runClassMode(
-	args []string,
-	inherited commonOptions,
-	stdout, stderr io.Writer,
-	diffSelection *gitdiff.Result,
-) (int, error) {
-	var o classOptions
-	o.commonOptions = inherited
-	fs := flag.NewFlagSet("class", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	registerClassFlags(fs, &o)
-	normalized, normalizeErr := normalizeDiagramArgs(args, fs)
-	if normalizeErr != nil {
-		return exitArgs, normalizeErr
-	}
-	if err := fs.Parse(normalized); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			printClassHelp(stdout)
-			return exitOK, nil
-		}
-		return exitArgs, cleanFlagError(err)
-	}
-	if o.verbose && o.quiet {
-		return exitArgs, errors.New("--verbose and --quiet cannot be used together")
-	}
-	fs.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "output", "o":
-			o.outputSet = true
-		case "format", "f":
-			o.formatSet = true
-		case "exclude":
-			o.excludesSet = true
-		case "hide-fields":
-			o.hideFieldsSet = true
-		case "hide-methods":
-			o.hideMethodsSet = true
-		case "depth":
-			o.depthSet = true
-		case "renderer":
-			o.rendererTypeSet = true
-		case "server-url":
-			o.serverURLSet = true
-		case "render-timeout":
-			o.renderTimeoutSet = true
-		}
-	})
-	if fs.NArg() > 1 {
-		return exitArgs, errors.New("class accepts at most one target")
-	}
-	if o.depth < 0 {
-		return exitArgs, errors.New("--depth must be zero or greater")
-	}
-	if o.depthSet && o.focus == "" && diffSelection == nil {
-		return exitArgs, errors.New("--depth requires --focus")
-	}
-	direction, err := focus.ParseDirection(o.direction)
-	if err != nil {
-		return exitArgs, err
-	}
-	if o.direction != "both" && o.focus == "" && diffSelection == nil {
-		return exitArgs, errors.New("--direction requires --focus")
-	}
-	if diffSelection != nil && o.focus != "" {
-		return exitArgs, errors.New("--focus cannot be combined with the diff command")
-	}
-	if o.noRelations && o.relationKinds != "" {
-		return exitArgs, errors.New("--relations and --no-relations cannot be used together")
-	}
-
-	cfg, loadedPath, err := config.Load(o.configPath, o.configPath != "")
-	if err != nil {
-		return exitArgs, err
-	}
-	config.ResolvePaths(&cfg, loadedPath)
-	if o.language != "" {
-		cfg.Language = strings.ToLower(o.language)
-	}
-	if o.outputSet {
-		cfg.Output.File = o.output
-	} else if diffSelection != nil && cfg.Output.File == "class-diagram.puml" {
-		cfg.Output.File = "change-diagram.puml"
-	}
-	if o.formatSet {
-		cfg.Output.Format = strings.ToLower(o.format)
-	}
-	if o.packageGrouping != "" {
-		cfg.Layout.PackageGrouping = o.packageGrouping
-	}
-	if o.layoutDirection != "" {
-		cfg.Layout.Direction = o.layoutDirection
-	}
-	for _, setting := range o.skinParams {
-		key, value, ok := strings.Cut(setting, "=")
-		if !ok || strings.ContainsAny(setting, "\r\n") {
-			return exitArgs, errors.New("--skinparam requires a single-line key=value")
-		}
-		if cfg.Layout.SkinParams == nil {
-			cfg.Layout.SkinParams = make(map[string]string)
-		}
-		cfg.Layout.SkinParams[strings.TrimSpace(key)] = strings.TrimSpace(value)
-	}
-	if o.rendererTypeSet {
-		cfg.Renderer.Type = strings.ToLower(o.rendererType)
-	}
-	if o.serverURLSet {
-		cfg.Renderer.ServerURL = o.serverURL
-	}
-	if o.renderTimeoutSet {
-		cfg.Renderer.Timeout = o.renderTimeout
-	}
-	if o.excludesSet {
-		cfg.Exclude = append([]string(nil), o.excludes...)
-	}
-	if o.watchExcludes != nil {
-		cfg.Exclude = o.watchExcludes
-	}
-	if o.hideFieldsSet && o.hideFields {
-		cfg.Members.Fields = false
-	}
-	if o.hideMethodsSet && o.hideMethods {
-		cfg.Members.Methods = false
-	}
-	if o.hidePrivate {
-		cfg.Visibility.Private = false
-	}
-	if o.relationKinds != "" {
-		enabled, parseErr := parseRelationKinds(o.relationKinds)
-		if parseErr != nil {
-			return exitArgs, parseErr
-		}
-		cfg.Relations.Inheritance = enabled[relations.Inheritance]
-		cfg.Relations.Implementation = enabled[relations.Implementation]
-		cfg.Relations.FieldDependency = enabled[relations.Field]
-		cfg.Relations.ParameterDependency = enabled[relations.Parameter]
-		cfg.Relations.ReturnDependency = enabled[relations.Return]
-	}
-	if cfg.Output.Format != "plantuml" && cfg.Output.Format != "svg" && cfg.Output.Format != "png" {
-		return exitArgs, fmt.Errorf("unsupported format: %s\nSupported formats: plantuml, svg, png", cfg.Output.Format)
-	}
-	opts := plantuml.Options{
-		Title: o.title, ShowFields: cfg.Members.Fields, ShowMethods: cfg.Members.Methods,
-		ShowPrivate: cfg.Visibility.Private, ShowPublic: cfg.Visibility.Public,
-		ShowProtected: cfg.Visibility.Protected, ShowPackage: cfg.Visibility.PackagePrivate,
-		ShowRelations: !o.noRelations, Inheritance: cfg.Relations.Inheritance,
-		Implementation: cfg.Relations.Implementation, FieldDependency: cfg.Relations.FieldDependency,
-		ParamDependency: cfg.Relations.ParameterDependency, ReturnDependency: cfg.Relations.ReturnDependency,
-		ShowRelationLabels: o.showRelationLabels,
-		PackageGrouping:    cfg.Layout.PackageGrouping, LayoutDirection: cfg.Layout.Direction,
-		SkinParams: cfg.Layout.SkinParams,
-	}
-	if err := opts.ValidateLayout(); err != nil {
-		return exitArgs, err
-	}
-	targets := cfg.Source
-	if fs.NArg() == 1 {
-		targets = []string{fs.Arg(0)}
-	}
-	if len(targets) == 0 {
-		if diffSelection != nil {
-			targets = []string{diffSelection.Root}
-		} else {
-			targets = []string{"."}
-		}
-	}
-	if o.watchTargets != nil {
-		targets = o.watchTargets
-	}
-	var changedPaths []string
-	if diffSelection != nil {
-		for path := range diffSelection.Current {
-			changedPaths = append(changedPaths, path)
-		}
-		for _, deleted := range diffSelection.Deleted {
-			changedPaths = append(changedPaths, deleted.Path)
-		}
-	}
-	sourceParser, err := language.Select(cfg.Language, targets, cfg.Exclude, changedPaths)
-	if err != nil {
-		return exitArgs, err
-	}
-	if o.verbose {
-		if loadedPath != "" {
-			fmt.Fprintf(stdout, "Config file: %s\n", loadedPath)
-		}
-		for _, target := range targets {
-			fmt.Fprintf(stdout, "Target: %s\n", target)
-		}
-		fmt.Fprintf(stdout, "Language: %s\n", sourceParser.DisplayName())
-		fmt.Fprintf(stdout, "Scanning %s files...\n", sourceParser.DisplayName())
-	}
-	var explanation explain.Report
-	if o.explain {
-		explanation.Scope = explain.Scope{
-			Targets: targets, Excludes: cfg.Exclude, Include: o.include,
-			Language: sourceParser.DisplayName(),
-		}
-		explanation.Sources = make(map[string]explain.Source)
-	}
-	files, err := scanSourceFiles(targets, cfg.Exclude, sourceParser)
-	if err != nil {
-		if o.explain {
-			explanation.Failures = append(explanation.Failures, explain.Failure{
-				Source: strings.Join(targets, ", "), Message: err.Error(), Origin: "working tree",
-			})
-			writeExplanation(stdout, explanation, nil, nil, opts)
-		}
-		return exitError, err
-	}
-	if o.explain {
-		explanation.Scope.Files = len(files)
-	}
-	if len(files) == 0 && (diffSelection == nil || len(diffSelection.Deleted) == 0) {
-		if o.explain {
-			writeExplanation(stdout, explanation, nil, nil, opts)
-		}
-		return exitError, fmt.Errorf("no %s files found in: %s", sourceParser.DisplayName(), strings.Join(targets, ", "))
-	}
-	if o.verbose {
-		for _, file := range files {
-			fmt.Fprintf(stdout, "Found: %s\n", file)
-		}
-	}
-
-	analysis := newSourceAnalysis(sourceAnalysisOptions{
-		Config: cfg, Parser: sourceParser, NoCache: o.noCache,
-		CaptureSource: o.explain, Verbose: o.verbose,
-	}, stdout, stderr)
-
-	var types []model.Type
-	var knownTypes []model.Type
-	warnings := 0
-	changedParseFailures := 0
-	for _, file := range files {
-		if o.ctx != nil && o.ctx.Err() != nil {
-			return exitError, o.ctx.Err()
-		}
-		changedFile := false
-		if diffSelection != nil {
-			_, changedFile = diffSelection.ChangeFor(file)
-		}
-		parsed := analysis.parseFile(file)
-		unit, parseErr := parsed.Unit, parsed.Err
-		if o.explain && parsed.Captured {
-			explanation.Sources[file] = explain.Source{Content: parsed.Content, Origin: "working tree"}
-		}
-		if parseErr != nil {
-			warnings++
-			if changedFile {
-				changedParseFailures++
-			}
-			fmt.Fprintf(stderr, "Warning: failed to parse %s: %v\n", file, parseErr)
-			if o.explain {
-				explanation.Failures = append(explanation.Failures, explain.Failure{
-					Source: file, Message: parseErr.Error(), Origin: "working tree",
-				})
-			}
-			continue
-		}
-		found := unit.Types
-		if o.explain {
-			knownTypes = append(knownTypes, found...)
-		}
-		for _, t := range found {
-			if includePackage(t.Package, o.include) && !excludePackage(t.Package, cfg.Exclude) {
-				if diffSelection != nil {
-					if change, ok := diffSelection.ChangeFor(t.Source); ok {
-						t.Change = change
-					}
-				}
-				types = append(types, t)
-				if o.verbose {
-					fmt.Fprintf(stdout, "Detected %s: %s\n", t.Kind, t.QualifiedName())
-				}
-			}
-		}
-	}
-	analysis.reportCache()
-	if diffSelection != nil {
-		for _, deleted := range diffSelection.Deleted {
-			if !sourceParser.MatchesPath(deleted.Path) {
-				continue
-			}
-			if o.explain {
-				explanation.Scope.Files++
-				explanation.Sources[deleted.Path] = explain.Source{Content: deleted.Content, Origin: "Git base"}
-			}
-			unit, parseErr := sourceParser.ParseSource(deleted.Path, deleted.Content)
-			if parseErr != nil {
-				warnings++
-				changedParseFailures++
-				fmt.Fprintf(stderr, "Warning: failed to parse deleted file %s: %v\n", deleted.Path, parseErr)
-				if o.explain {
-					explanation.Failures = append(explanation.Failures, explain.Failure{
-						Source: deleted.Path, Message: parseErr.Error(), Origin: "Git base",
-					})
-				}
-				continue
-			}
-			sourceParser.BindContext(unit)
-			found := unit.Types
-			if o.explain {
-				knownTypes = append(knownTypes, found...)
-			}
-			for _, t := range found {
-				if includePackage(t.Package, o.include) && !excludePackage(t.Package, cfg.Exclude) {
-					t.Change = model.Deleted
-					types = append(types, t)
-				}
-			}
-		}
-	}
-	if diffSelection == nil && len(types) == 0 && warnings == len(files) {
-		if o.explain {
-			writeExplanation(stdout, explanation, nil, knownTypes, opts)
-		}
-		return exitParse, fmt.Errorf("failed to parse all %s files", sourceParser.DisplayName())
-	}
-	if o.strictParse && warnings > 0 {
-		if o.explain {
-			writeExplanation(stdout, explanation, types, knownTypes, opts)
-		}
-		return exitParse, fmt.Errorf("watch preserves the previous diagram because %d source file(s) failed to parse", warnings)
-	}
-	types = sourceParser.Finalize(types, o.explain)
-	var noChanges bool
-	if diffSelection != nil {
-		var changed []string
-		for i := range types {
-			if types[i].Change != model.Unchanged {
-				changed = append(changed, types[i].QualifiedName())
-				continue
-			}
-			if change, ok := diffSelection.ChangeFor(types[i].Source); ok {
-				types[i].Change = change
-				changed = append(changed, types[i].QualifiedName())
-			}
-		}
-		if len(changed) == 0 {
-			if changedParseFailures > 0 {
-				if o.explain {
-					writeExplanation(stdout, explanation, nil, knownTypes, opts)
-				}
-				return exitParse, fmt.Errorf("failed to parse changed %s files; no changed types could be generated", sourceParser.DisplayName())
-			}
-			noChanges = true
-		} else {
-			types, err = focus.ApplyMany(types, changed, o.depth, direction)
-			if err != nil {
-				return exitArgs, err
-			}
-			if o.verbose {
-				fmt.Fprintf(stdout, "Focused on %d changed types with depth %d (%d types)\n", len(changed), o.depth, len(types))
-			}
-		}
-	} else if o.focus != "" {
-		types, err = focus.Apply(types, o.focus, o.depth, direction)
-		if err != nil {
-			return exitArgs, err
-		}
-		if o.verbose {
-			fmt.Fprintf(stdout, "Focused on %s with depth %d (%d types)\n", o.focus, o.depth, len(types))
-		}
-	}
-	pumlPath := diagramOutputPath(cfg.Output.File)
-	var content string
-	if noChanges {
-		content = plantuml.Placeholder(o.title, opts)
-	} else {
-		content = plantuml.Generate(model.Project{Types: types}, opts)
-	}
-	if err := writeDiagram(pumlPath, content); err != nil {
-		return exitOutput, err
-	}
-	classes, interfaces := countKinds(types)
-	if !o.quiet {
-		fmt.Fprintf(stdout, "Found %d %s files\n", len(files), sourceParser.DisplayName())
-		fmt.Fprintf(stdout, "Detected %d classes and %d interfaces\n", classes, interfaces)
-		if noChanges {
-			fmt.Fprintln(stdout, "No displayable changed types; generated placeholder diagram")
-		}
-		fmt.Fprintf(stdout, "Generated %s\n", pumlPath)
-		if warnings > 0 {
-			fmt.Fprintf(stdout, "%d warning(s)\n", warnings)
-		}
-	}
-	if o.explain {
-		explainedTypes := types
-		if noChanges {
-			explainedTypes = nil
-		}
-		writeExplanation(stdout, explanation, explainedTypes, knownTypes, opts)
-	}
-	return renderDiagram(cfg.Output.Format, pumlPath, renderer.Config{
-		Type: renderer.Type(cfg.Renderer.Type), ServerURL: cfg.Renderer.ServerURL,
-		Timeout: cfg.Renderer.Timeout, Context: o.ctx,
-	}, o.quiet, stdout, stderr)
 }
 
 func normalizeDiagramArgs(args []string, fs *flag.FlagSet) ([]string, error) {
