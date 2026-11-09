@@ -1,9 +1,11 @@
 package renderer
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -69,6 +71,12 @@ func TestRenderLocalCommandNotFound(t *testing.T) {
 	_, err := Render("svg", "diagram.puml", Defaults())
 	if err == nil || !strings.Contains(err.Error(), "PlantUML renderer was not found") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("command lookup cause was lost: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Install the plantuml command") {
+		t.Fatalf("missing installation guidance: %v", err)
 	}
 }
 

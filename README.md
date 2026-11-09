@@ -210,6 +210,8 @@ umlgen class ./src --exclude test --exclude generated
 
 オプションは対象パスの前後どちらにも指定できます。
 
+Goの匿名struct／interfaceを含むフィールド・引数・戻り値は、型表記を1行のリテラルとして描画します。波括弧やstruct tagなどはPlantUMLの文字エスケープに変換するため、後続のフィールドを隠さず表示できます。解析モデルとキャッシュには元の型表記を保持します。
+
 ```bash
 umlgen class --help
 ```
@@ -918,7 +920,7 @@ Get-Command umlgen
 
 ### SVG/PNGが生成されない
 
-PlantUMLがインストールされているか確認します。
+`auto`レンダラーは、コマンド未検出と実行失敗を区別して表示します。`renderer was not found`の場合はPlantUMLのインストールとPATHを確認してください。`renderer failed`の場合は、併記された構文エラー・終了ステータス・タイムアウトなどの原因を確認してください。`PLANTUML_JAR`が設定されている場合のフォールバックは維持し、画像生成に失敗しても元の`.puml`ファイルは残します。
 
 ```bash
 # macOS
