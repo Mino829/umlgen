@@ -10,6 +10,8 @@
 
 ローカル確認: `go test ./...`、`go vet ./...`、CLI build、actionlint成功。実CLIでGoのSVG／PNGを生成し、画像上の後続フィールド・メソッドを確認した。Go／Javaのcold／warm／`--no-cache`でPlantUMLがバイト一致。実PlantUMLの構文エラーと空PATHの未検出は、ともに終了コード5・元PlantUML保持のまま異なる診断を表示する。OS別CIの結果はPRで確認する。
 
+PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導入でPlantUMLがエラー画像を返し、実SVG内のメンバー検証が失敗した。CIの依存へ`graphviz`を明示追加し、画像内容のassertは維持する。
+
 ## v0.6.0のリリース候補
 
 **到達点は、機能追加を止めてレビュー・公開判断ができる候補版を揃えること。まだv0.6.0を公開していない。** 通常のinstaller／PR差分workflowの既定版は、公開済みのv0.5.0を維持する。
