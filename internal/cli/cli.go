@@ -149,7 +149,7 @@ func parseCommon(args []string) (commonOptions, []string, error) {
 	fs.BoolVar(&c.verbose, "v", false, "")
 	fs.BoolVar(&c.quiet, "quiet", false, "")
 	fs.BoolVar(&c.quiet, "q", false, "")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(expandShortFlags(args, fs, true)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return c, nil, err
 		}
@@ -226,7 +226,11 @@ func runDiff(args []string, inherited commonOptions, stdout, stderr io.Writer) (
 	if diagram == "package" {
 		return runPackageMode(remaining, inherited, stdout, stderr, args[0])
 	}
-	selection, err := gitdiff.Analyze(args[0])
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return exitError, err
+	}
+	selection, err := gitdiff.Analyze(workingDir, args[0])
 	if err != nil {
 		return exitError, err
 	}
@@ -234,6 +238,7 @@ func runDiff(args []string, inherited commonOptions, stdout, stderr io.Writer) (
 }
 
 func normalizeDiagramArgs(args []string, fs *flag.FlagSet) ([]string, error) {
+	args = expandShortFlags(args, fs, false)
 	var flags, positional []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -246,8 +251,7 @@ func normalizeDiagramArgs(args []string, fs *flag.FlagSet) ([]string, error) {
 			flags = append(flags, arg)
 			name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
 			if definition := fs.Lookup(name); definition != nil && !hasValue {
-				boolean, isBoolean := definition.Value.(interface{ IsBoolFlag() bool })
-				if !isBoolean || !boolean.IsBoolFlag() {
+				if !booleanFlag(definition) {
 					if i+1 >= len(args) {
 						return nil, fmt.Errorf("flag needs an argument: %s", arg)
 					}
@@ -445,7 +449,7 @@ Flags:
       --explain             explain reasons, source snippets, and analysis limitations
   -o, --output string       output file path
       --renderer string     PlantUML renderer: auto, local, jar, or server
-      --render-timeout duration  rendering timeout (default 30s)
+      --render-timeout duration  rendering timeout (default 30s; 0 disables timeout)
       --server-url string   PlantUML server URL (used with --renderer server)
       --title string        diagram title
       --config string       configuration file path

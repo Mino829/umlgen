@@ -1,5 +1,5 @@
 @startuml
-title Release #13
+title Release <U+0023>13
 left to right direction
 skinparam classAttributeIconSize 0
 skinparam linetype ortho

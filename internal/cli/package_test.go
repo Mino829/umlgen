@@ -56,22 +56,6 @@ func packageCLIRead(t *testing.T, path string) string {
 	return string(data)
 }
 
-func packageCLIChdir(t *testing.T, path string) {
-	t.Helper()
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(path); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(previous); err != nil {
-			t.Error(err)
-		}
-	})
-}
-
 func packageCLIConfig(t *testing.T, root, content string) string {
 	t.Helper()
 	path := filepath.Join(root, "settings.yaml")
@@ -181,7 +165,7 @@ func TestPackageCLIFlagValuesAroundTarget(t *testing.T) {
 
 func TestPackageCLIConfigPathsAndCWDOverrides(t *testing.T) {
 	root := t.TempDir()
-	packageCLIChdir(t, root)
+	t.Chdir(root)
 	packageCLIWrite(t, filepath.Join(root, "project", "sources", "Configured.java"), "package configured; class Configured {}")
 	packageCLIWrite(t, filepath.Join(root, "cli-source", "Override.java"), "package overridden; class Override {}")
 	packageCLIWrite(t, filepath.Join(root, "project", "settings.yaml"), "language: java\nsource: [sources]\noutput:\n  file: artifacts/configured.puml\n  format: plantuml\n")
@@ -203,7 +187,7 @@ func TestPackageCLIDefaultOutputPreservesClassDiagram(t *testing.T) {
 	for _, configured := range []bool{false, true} {
 		t.Run(fmt.Sprintf("config=%v", configured), func(t *testing.T) {
 			root := t.TempDir()
-			packageCLIChdir(t, root)
+			t.Chdir(root)
 			writeJava(t, root, "Model.java", "package sample; class Model {}")
 			if configured {
 				packageCLIWrite(t, filepath.Join(root, ".umlgen.yaml"), "source: [.]\noutput:\n  format: plantuml\n")
@@ -571,7 +555,7 @@ func TestPackageCLIRenderFailureRetainsPlantUMLWithoutImplicitServer(t *testing.
 
 func TestPackageCLICommandNamedConfigPath(t *testing.T) {
 	root := t.TempDir()
-	packageCLIChdir(t, root)
+	t.Chdir(root)
 	packageCLIWrite(t, "package", "language: java\nsource: [src]\n")
 	packageCLIWrite(t, filepath.Join(root, "src", "Model.java"), "package sample; class Model {}")
 	packageCLISuccess(t, "--config", "package", "package", "--no-cache")

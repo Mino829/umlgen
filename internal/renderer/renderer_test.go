@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,10 @@ func TestValidate(t *testing.T) {
 		{Config{Type: TypeLocal}, true},
 		{Config{Type: TypeJar}, true},
 		{Config{Type: TypeServer, ServerURL: "http://example.com"}, true},
+		{Config{Type: TypeAuto, Timeout: -time.Second}, false},
+		{Config{Type: TypeLocal, Timeout: -time.Second}, false},
+		{Config{Type: TypeJar, Timeout: -time.Second}, false},
+		{Config{Type: TypeServer, ServerURL: "http://example.com", Timeout: -time.Second}, false},
 		{Config{Type: TypeServer}, false},
 		{Config{Type: "unknown"}, false},
 	} {
@@ -193,8 +198,8 @@ func TestRenderLocalTimeout(t *testing.T) {
 			start := time.Now()
 			_, err := Render("svg", pumlPath, Config{Type: kind, Timeout: time.Second})
 			elapsed := time.Since(start)
-			if err == nil || !strings.Contains(err.Error(), "timed out") {
-				t.Fatalf("expected timeout error, got: %v", err)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("expected deadline error, got: %v", err)
 			}
 			if elapsed >= 3*time.Second {
 				t.Fatalf("timeout waited for descendant output: %v", elapsed)
@@ -252,5 +257,19 @@ func TestRenderDoesNotOverwriteInput(t *testing.T) {
 	_, err := Render("png", "diagram.png", Config{Type: TypeLocal, Timeout: 100 * time.Millisecond})
 	if err == nil || !strings.Contains(err.Error(), "overwrite the input .puml file") {
 		t.Fatalf("expected overwrite error, got: %v", err)
+	}
+}
+
+func TestRenderRejectsNegativeTimeout(t *testing.T) {
+	for _, kind := range []Type{TypeAuto, TypeLocal, TypeJar, TypeServer} {
+		t.Run(string(kind), func(t *testing.T) {
+			puml, image, source := serverLimitInput(t, true)
+			out, err := Render("png", puml, Config{Type: kind, ServerURL: "http://example.com", Timeout: -time.Second})
+			if err == nil || out != "" {
+				t.Fatalf("negative timeout accepted: output=%q err=%v", out, err)
+			}
+			assertFailedServerOutput(t, image, true)
+			assertServerInputRetained(t, puml, source)
+		})
 	}
 }
