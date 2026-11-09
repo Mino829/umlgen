@@ -16,7 +16,7 @@ bash "$installer"
 
 インストーラーはMacの種類を自動判定し、対応するumlgenを`~/.local/bin`へインストールします。GitHub Releaseの`SHA256SUMS.txt`と照合してから配置します。
 
-この通常導入の対象は公開安定版（現在v0.5.0）です。v0.6.0候補のJava `sequence`／`activity`／`state`にはフルJDK 17以上が別途必要です。`java -version`と`javac -version`を確認してください。Javaのclass／package／componentおよびclass／packageのwatchはJDK不要です。画像生成のPlantUML要件は別です。
+この通常導入の対象は公開安定版（現在[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)）です。Java `sequence`／`activity`／`state`にはフルJDK 17以上が別途必要です。`java -version`と`javac -version`を確認してください。Javaのclass／package／componentおよびclass／packageのwatchはJDK不要です。画像生成のPlantUML要件は別です。
 
 ## 2. インストールを確認する
 
@@ -29,7 +29,7 @@ umlgen version
 次のようにバージョンが表示されれば完了です。
 
 ```text
-umlgen version 0.5.0
+umlgen version 0.6.0
 ```
 
 ## 3. Javaプロジェクトへ移動する
@@ -83,12 +83,12 @@ GitHub Actionsを使うと、MacへPlantUMLを追加しなくてもGitHub上で�
 特定バージョンを使う場合：
 
 ```bash
-bash "$installer" --version v0.5.0
+bash "$installer" --version v0.6.0
 ```
 
 ## 公開前の候補版を試す
 
-リリース準備PRの成功したCIからartifact `release-assets`をダウンロードし、アーカイブと`SHA256SUMS.txt`を同じフォルダーへ展開します。**artifactを作ったcommitのinstaller**を使い、版を明示します（下は配布リハーサル用`0.6.0-rc.1`）。通常の`latest`は未公開候補を取得しません。
+v0.6.0は公開済みです。以下は今後の候補をオフラインで試す手順です。リリース準備PRの成功したCIからartifact `release-assets`をダウンロードし、アーカイブと`SHA256SUMS.txt`を同じフォルダーへ展開します。**artifactを作ったcommitのinstaller**を使い、版を明示してください。下の`0.6.0-rc.1`は過去の配布リハーサル例なので、試すartifactの実際の版へ置き換えます。通常の`latest`は未公開候補を取得しません。
 
 ```bash
 # 候補checkoutのrepository rootで実行。既存の安定版とは別の場所へ配置

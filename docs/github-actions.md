@@ -48,7 +48,7 @@ review-scope.json
 | `source` | `.` | リポジトリ相対のJavaソースパス（このワークフローは`.java`ファイルの変更を検知します） |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
-| `umlgen-version` | `v0.5.0` | ダウンロードするumlgenのリリースタグ |
+| `umlgen-version` | `v0.6.0` | ダウンロードするumlgenのリリースタグ |
 | `artifact-name` | `umlgen-pr-diff` | artifact名 |
 | `retention-days` | `14` | artifact保持日数 |
 | `base-sha` | Pull Requestのbase | base commitの上書き |
@@ -58,7 +58,7 @@ review-scope.json
 
 なお、このワークフローは`.java`ファイルの変更のみを検知する。Goプロジェクトで利用する場合はローカルCLIまたは独自ワークフローで`umlgen diff`を呼び出してください。
 
-## PR本文でレビュー範囲を指定する（開発版）
+## PR本文でレビュー範囲を指定する
 
 対応するworkflowのcommit／リリースを使うと、PR本文の専用blockで**差分図だけ**の範囲を指定できる。呼び出し側の`pull_request.types`には上の例のように`edited`を含める。旧workflowの参照先を更新しない場合、この設定は適用されない。
 
@@ -133,7 +133,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 ### 変更ファイルに型が含まれていない場合
 
-`package-info.java`など型を含まないファイルだけが変更された場合、既定の`v0.5.0` CLIはプレースホルダ図を生成する。`v0.4.0`のように「変更ファイルに型がない」というエラーだけを出した場合も、ワークフロー側でプレースホルダ図を生成するフォールバックが動作する。この場合もJavaファイルの変更はあるため、`no-java-changes`は`false`になる。解析警告を伴う場合や、その他の終了コード1のエラーは失敗として扱う。
+`package-info.java`など型を含まないファイルだけが変更された場合、既定の`v0.6.0` CLIはプレースホルダ図を生成する。`v0.4.0`のように「変更ファイルに型がない」というエラーだけを出した場合も、ワークフロー側でプレースホルダ図を生成するフォールバックが動作する。この場合もJavaファイルの変更はあるため、`no-java-changes`は`false`になる。解析警告を伴う場合や、その他の終了コード1のエラーは失敗として扱う。
 
 ### 再利用ワークフローを呼び出せない
 
@@ -148,7 +148,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 - artifact `release-assets`には4つの公開形式アーカイブと`SHA256SUMS.txt`だけを保存します。候補artifactはrun／commitに紐付き、GitHub Releaseやlatest版の代用ではありません。成功したrunからダウンロードしてchecksumを検証してください。
 - buildは`contents: read`のみ。`.github/workflows/release.yml`の検証済み`v*`タグpushだけが同じビルドを呼び、成功後のpublish jobに限って`contents: write`を使います。prereleaseタグはlatestにしません。通常PRや候補ビルドからの公開経路はありません。
 
-ローカルでもネイティブ環境で候補を生成できます（Python 3、Go／CGO／Cコンパイラーが必要）。macOSの例:
+ローカルでもネイティブ環境で今後の候補を生成できます（Python 3、Go／CGO／Cコンパイラーが必要）。下の`0.6.0-rc.1`は過去のリハーサル例です。公開済みv0.6.0とは区別し、次の候補では3箇所とも実際の候補版に置き換えてください。macOSの例:
 
 ```bash
 GOTOOLCHAIN=go1.26.10 python3 scripts/package-release.py \
@@ -159,4 +159,4 @@ python3 scripts/smoke-release.py --binary /tmp/umlgen-rc-install/umlgen \
   --version 0.6.0-rc.1 --work-dir /tmp/umlgen-rc-smoke
 ```
 
-smokeのwork directoryは空の新しい場所を指定します。意味解析にはフルJDK 17以上、Git差分にはGitが必要です。公開の判断・タグ作成は[リリース候補の受入条件](next-steps.md#公開前の受入条件)に従って別途行います。
+smokeのwork directoryは空の新しい場所を指定します。意味解析にはフルJDK 17以上、Git差分にはGitが必要です。公開の判断・タグ作成は別途承認し、[v0.6.0の公開前受入条件の記録](next-steps.md#公開前の受入条件履歴)を参考に対象版の条件を確認してください。

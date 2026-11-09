@@ -1,12 +1,12 @@
 # 次にやること
 
-確認日: 2026-11-09
+更新日: 2026-11-10
 
-## Issueの順次解消（2026-11-09）
+## Issueの解消状況
 
-実画像生成に失敗する#70を先に扱い、その後#47（中優先度）、#48（低優先度）、#15（導入改善）、#82（共通IR整理）を1 Issueずつ実装・検証・PR化する。#14のwatchはPR #80で実装済みで、最新mainにはv0.6.0準備PR #81を通して統合されている。以下のリリース準備・個別開発の記録は当時の状況を残す。
+#70・#47・#48はv0.6.0に含まれる。#14のwatchを含む準備変更はPR #81、最終の不足分は[PR #86](https://github.com/Mino829/umlgen/pull/86)でmainへ統合済み。#15（Homebrew／Scoopによる導入改善）と#82（共通IR整理）は今後の開発項目であり、v0.6.0の公開条件には含めない。以下の個別確認は開発当時の記録で、新たな再検証の結果ではない。
 
-#70は[PR #83](https://github.com/Mino829/umlgen/pull/83)でmainへマージ済み・未リリース。Goの匿名struct／interfaceを含むフィールド・引数・戻り値を表示層で1行の安全な文字列に変換し、解析モデル・キャッシュは変更しない。実PlantUMLによるSVG回帰はflat／hierarchical／noneの全3表示で失敗前・成功後を確認し、Linux CIでも実行する。レンダラー未検出と実行失敗の診断を分離し、明示されたJARへのフォールバックは維持する。
+#70は[PR #83](https://github.com/Mino829/umlgen/pull/83)でmainへマージされ、v0.6.0に収録。Goの匿名struct／interfaceを含むフィールド・引数・戻り値を表示層で1行の安全な文字列に変換し、解析モデル・キャッシュは変更しない。実PlantUMLによるSVG回帰はflat／hierarchical／noneの全3表示で失敗前・成功後を確認し、Linux CIでも実行する。レンダラー未検出と実行失敗の診断を分離し、明示されたJARへのフォールバックは維持する。
 
 ローカル確認: `go test ./...`、`go vet ./...`、CLI build、actionlint成功。実CLIでGoのSVG／PNGを生成し、画像上の後続フィールド・メソッドを確認した。Go／Javaのcold／warm／`--no-cache`でPlantUMLがバイト一致。実PlantUMLの構文エラーと空PATHの未検出は、ともに終了コード5・元PlantUML保持のまま異なる診断を表示する。OS別CIの結果はPRで確認する。
 
@@ -14,7 +14,7 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 
 ### #47：中優先度レビュー項目（M1〜M7）
 
-[PR #84](https://github.com/Mino829/umlgen/pull/84)で実装・4環境CI成功、mainへマージ済み。未リリース。
+[PR #84](https://github.com/Mino829/umlgen/pull/84)で実装・4環境CI成功、mainへマージ済み。v0.6.0に収録。
 
 - M1：既存の`--config`手動スキップを標準flag解析へ置き換え、コマンド名と同じ設定ファイル名、値欠落、未知コマンドを回帰で固定した。
 - M2：Goのaliasを専用の構文メタデータとして保持し、class／packageの図への投影から除外する。名前付き定義型は維持し、別ファイルのalias receiverも偽classにしない。宣言ファイルが未取得のreceiver部分解析とその推定実装は維持する。
@@ -28,7 +28,7 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 
 ### #48：低優先度レビュー項目（L1〜L7）
 
-[PR #85](https://github.com/Mino829/umlgen/pull/85)で実装し、最新headの登録check全13件が成功した。#84のmain統合後に旧`fix/medium-priority-review`へマージされたため、#85の`merged`表示だけではmainへの取り込みを保証しない。今回のmain向け統合PRで不足する修正を取り込む。未リリース。
+[PR #85](https://github.com/Mino829/umlgen/pull/85)で実装し、当時の最新headの登録check全13件が成功した。#84のmain統合後に旧`fix/medium-priority-review`へマージされたため、#85の`merged`表示だけではmainへの取り込みを保証しなかった。不足分はPR #86でmainへ統合し、v0.6.0に収録した。
 
 - L1：classと差分placeholderのtitleも他図と同じ安全な文字エスケープに統一した。既存の生title文字列のassertは削除し、実SVGで記号・HTML風文字列・`%date()`がリテラルに残ることを検証する。titleを含む3つのgoldenだけを意図した表記へ更新した。
 - L2：`gitdiff.Analyze`へworking directoryを明示し、独立repoの並列解析を回帰で固定した。CLIテストの手動cwd変更・復帰と旧helperを除去し、標準`t.Chdir`の非並列guardへ移行した。
@@ -42,11 +42,11 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 
 PR #85の初回Windows CIでは、並列Git回帰のGit形式`C:/...`とGo形式`C:\...`の文字列比較が失敗した。区切り表記のassertは削除し、`os.SameFile`による実directory同一性と、削除fileのrepo内相対path・内容の検証へ変更した。Windows skipやrepo混同検出の緩和は行わない。
 
-## v0.6.0のリリース候補
+## v0.6.0公開安定版
 
-**到達点は、機能追加を止めてレビュー・公開判断ができる候補版を揃えること。まだv0.6.0を公開していない。** 通常のinstaller／PR差分workflowの既定版は、公開済みのv0.5.0を維持する。
+公開安定版は[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)。公開ソースcommitは`1fb64f6`（`1fb64f62990e299182c3d6de28b40efe37b9e82b`）。通常installerは最新公開版を取得し、PR差分workflowの既定CLI版も`v0.6.0`とする。
 
-### 含める変更（v0.5.0から）
+### 収録した変更（v0.5.0から）
 
 - 関係の根拠・ソース抜粋・解析限界の`--explain`、package grouping・レイアウト・安全なskinparam、rendererの期限／空画像エラー修正。
 - Java／Goのpackage図、循環・依存根拠・完全なGit snapshotによるpackage差分。
@@ -56,9 +56,11 @@ PR #85の初回Windows CIでは、並列Git回帰のGit形式`C:/...`とGo形式
 - PR本文の許可された範囲指定、4環境の候補アーカイブ生成・インストール・実CLI受入検証、公開前artifactからのオフライン導入。
 - #70の実PlantUML描画修正、#47の型パラメーター・alias・デフォルトpackage・cache権限修正、#48のtitle安全化・Git解析のcwd分離・短縮flag・dotを含む除外・renderer期限と応答上限。
 
-PR #78→#79→#80の不足分と配布準備はPR #81でmainへ統合済み。今回もPR #85がmain統合済みの旧featureブランチへマージされていたため、**mainをbaseにした統合PR**で不足分を取り込む。統合開始時点のmainは`2f29fb5`、#85のmerge commitは`6f6f46a`。PRの`merged`表示ではなく、mainからの到達性・統合後CI・実際の配布候補を確認する。下の個別開発記録は当時の検証・統合状況であり、現在の公開条件は本節を優先する。
+PR #78→#79→#80の不足分と配布準備はPR #81、#85の不足分はmainをbaseとした[PR #86](https://github.com/Mino829/umlgen/pull/86)で統合済み。mainの[CI 42638978737](https://github.com/Mino829/umlgen/actions/runs/42638978737)と[CodeQL 42638978616](https://github.com/Mino829/umlgen/actions/runs/42638978616)は成功した。以下の受入条件・個別検証は公開準備当時の履歴として残し、公開版の現状と区別する。
 
-### 公開前の受入条件
+公開は[Release workflow 42641183981](https://github.com/Mino829/umlgen/actions/runs/42641183981)で完了した。初回はmacOS arm64のhosted runner未確保で停止したが、タグ・検証条件を変えず失敗分を再実行し、4環境のnative build／導入smoke・checksum検証後に公開した。公開Releaseから4アーカイブと`SHA256SUMS.txt`を取得し、全checksum・Release APIのdigest／size・実行形式／architecture・Go 1.26.10／CGO・公開commitとの一致を確認。通常のmacOS installerの`latest`でv0.6.0を取得し、全図種・cache・Git差分・privacy・watch・不正候補拒否を再検証、公開Java demoのbefore／after／diff SVGも生成した。
+
+### 公開前の受入条件（履歴）
 
 1. リリース準備PRの通常CI（Linux／macOS arm64・amd64／Windows、JDK 17、全体テスト・vet・脆弱性検査・実CLI）と候補配布CIを通す。
 2. `.github/workflows/release-build.yml`で`0.6.0-rc.1`の**ネイティブCGOバイナリー**を4種類生成する。Linuxの配布ビルドはUbuntu 22.04（glibc 2.35）を基準とする。
@@ -68,15 +70,15 @@ PR #78→#79→#80の不足分と配布準備はPR #81でmainへ統合済み。�
 
 配布リハーサルはPR権限のread-only buildであり、タグもGitHub Releaseも不要。`scripts/package-release.py`はローカルのネイティブ候補を生成し、`scripts/smoke-release.py`はインストールしたCLIを検証する。macOS／Windowsの`--archive-dir`／`-ArchiveDirectory`は明示版とチェックサムを要求し、破損・重複checksum・不正member・版違いでは既存の実行ファイルを置き換えない。
 
-今回の統合候補のローカル確認：全package test・vet、Git／CLI／rendererのrace検査、配布workflowのactionlintに成功した。native `0.6.0-rc.1`アーカイブを作成し、オフラインinstallerで導入した実行fileで全図種・cache一致・汚れた作業ツリーを含めないGit差分・配置図の秘密値非表示・watch更新／削除／中断を確認。installerの破損・版違い・重複checksum・不正archive拒否と既存実行file保持も確認した。同じ導入済みCLIでGo構造型のSVGを3表示方式すべてで生成し、titleの制御構文風文字列と後続メンバーを検証、PNGも目視した。4環境のCI・downloadした候補artifact・main統合後の結果は統合PRに記録する。
+統合候補のローカル確認（準備当時）：全package test・vet、Git／CLI／rendererのrace検査、配布workflowのactionlintに成功した。native `0.6.0-rc.1`アーカイブを作成し、オフラインinstallerで導入した実行fileで全図種・cache一致・汚れた作業ツリーを含めないGit差分・配置図の秘密値非表示・watch更新／削除／中断を確認。installerの破損・版違い・重複checksum・不正archive拒否と既存実行file保持も確認した。同じ導入済みCLIでGo構造型のSVGを3表示方式すべてで生成し、titleの制御構文風文字列と後続メンバーを検証、PNGも目視した。4環境のCI・downloadした候補artifact・main統合後の結果は統合PRに記録する。
 
-今回の準備ではmainへの統合と公開前の受入検証までを行う。`v0.6.0`タグ作成・GitHub Release公開・installerの既定版変更は別途公開承認後に行う。#15（Homebrew／Scoop）と#82（共通IR）は次の開発項目であり、今回の候補へ追加しない。
+準備段階ではmain統合と公開前受入検証までを対象とし、タグ作成・GitHub Release公開は別途承認とした。現在の公開状態は本節冒頭を参照。#15（Homebrew／Scoop）と#82（共通IR）は今後の開発項目として残す。
 
-### 今回の非対象
+### v0.6.0の非対象
 
 GUI／エディタ連携、他図種のwatch、実行trace、完全なdispatch／alias／例外解決、ユースケース要求モデル、追加OS／arch配布、新しい性能保証は追加しない。機能ごとの既知の解析限界を「完全解析」として売り出さない。
 
-## 完了済み
+## v0.5.0公開時の完了記録（履歴）
 
 1. **PR #40 を main にマージ** — 型なし差分のプレースホルダ生成、終了コードの整理、ワークフロー側の旧リリース対応を含む。
 2. **v0.5.0 をリリース** — Linux／macOS arm64・amd64／Windows の配布アーカイブ、チェックサム、GitHub Release を公開済み。
@@ -87,7 +89,7 @@ GUI／エディタ連携、他図種のwatch、実行trace、完全なdispatch�
    - #20 / #27 → 現行の OSS 機能・互換性・品質優先の計画と合わないため `not planned` で close
 5. **ドキュメントを更新** — `review-findings.md`, `github-actions.md`, `pr-diff.md`, `macos-setup.md`, `windows-setup.md`, 開発版バージョン表記を `v0.5.0` に合わせて更新。
 
-## 実装・PR状況（未リリース）
+## 初期開発・PR記録（当時は未リリース、現在はv0.6.0に収録）
 
 - **レンダラーの残存不具合 — [PR #62](https://github.com/Mino829/umlgen/pull/62)** — mainへマージ済み。タイムアウト後の出力パイプ待機と0バイト画像の成功扱いを修正。
 - **`--explain`（Issue #12）— [PR #63](https://github.com/Mino829/umlgen/pull/63)** — mainへマージ済み、Issue #12は完了。継承・実装・フィールド・引数・戻り値の解決先、メンバー、ファイル、宣言行を表示し、複数根拠とJava／Goの宣言位置を保持。通常のPlantUML出力は維持。
@@ -96,19 +98,19 @@ GUI／エディタ連携、他図種のwatch、実行trace、完全なdispatch�
 - **リモートCI** — PR #62／#63のLinux、Windows、macOS amd64／arm64およびCodeQL等のチェック成功を確認。
 - **Windowsのgolden比較** — 初回CIでチェックアウト時のCRLF変換による不一致を検出。`.gitattributes`で対象fixtureをLFに固定し、`core.autocrlf=true`でも4つのfixtureのバイト列が変わらないことを確認。比較条件は緩めない。
 - **main統合候補の確認** — `go test ./...`、`go vet ./...`成功。実CLIでJavaのSVG・GoのPNGを`--explain`と階層・横方向・skinparam併用で生成。コールド／ウォーム説明一致を確認。模擬レンダラーの1秒期限は約1.12秒で終了コード5、空画像も終了コード5となり、説明と`.puml`は保持。
-- 未リリース。機能の拡張順序は、次節の合意済み開発方針に従う。
+- 上記は開発当時の確認記録。現在はv0.6.0に収録済み。
 
-## 次の作業
+## 機能拡張の検討・実装記録（履歴）
 
 合意した優先順位は、**学習者のコード理解 → チームの設計レビュー → 開発中の継続利用 → エディタ・画面操作**。詳細と最初の完了条件は[`development-direction.md`](development-direction.md)を参照。
 
-既存の`--explain`を拡張する学習者向けの関係説明は[PR #66](https://github.com/Mino829/umlgen/pull/66)でmainへマージ済み。関係の意味、解析時のソース抜粋、Goの暗黙実装を支えるメソッド、範囲・失敗・未解決・既知の非表示参照を扱う。実CLIとテストの確認結果は[`development-direction.md`](development-direction.md)に記録。関係線の変更と根拠の変化を扱うチーム向け機能を検討し、watch／導入改善はその後に進める。リリースの実施は別途判断する。
+既存の`--explain`を拡張する学習者向けの関係説明は[PR #66](https://github.com/Mino829/umlgen/pull/66)でmainへマージされ、v0.6.0に収録済み。関係の意味、解析時のソース抜粋、Goの暗黙実装を支えるメソッド、範囲・失敗・未解決・既知の非表示参照を扱う。実CLIとテストの当時の確認結果は[`development-direction.md`](development-direction.md)に記録。以下はレビュー支援からwatchへ進めた当時の開発記録であり、未完了の公開条件ではない。
 
-PR #73の提案を受けた**PR本文からレビュー範囲を指定して安全に差分図を生成する導線**は、PR #74→#73を通してmainへ統合済み。checkoutしない検証job、4種類の許可flagと上限、JSON→NUL区切り引数、本文編集トリガー、古いrunの取消、Summaryと`review-scope.json`を接続した。差分図だけに条件を適用し、head全体図は従来の文脈を維持する。workflowは配布版CLI v0.5.0で動作し、PRソースをbuildしない。
+PR #73の提案を受けた**PR本文からレビュー範囲を指定して安全に差分図を生成する導線**は、PR #74→#73を通してmainへ統合済み。checkoutしない検証job、4種類の許可flagと上限、JSON→NUL区切り引数、本文編集トリガー、古いrunの取消、Summaryと`review-scope.json`を接続した。差分図だけに条件を適用し、head全体図は従来の文脈を維持する。当時は配布版CLI v0.5.0で確認した。現在の既定CLIはv0.6.0で、PRソースをbuildしない。
 
 確認済み: parserの正常／異常／非実行回帰、全体テスト・vet・actionlint、実配布版CLIとPlantUMLによる差分図・SVG、full図のバイト不変、変更なし・type-less・全削除・解析失敗。実GitHubの本文編集・取消、artifactの本文hash／head／filter一致も確認し、PR #74と統合後のPR #73は4 OSのCIが成功した。Go対象・全体図focus・watch・activity・GUIはこのレビュー導線に含めていない。
 
-以下は同じ開発版へ統合するpackage／sequenceの実装・検証記録。図別の制限と、個別開発時点の確認、統合時の確認を区別する。新機能の配布リリースはまだ行っていない。
+以下はv0.6.0に収録した各機能の個別開発時点の実装・検証記録。図別の制限と、当時の確認・統合状況を残す。「未リリース」「レビュー待ち」等は当時の状態で、現在の公開状態を示さない。
 
 図の拡張計画の **P1-01（Goキャッシュのmodule文脈分離）**、**P1-02（ファイル単位の解析結果・import位置）**、**P1-03（PackageIDと依存根拠の集約）** は開発版で実装済み。
 
@@ -124,7 +126,7 @@ PR #73の提案を受けた**PR本文からレビュー範囲を指定して安�
 
 **Phase 1B（P1B-01〜04、完全snapshotに基づくpackage差分）** も開発版で実装・検証済み。`diff --diagram package`が両commitの全選択ソースと各go.modをGitから固定し、未変更ファイルに残る根拠、一部／最後の根拠削除、同件数の入替、file rename、package／module identity変更を区別する。dirty／staged／untrackedを含めず、既存class diffの既定は変更しない。比較後のexternal／cycles-only投影で偽の辺削除を作らず、解析失敗・未解決／曖昧参照に関係する辺／循環を不確かとして説明する。
 
-2026-11-04の個別確認: Java／Goの全3依存modeでcold／warm／`--no-cache`とexplain有無の図一致、実local SVG／PNG、部分／全件parse失敗、模擬rendererの期限・空画像・異常終了、Go module変更と汚れた作業ツリーの分離、削除target・片側空・merge-base、行移動とfile renameを実CLIで確認。Java goldenと既存class／class diffの互換性、`go test ./...`、`go vet ./...`も成功。当時の確認には他OS CI・マージ・リリース・package差分の性能保証を含めていない。契約と利用例は[差分機能](pr-diff.md#パッケージ依存の差分開発版)と[開発計画](uml-expansion-proposal.md)を参照。
+2026-11-04の個別確認: Java／Goの全3依存modeでcold／warm／`--no-cache`とexplain有無の図一致、実local SVG／PNG、部分／全件parse失敗、模擬rendererの期限・空画像・異常終了、Go module変更と汚れた作業ツリーの分離、削除target・片側空・merge-base、行移動とfile renameを実CLIで確認。Java goldenと既存class／class diffの互換性、`go test ./...`、`go vet ./...`も成功。当時の確認には他OS CI・マージ・リリース・package差分の性能保証を含めていない。契約と利用例は[差分機能](pr-diff.md#パッケージ依存の差分)と[開発計画](uml-expansion-proposal.md)を参照。
 
 **Phase 2（静的シーケンス図）** も開発版で実装・検証済み。Goは選択済みローカルソースの`go/types`、JavaはJDK 17以上の`JavacTask.parse/analyze`を採用し、対象のbuild・実行・annotation processor・依存downloadを行わない境界を固定した。`sequence --entry`、一意なselector、制御領域、直接呼び出し展開、動的候補、go／defer／channel、再帰・上限・非対応箇所の明示、取得済みソースによる説明、専用YAML・rendererを接続した。
 
@@ -142,15 +144,15 @@ Java protocolの追加修正: JDK 17／Windowsの非UTF-8既定charsetを想定�
 
 Phase 3Aの確認: 全体テスト（22 package成功）・vet・build、両言語の実CLIとlocal SVG／PNG、短絡RHSの接続先・label付きtransfer・returnの終了先・非対応ノードの終端、UTF-8 selector、上限超過による旧図保持。Goの定数unsafe演算・generic channel range、Javaのclass literal／constructor referenceと継承pipe期限を修正し、回帰を保持。既存sequenceの実SVG、全package mode、Java class goldenの一致を維持。CI smoke shellをローカル実行し、[公開後のCI](https://github.com/Mino829/umlgen/actions/runs/42179247787)も4環境すべて成功した。
 
-**Phase 3B（明示状態図とソース代入候補）は[PR #76](https://github.com/Mino829/umlgen/pull/76)で実装・4環境CI成功後、featureブランチへマージ済み。main統合は[PR #77](https://github.com/Mino829/umlgen/pull/77)でレビュー待ち・未リリース。** `state --state-config`にversion: 1の型・field・状態・初期状態・event／guard／action・遷移を指定し、configuredな実線と直前状態不明の破線候補を分離する。optionalなsource valueはcompiler定数／enum・観測literalへ意味上のkeyで束縛し、未知・曖昧・矛盾を拒否する。別型・shadowing・別rootを名前だけで混同せず、書込みの所有関数・lexical guard・位置・CFG coverageと未対応範囲を説明する。初期状態・遷移元・runtime instance・実行済み経路は推定しない。利用方法は[README](../README.md#明示状態遷移図開発版)を参照。
+**Phase 3B（明示状態図とソース代入候補）は[PR #76](https://github.com/Mino829/umlgen/pull/76)で実装・4環境CI成功後、featureブランチへマージ済み。当時はmain統合の[PR #77](https://github.com/Mino829/umlgen/pull/77)がレビュー待ち・未リリースだった。現在はv0.6.0に収録済み。** `state --state-config`にversion: 1の型・field・状態・初期状態・event／guard／action・遷移を指定し、configuredな実線と直前状態不明の破線候補を分離する。optionalなsource valueはcompiler定数／enum・観測literalへ意味上のkeyで束縛し、未知・曖昧・矛盾を拒否する。別型・shadowing・別rootを名前だけで混同せず、書込みの所有関数・lexical guard・位置・CFG coverageと未対応範囲を説明する。初期状態・遷移元・runtime instance・実行済み経路は推定しない。利用方法は[README](../README.md#明示状態遷移図)を参照。
 
 Phase 3Bの確認: 全体テスト（23 package成功）・vet・build、両言語の実CLI・local SVG／PNG、明示遷移と候補の分離、未知RHS、field／capエラーによる旧図保持。レビューで見つかったGoの別定義型field混同・未評価initializerの誤ったCFG対応・同表記定数式のID衝突・range target内literalの所属漏れ、Javaの括弧付きreceiverを失敗前／成功後の回帰で修正。Go composite initializerは候補を残し、専用ノードがないことを診断する。既存activity／sequenceの実SVG、全package mode、Java class goldenの一致、追加CI shell blockのローカル実行とactionlint成功を確認。#76のマージ先は既に#75がマージされた後のfeatureブランチだったため、mainにはまだ状態図が含まれない。#77で状態図だけのmain統合差分を分離した。
 
-**Phase 4A（明示コンポーネント境界）は[PR #78](https://github.com/Mino829/umlgen/pull/78)で実装・4環境CI成功、レビュー待ち・未マージ・未リリース。** 厳密なversion: 1 YAMLからpackage prefix・exact Go module・exact物理source rootをAND／ORで照合し、重複所属をhard errorにする。未割当・空境界・外部を混同せず、内部／境界間／非表示依存に元package・型・import・推定根拠・位置・hashを保持する。provides／requiresは明示契約だけで同名providerへ自動接続しない。`component`・専用YAML・構文cache・renderer・説明を接続し、JavaもJDK不要。利用例と契約は[README](../README.md#明示コンポーネント図開発版)を参照。
+**Phase 4A（明示コンポーネント境界）は[PR #78](https://github.com/Mino829/umlgen/pull/78)で実装・4環境CI成功。当時はレビュー待ち・未マージ・未リリースだったが、現在はv0.6.0に収録済み。** 厳密なversion: 1 YAMLからpackage prefix・exact Go module・exact物理source rootをAND／ORで照合し、重複所属をhard errorにする。未割当・空境界・外部を混同せず、内部／境界間／非表示依存に元package・型・import・推定根拠・位置・hashを保持する。provides／requiresは明示契約だけで同名providerへ自動接続しない。`component`・専用YAML・構文cache・renderer・説明を接続し、JavaもJDK不要。利用例と契約は[README](../README.md#明示コンポーネント図)を参照。
 
 Phase 4Aの確認: 全体テスト（24 package成功）・vet・build・actionlint、両言語の全3依存modeでcold／warm／`--no-cache`の図・説明一致、実local Go SVG／Java PNG、空PATHで両言語の生成成功。境界競合時の終了コード2と旧SVG／PlantUML保持、部分失敗ファイルの除外と終了コード3、全件失敗時の旧図保持を実CLIで確認した。レビューで見つかったsymlink親参照とcase-insensitive filesystemのroot混同を失敗前／成功後で修正し、将来rootとWindowsの区切りを含む回帰を保持。既存class／packageの両言語cache／説明一致、sequence／activity／state／componentの実CI shell成功を確認した。main統合PR #77のheadをbaseとするレビュー用後続PRとして提出し、公開後のCIを確認する。
 
-**Phase 4B（宣言された配置図）は[PR #79](https://github.com/Mino829/umlgen/pull/79)で実装・4環境CI成功、レビュー待ち・未マージ・未リリース。** 単一Compose、固定したKubernetes API／kindとmulti-docを読み、image・network・named volume・起動条件・desired replicas・Service selector候補・未知endpointを分離する。別のstrict mapping YAMLでcomponentと完全一致targetだけを結び、source→imageのbuild来歴やruntime通信・実配置は補わない。環境変数・Secret／ConfigMapの値、labels値、raw YAMLを出力せず、対象ツール・生成script・dotenv読取・変数展開・manifest mergeは行わない。
+**Phase 4B（宣言された配置図）は[PR #79](https://github.com/Mino829/umlgen/pull/79)で実装・4環境CI成功。当時はレビュー待ち・未マージ・未リリースだったが、現在はv0.6.0に収録済み。** 単一Compose、固定したKubernetes API／kindとmulti-docを読み、image・network・named volume・起動条件・desired replicas・Service selector候補・未知endpointを分離する。別のstrict mapping YAMLでcomponentと完全一致targetだけを結び、source→imageのbuild来歴やruntime通信・実配置は補わない。環境変数・Secret／ConfigMapの値、labels値、raw YAMLを出力せず、対象ツール・生成script・dotenv読取・変数展開・manifest mergeは行わない。
 
 Phase 4Bの確認: `go test ./...`（25 package成功）・vet・build・actionlint、Compose／Kubernetesの実CLI・local SVG／PNG・画像確認、空PATHでの図／説明一致、明示対応とsource hash／document行、selectorのnamespace分離を確認した。selectorなしService・未評価継承・unknown imageは図と終了コード3、構文／mappingエラー2・boundary IO1は旧図／画像を保持する。空renderer・1秒期限は5で元PlantUMLを保持。内部レビューのcredential風digest参照・継承からのdefault network誤推定・root YAML mergeのschema回避・boundary IO分類を失敗前／成功後の回帰で修正した。既存class／packageの両言語cache／説明一致、sequence／activity／state／component／deploymentの実CI shellも成功。PR #78をbaseとする別PRでレビューし、公開後のCIを確認する。
 

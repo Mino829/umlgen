@@ -2,6 +2,8 @@
 
 合意日: 2026-11-01
 
+公開状況: 以下の実装は[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)に収録済み。検証結果は各開発時点の記録であり、v0.5.0での確認をv0.6.0で再実行したという意味ではない。今後は#15（導入改善）と#82（共通IR整理）を検討する。
+
 ## 優先順位
 
 1. **学習者のコード理解を助ける。** 図の関係線を宣言・ソースへ結び付け、意味と解析上の限界を説明する。
@@ -60,20 +62,20 @@ watch／Homebrew／Scoopを次の最優先としていた従来の順序は、�
 
 第一の開発単位の利用結果を確認した後、関係線の追加・削除と根拠の変化を扱うレビュー支援へ進む。その次にwatchと導入改善、最後にエディタ／画面操作へ展開する。各段階は個別にレビュー・検証できるPRにし、実装済みの機能と計画を混同しない。
 
-### 継続利用の実装（開発版）
+### 継続利用の実装（v0.6.0収録・開発時の記録）
 
 Issue #14のclass／package向け`watch`を後続ブランチで実装した。Java／Goの選択source・共有設定・関連module／auto判定metadataの内容snapshotを監視し、連続保存をdebounceする。世代を並行実行せず、設定のsource／output変更と追加・削除・renameへ追従する。
 
 parse／設定／renderer失敗時は前回成功したPlantUMLと画像を保持し、入力の修正で再開する。stage内で生成後に入力を再確認し、未公開のまま観測が失敗した世代も復帰後に取りこぼさない。Ctrl+Cはrendererをキャンセルしてstageを片付ける。原子的なfile単位置換と途中失敗rollbackであり、複数file readerへの一括transactionではない。
 
-実CLIでGoの連続保存集約・同mtime置換・追加rename削除・config scope／output変更・module更新・空図、Java packageの実PNG・cache・部分parse／renderer失敗時の両成果物保持・描画中のSIGINTを確認した。内部レビューのauto空scope・未作成出力alias・新規fileのumask・config復帰時の未公開世代を失敗前／成功後で修正した。`go test ./...`（27 package）・vet・build・actionlint成功、追加CIの実watch起動／更新／削除／終了scriptもmacOSで実行済み。配布リリース・GUI・他図種watch・任意command hookは含めない。利用方法は[README](../README.md#保存に追従するwatch開発版)を参照。
+実CLIでGoの連続保存集約・同mtime置換・追加rename削除・config scope／output変更・module更新・空図、Java packageの実PNG・cache・部分parse／renderer失敗時の両成果物保持・描画中のSIGINTを確認した。内部レビューのauto空scope・未作成出力alias・新規fileのumask・config復帰時の未公開世代を失敗前／成功後で修正した。`go test ./...`（27 package）・vet・build・actionlint成功、追加CIの実watch起動／更新／削除／終了scriptもmacOSで実行済み。当時の確認には配布リリース・GUI・他図種watch・任意command hookを含めない。利用方法は[README](../README.md#保存に追従するwatch)を参照。
 
 
 ## 第一の開発単位の実装状況
 
-PR #66でmainへ統合済み（未リリース）。`internal/explain`にテキスト表示を集約し、関係解析は根拠・未解決参照・図の外の既知の型を構造化して返す。Goの対応メソッドと説明用のソース本文は、説明を要求した実行だけで収集する。
+PR #66でmainへ統合され、v0.6.0に収録済み。`internal/explain`にテキスト表示を集約し、関係解析は根拠・未解決参照・図の外の既知の型を構造化して返す。Goの対応メソッドと説明用のソース本文は、説明を要求した実行だけで収集する。
 
-確認済み:
+開発当時の確認:
 
 - `go test ./...`、`go vet ./...`成功。
 - Javaのクラス／インターフェース、Goの埋め込み／別ファイルとポインタレシーバー由来の暗黙実装を、実CLIの説明とソース抜粋で確認。
@@ -83,7 +85,7 @@ PR #66でmainへ統合済み（未リリース）。`internal/explain`にテキ�
 
 ## PR本文でレビュー範囲を指定する
 
-**状態: PR #74→#73を通してmainへ統合済み。未リリース。** 優先順位2「チームの設計レビュー」の導線。学習者向け説明とは別に、本文から安全に差分図の条件を指定する。
+**状態: PR #74→#73を通してmainへ統合され、v0.6.0に収録済み。** 優先順位2「チームの設計レビュー」の導線。学習者向け説明とは別に、本文から安全に差分図の条件を指定する。
 
 ### 目的と記述例
 
@@ -102,7 +104,7 @@ PR本文の記述例:
 ```
 ````
 
-受け付ける引数は`--include`、`--relations`、`--depth`、`--direction`だけ。比較元・比較先のコミット、解析対象のルート、出力先、renderer、CLI版はworkflow管理とし、PR本文から変更させない。配布版CLI v0.5.0に合わせ、includeは単一のJava package prefix、relationsは一意なCSVまたはall、本文depthは0〜10とした。
+受け付ける引数は`--include`、`--relations`、`--depth`、`--direction`だけ。比較元・比較先のコミット、解析対象のルート、出力先、renderer、CLI版はworkflow管理とし、PR本文から変更させない。実装当時の配布版CLI v0.5.0に合わせ、includeは単一のJava package prefix、relationsは一意なCSVまたはall、本文depthは0〜10とした。
 
 ### 動作
 
@@ -129,8 +131,8 @@ PR本文の記述例:
 - 現行の`diff`は`--focus`と併用できない。特定型を中心に見る指定は全体図の`class --focus`用として分ける。本文から任意の`class`／`diff`コマンドを実行する設計にはしない。
 - 本文フィルタは差分図だけへ適用する。全体図は従来どおりheadの全体文脈で、repository設定は有効。二つを同じレビュー条件の図として扱わない。
 - `.github/workflows/umlgen-review-filters.yml`はcheckoutせず、固定されたinline JavaScriptでevent JSONを解析する。検証済みJSONを生成jobへ渡し、NUL区切りの配列からCLIを起動する。実行scriptをPRの作業ツリーから読み込まない。
-- Java変更のみを検知し、既定CLIは配布版`v0.5.0`。Goや未リリースの図をこの変更へ混在させない。type-less変更・全削除・解析失敗の既存経路は維持する。
-- 利用者は対応workflowのcommitを選び、callerの`pull_request.types`に`edited`を含める必要がある。旧workflowや通常のCLIがPR本文を自動解析するわけではない。詳しい構文・上限は[GitHub Actions](github-actions.md#pr本文でレビュー範囲を指定する開発版)を参照。
+- Java変更のみを検知し、現在の既定CLIは公開版`v0.6.0`。Goや他図種はこのレビュー導線へ混在させない。type-less変更・全削除・解析失敗の既存経路は維持する。
+- 利用者は対応workflowのcommitを選び、callerの`pull_request.types`に`edited`を含める必要がある。旧workflowや通常のCLIがPR本文を自動解析するわけではない。詳しい構文・上限は[GitHub Actions](github-actions.md#pr本文でレビュー範囲を指定する)を参照。
 
 ### 受入確認
 
@@ -140,7 +142,7 @@ PR本文の記述例:
 - Fork PRの読み取り専用権限と、既存の「変更なし」・削除ファイル・解析失敗の扱いを維持すること。
 - 不正な指定の結果として、無指定の図を成功扱いで出したり、過去のartifactを最新結果として案内したりしないこと。
 
-ローカル確認: 実際のinline parserをNodeで実行する回帰で、既定値・優先順位・引用・Unicode・fence・重複・範囲外・size上限・悪意ある入力の拒否と非実行を確認した。`go test ./...`、`go vet ./...`、actionlint成功。SHA-256検証済み配布版v0.5.0とPlantUML 1.2026.6でworkflowと同じ引数・生成script・receipt／Summaryを実行し、package／relation／depthの絞り込み、全体図のバイト不変、変更なし・type-less・選択ディレクトリ全削除・解析失敗を確認した。本文編集イベントとrun取消は実GitHub上でも確認してから結果をPRへ記録する。
+開発当時のローカル確認: 実際のinline parserをNodeで実行する回帰で、既定値・優先順位・引用・Unicode・fence・重複・範囲外・size上限・悪意ある入力の拒否と非実行を確認した。`go test ./...`、`go vet ./...`、actionlint成功。SHA-256検証済み配布版v0.5.0とPlantUML 1.2026.6でworkflowと同じ引数・生成script・receipt／Summaryを実行し、package／relation／depthの絞り込み、全体図のバイト不変、変更なし・type-less・選択ディレクトリ全削除・解析失敗を確認した。本文編集イベントとrun取消は実GitHub上でも確認してから結果をPRへ記録する。
 
 実GitHub確認: [拒否ケース](https://github.com/Mino829/umlgen/actions/runs/42062889682)では禁止flagを明示エラーにし、生成jobがskip、artifactが0件だった。許可filterへの本文編集で新runが起動し、[depth 0の結果](https://github.com/Mino829/umlgen/actions/runs/42063624983)では5ファイルを生成した。downloadした`review-scope.json`のdepth／direction／relations、head SHA、本文SHA-256が、実際のPR #74の本文・commitと一致することを確認した。
 

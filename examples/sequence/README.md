@@ -1,6 +1,6 @@
-# 静的シーケンス図（開発版）
+# 静的シーケンス図
 
-Java／Goの指定entryから、ソース上の呼び出しと構造化制御領域を描く。実行trace・完全なCall Graph・実ビルドの検証ではない。未リリースのため、配布版ではなく現在のソースからビルドする。
+Java／Goの指定entryから、ソース上の呼び出しと構造化制御領域を描く。実行trace・完全なCall Graph・実ビルドの検証ではない。公開版v0.6.0のCLIを使用でき、ソースからのビルドは必須ではない。
 
 ## 代表ソースを実行する
 
@@ -116,4 +116,4 @@ PR公開前の追加確認では、Goの壊れたheader／body／EOFで旧図保
 
 Java helperのprotocol出力はJVM既定charsetに依存せずUTF-8固定。非UTF-8が既定になり得るJDK 17／Windowsを想定し、実JVMのstdoutをwindows-1252にした際の日本語entry名・直接呼び出しIDの破損を再現・修正した。UTF-8以外のJVMでも、入力のソース位置・identityを別文字列へ置換しない。
 
-`go test ./...`と`go vet ./...`成功。他OS CI・マージ・リリース・sequenceの性能保証は未実施。
+開発当時の個別確認では`go test ./...`と`go vet ./...`が成功。他OS CI・マージ・リリース・sequenceの性能保証は、この個別確認の対象には含めていない。
