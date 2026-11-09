@@ -25,6 +25,12 @@ const (
 	TypeServer Type = "server"
 )
 
+// Server responses are bounded independently of the rendering timeout.
+const (
+	maxServerImageBytes = 32 << 20
+	maxServerErrorBytes = 8 << 10
+)
+
 // Config controls rendering behaviour.
 type Config struct {
 	// Context allows a caller to cancel rendering independently of its timeout.
@@ -32,7 +38,9 @@ type Config struct {
 	Context   context.Context
 	Type      Type
 	ServerURL string
-	Timeout   time.Duration
+	// Timeout limits rendering; zero disables the deadline without disabling
+	// cancellation through Context. Negative durations are invalid.
+	Timeout time.Duration
 }
 
 // Defaults returns a Config that auto-detects a local renderer.
@@ -42,6 +50,9 @@ func Defaults() Config {
 
 // Validate checks the renderer configuration.
 func (c Config) Validate() error {
+	if c.Timeout < 0 {
+		return errors.New("renderer timeout must not be negative (use 0 for no timeout)")
+	}
 	switch c.Type {
 	case TypeAuto, TypeLocal, TypeJar, TypeServer:
 	default:
@@ -62,9 +73,6 @@ func Render(format, pumlPath string, cfg Config) (string, error) {
 		return "", fmt.Errorf("unsupported render format: %q (supported: svg, png)", format)
 	}
 
-	if cfg.Timeout <= 0 {
-		cfg.Timeout = 30 * time.Second
-	}
 	if err := cfg.Validate(); err != nil {
 		return "", err
 	}
@@ -202,23 +210,68 @@ func renderServer(ctx context.Context, format, pumlPath, serverURL string) (stri
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("PlantUML server returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxServerErrorBytes+1))
+		truncated := len(body) > maxServerErrorBytes
+		if truncated {
+			body = body[:maxServerErrorBytes]
+		}
+		diagnostic := strings.TrimSpace(string(body))
+		if truncated {
+			diagnostic += " (truncated)"
+		}
+		if readErr != nil {
+			return "", fmt.Errorf("PlantUML server returned %s: %s; reading diagnostic: %w", resp.Status, diagnostic, readErr)
+		}
+		return "", fmt.Errorf("PlantUML server returned %s: %s", resp.Status, diagnostic)
+	}
+	if resp.ContentLength > maxServerImageBytes {
+		return "", fmt.Errorf("PlantUML server image exceeds the 32 MiB limit")
 	}
 
 	outPath := outputPath(pumlPath, format)
-	outFile, err := os.Create(outPath)
+	// Stage the bounded response beside the destination so an oversized or
+	// interrupted response never destroys a previously successful image.
+	outFile, err := os.CreateTemp(filepath.Dir(outPath), ".umlgen-render-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file: %w", err)
 	}
+	defer os.Remove(outFile.Name())
 	defer outFile.Close()
 
-	size, err := io.Copy(outFile, resp.Body)
+	size, err := io.Copy(outFile, io.LimitReader(resp.Body, maxServerImageBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to write output file: %w", err)
 	}
+	if size == maxServerImageBytes {
+		var extra [1]byte
+		n, err := io.ReadFull(resp.Body, extra[:])
+		if n != 0 {
+			return "", fmt.Errorf("PlantUML server image exceeds the 32 MiB limit")
+		}
+		if err != io.EOF {
+			return "", fmt.Errorf("failed to read output file response: %w", err)
+		}
+	}
 	if size == 0 {
 		return "", fmt.Errorf("renderer produced empty output file %q", outPath)
+	}
+	if info, err := os.Stat(outPath); err == nil {
+		if err := outFile.Chmod(info.Mode().Perm()); err != nil {
+			return "", fmt.Errorf("failed to set output file permissions: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to inspect output file: %w", err)
+	}
+	// A new image keeps CreateTemp's private mode rather than widening a
+	// restrictive umask. Replacements retain the existing image's mode above.
+	if err := outFile.Close(); err != nil {
+		return "", fmt.Errorf("failed to close output file: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("rendering canceled: %w", err)
+	}
+	if err := os.Rename(outFile.Name(), outPath); err != nil {
+		return "", fmt.Errorf("failed to publish output file: %w", err)
 	}
 	return outPath, nil
 }

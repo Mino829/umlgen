@@ -112,6 +112,33 @@ renderer:
 	}
 }
 
+func TestLoadRendererTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  time.Duration
+	}{
+		{"omitted", "renderer:\n  type: auto\n", 30 * time.Second},
+		{"zero", "renderer:\n  timeout: 0s\n", 0},
+		{"quoted zero", "renderer:\n  timeout: \"0\"\n", 0},
+		{"positive", "renderer:\n  timeout: 45s\n", 45 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), ".umlgen.yaml")
+			if err := os.WriteFile(path, []byte(tc.input), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, _, err := Load(path, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Renderer.Timeout != tc.want {
+				t.Fatalf("renderer timeout = %v, want %v", cfg.Renderer.Timeout, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadNormalizesRendererType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".umlgen.yaml")
 	if err := os.WriteFile(path, []byte("renderer:\n  type: SERVER\n"), 0o644); err != nil {

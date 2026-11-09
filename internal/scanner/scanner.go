@@ -81,13 +81,13 @@ func ExcludedDirectory(path string, excludes []string) bool {
 	return defaultExcluded[filepath.Base(path)] || ExcludedPath(path, excludes)
 }
 
-// ExcludedPath matches path exclusions; package-like dotted selectors are
-// intentionally left for the graph's package selection stage.
+// ExcludedPath matches path components below a selected source root.
+// Dots are literal; package-name selection is a separate graph filter.
 func ExcludedPath(path string, excludes []string) bool {
 	slash := filepath.ToSlash(path)
 	for _, ex := range excludes {
 		ex = strings.Trim(strings.TrimSpace(filepath.ToSlash(ex)), "/")
-		if ex == "" || strings.Contains(ex, ".") && !strings.Contains(ex, "/") {
+		if ex == "" {
 			continue
 		}
 		if slash == ex || strings.Contains(slash, "/"+ex+"/") || strings.HasSuffix(slash, "/"+ex) {

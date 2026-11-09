@@ -1,5 +1,5 @@
 @startuml
-title Release #13
+title Release <U+0023>13
 
 class "Bootstrap" as T_Bootstrap {
 }

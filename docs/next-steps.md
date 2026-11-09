@@ -14,7 +14,7 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 
 ### #47：中優先度レビュー項目（M1〜M7）
 
-後続ブランチで実装・ローカル検証済み。未マージ・未リリース。
+[PR #84](https://github.com/Mino829/umlgen/pull/84)で実装・4環境CI成功、レビュー待ち。未マージ・未リリース。
 
 - M1：既存の`--config`手動スキップを標準flag解析へ置き換え、コマンド名と同じ設定ファイル名、値欠落、未知コマンドを回帰で固定した。
 - M2：Goのaliasを専用の構文メタデータとして保持し、class／packageの図への投影から除外する。名前付き定義型は維持し、別ファイルのalias receiverも偽classにしない。宣言ファイルが未取得のreceiver部分解析とその推定実装は維持する。
@@ -26,6 +26,19 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 
 ローカル確認：`go test ./...`、`go vet ./...`、CLI build、actionlint成功。実CLIでGo／Javaの型パラメーター由来の偽辺が消え、具体型の辺が残ること、classのcold／warm／`--no-cache`で図・説明が一致することを確認した。packageの全3依存modeも同じ3cache条件で図・説明が一致。デフォルトパッケージの画像は修正前の終了コード5からSVG／PNG成功へ変わり、画像内容を確認。既存cache directoryの`0750`保持、`--config class class src`、公開Java demoのbefore／after／Git差分SVGも実行した。OS別CIの結果はPRで確認する。
 
+### #48：低優先度レビュー項目（L1〜L7）
+
+PR #84のheadをbaseとする後続ブランチで実装・ローカル検証済み。#84が未マージのため依存を明示し、無断マージ・リリースは行わない。
+
+- L1：classと差分placeholderのtitleも他図と同じ安全な文字エスケープに統一した。既存の生title文字列のassertは削除し、実SVGで記号・HTML風文字列・`%date()`がリテラルに残ることを検証する。titleを含む3つのgoldenだけを意図した表記へ更新した。
+- L2：`gitdiff.Analyze`へworking directoryを明示し、独立repoの並列解析を回帰で固定した。CLIテストの手動cwd変更・復帰と旧helperを除去し、標準`t.Chdir`の非並列guardへ移行した。
+- L3：Issueの「Go 1.25未リリース」という前提は[公式リリースノート](https://go.dev/doc/go1.25)と一致しない。`go.mod`のGo 1.25要件は維持し、実Go 1.25.0で全体テスト・buildと生成CLIのGo SVGを確認した。Go 1.23／1.24対応の追加は行わない。
+- L4：登録済み一文字flagの結合と値の直結を扱い、単一dash長名・未知option・競合・`--`・flag風の値を区別する。root／各図／diff／watchの共有解析へ接続した。
+- L5：除外パターンのdotヒューリスティックを除去した。`User.java`・`.generated`等はパス成分として扱い、類似名を巻き込まない。通常探索と両Git snapshotの回帰、明示file優先を維持する。
+- L6：既定30秒、明示0は無期限、負値はエラーにした。0でもcaller cancellationは維持する。仮想時刻の31秒renderと30秒deadlineの比較、実CLIのYAML 0s／CLI期限上書き／watch Ctrl+Cで検証した。
+- L7：Server画像32MiB・エラー本文8KiBを上限にし、既知長・長さ不明・chunkedに適用する。画像はstage後に公開し、上限超過等では前回画像と元PlantUMLを保持する。新規画像でumaskの制限を広げず、既存modeを維持する。
+
+ローカル確認：標準GoとGo 1.25.0で`go test ./...`・build成功、標準Goのvet・Git／CLI race検査・actionlintも成功。実PlantUMLのSVG／PNGでtitleの記号がそのまま表示され、Go／Javaのファイル名除外、結合flag、class／packageのcache一致、独立repoの並列Git差分SVGを確認した。実CLIのローカルHTTP rendererで32MiB成功・1byte超過／stream超過／大きなエラー応答の失敗、前回画像・生成済みPlantUML保持、既存0640／新規umask077の権限、負の期限の送信前拒否を確認。無期限watchの描画中SIGINTは速やかに終了コード0となり、未公開stageを除去した。OS別CIは後続PRで確認する。
 
 ## v0.6.0のリリース候補
 

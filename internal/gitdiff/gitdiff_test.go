@@ -28,16 +28,7 @@ func TestAnalyzeAddedModifiedAndDeletedFiles(t *testing.T) {
 	git(t, root, "add", "-A")
 	git(t, root, "reset", "Untracked.java")
 
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(previous)
-
-	result, err := Analyze("HEAD")
+	result, err := Analyze(root, "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +46,53 @@ func TestAnalyzeAddedModifiedAndDeletedFiles(t *testing.T) {
 	}
 	if len(result.Deleted) != 1 || string(result.Deleted[0].Content) != "class Delete {}" {
 		t.Fatalf("deleted = %#v", result.Deleted)
+	}
+}
+
+func TestAnalyzeConcurrentRepositories(t *testing.T) {
+	for _, name := range []string{"First", "Second"} {
+		root := t.TempDir()
+		git(t, root, "init")
+		git(t, root, "config", "user.email", "umlgen@example.test")
+		git(t, root, "config", "user.name", "umlgen test")
+		modified := name + ".java"
+		deleted := name + "Deleted.java"
+		deletedContent := "class " + name + "Deleted {}"
+		write(t, root, modified, "class "+name+" {}")
+		write(t, root, deleted, deletedContent)
+		git(t, root, "add", ".")
+		git(t, root, "commit", "-m", "base")
+		write(t, root, modified, "class "+name+" { int revision; }")
+		if err := os.Remove(filepath.Join(root, deleted)); err != nil {
+			t.Fatal(err)
+		}
+		nested := filepath.Join(root, "nested")
+		if err := os.Mkdir(nested, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		canonicalRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for range 10 {
+				result, err := Analyze(nested, "HEAD")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Root != canonicalRoot {
+					t.Fatalf("root = %q, want %q", result.Root, canonicalRoot)
+				}
+				if len(result.Current) != 1 || result.Current[modified] != model.Modified {
+					t.Fatalf("current files = %#v, want only %s modified", result.Current, modified)
+				}
+				if len(result.Deleted) != 1 || result.Deleted[0].Path != filepath.Join(canonicalRoot, deleted) || string(result.Deleted[0].Content) != deletedContent {
+					t.Fatalf("deleted files = %#v, want only %s with content %q", result.Deleted, deleted, deletedContent)
+				}
+			}
+		})
 	}
 }
 

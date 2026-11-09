@@ -35,7 +35,7 @@ func packageDiffRepo(t *testing.T, language string) string {
 		packageCLIWrite(t, filepath.Join(root, "go.mod"), "module example.test/diff\n\ngo 1.25\n")
 	}
 	t.Setenv("UMLGEN_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
-	packageCLIChdir(t, root)
+	t.Chdir(root)
 	return root
 }
 

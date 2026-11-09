@@ -306,7 +306,7 @@ Flags:
       --title string             safe diagram title
       --renderer string          auto, local, jar, or server
       --server-url string        URL only for explicitly selected server renderer
-      --render-timeout duration  image rendering timeout
+      --render-timeout duration  rendering timeout (default 30s; 0 disables timeout)
       --config string            shared YAML configuration file
   -q, --quiet                    suppress progress, not requested explanations
   -v, --verbose                  verbose source/cache progress

@@ -207,6 +207,9 @@ func loadClassConfiguration(o classOptions, diff bool) (config.Config, plantuml.
 		cfg.Relations.ParameterDependency = enabled[relations.Parameter]
 		cfg.Relations.ReturnDependency = enabled[relations.Return]
 	}
+	if cfg.Renderer.Timeout < 0 {
+		return cfg, opts, loadedPath, errors.New("--render-timeout must be zero or greater")
+	}
 	if cfg.Output.Format != "plantuml" && cfg.Output.Format != "svg" && cfg.Output.Format != "png" {
 		return cfg, opts, loadedPath, fmt.Errorf("unsupported format: %s\nSupported formats: plantuml, svg, png", cfg.Output.Format)
 	}
