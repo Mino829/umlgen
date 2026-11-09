@@ -1,11 +1,8 @@
 @startuml
 title Release #13
 
-package "" {
-  class "Bootstrap" as T_Bootstrap {
-  }
+class "Bootstrap" as T_Bootstrap {
 }
-
 package "com.acme.api" {
   class "Service" as T_com_acme_api_Service #palegreen {
     -repository: com.acme.store.Repository

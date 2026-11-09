@@ -16,6 +16,7 @@ type resolverIndex struct {
 	types        map[qualifiedName][]Target
 	packages     map[qualifiedName][]PackageID
 	packageNames map[PackageID][]string
+	aliases      map[Target]struct{}
 }
 
 type resolutionResult struct {
@@ -50,6 +51,17 @@ func newResolverIndex(sources []Source) *resolverIndex {
 			index.packageNames[id] = append(index.packageNames[id], source.Unit.Package.Name)
 		}
 		for _, typ := range source.Unit.Types {
+			if typ.Kind == model.Alias {
+				if index.aliases == nil {
+					index.aliases = make(map[Target]struct{})
+				}
+				typ.Package = id.Name
+				index.aliases[Target{Package: id, Type: typ.QualifiedName()}] = struct{}{}
+				continue
+			}
+			if typ.ReceiverOnly {
+				continue
+			}
 			typ.Package = id.Name
 			key := qualifiedName{Language: id.Language, Name: typ.QualifiedName()}
 			target := Target{Package: id, Type: key.Name}
@@ -78,6 +90,19 @@ func (i *resolverIndex) localTypes(source Source, name string) []Target {
 		}
 	}
 	return targets
+}
+
+func (i *resolverIndex) projectsType(source Source, typ model.Type) bool {
+	if typ.Kind == model.Alias {
+		return false
+	}
+	if !typ.ReceiverOnly {
+		return true
+	}
+	id := packageID(source)
+	typ.Package = id.Name
+	_, alias := i.aliases[Target{Package: id, Type: typ.QualifiedName()}]
+	return !alias
 }
 
 // resolveTargets retains all distinct candidates rather than choosing map or

@@ -13,7 +13,7 @@ import (
 )
 
 // SchemaVersion identifies the persisted Java source-unit syntax model.
-const SchemaVersion = "java-tree-sitter-v3"
+const SchemaVersion = "java-tree-sitter-v4"
 
 // ParseFile parses Java source with the official Tree-sitter Java grammar and
 // converts declaration nodes into umlgen's language-neutral model.
@@ -62,7 +62,7 @@ func ParseSource(path string, source []byte) (*model.SourceUnit, error) {
 		if !isTypeDeclaration(child.Kind()) {
 			continue
 		}
-		found, err := parseType(child, source, unit.Package.Name, path, unit.Imports, nil)
+		found, err := parseType(child, source, unit.Package.Name, path, unit.Imports, nil, nil)
 		if err != nil {
 			return unit, err
 		}
@@ -72,7 +72,7 @@ func ParseSource(path string, source []byte) (*model.SourceUnit, error) {
 	return unit, nil
 }
 
-func parseType(node *sitter.Node, source []byte, pkg, path string, imports []model.Import, enclosing []string) ([]model.Type, error) {
+func parseType(node *sitter.Node, source []byte, pkg, path string, imports []model.Import, enclosing, enclosingParameters []string) ([]model.Type, error) {
 	nameNode := node.ChildByFieldName("name")
 	bodyNode := node.ChildByFieldName("body")
 	if nameNode == nil || bodyNode == nil {
@@ -93,8 +93,10 @@ func parseType(node *sitter.Node, source []byte, pkg, path string, imports []mod
 		Source:     path,
 		Line:       int(node.StartPosition().Row) + 1,
 	}
+	t.TypeParameterNames = append([]string(nil), enclosingParameters...)
 	if typeParameters := node.ChildByFieldName("type_parameters"); typeParameters != nil {
 		t.TypeParameters = typeText(typeParameters, source)
+		t.TypeParameterNames = append(t.TypeParameterNames, typeParameterNames(typeParameters, source)...)
 	}
 	if superclass := node.ChildByFieldName("superclass"); superclass != nil {
 		t.Extends = append(t.Extends, superTypes(superclass, source, path)...)
@@ -120,7 +122,13 @@ func parseType(node *sitter.Node, source []byte, pkg, path string, imports []mod
 	result := []model.Type{t}
 	nextEnclosing := append(append([]string(nil), enclosing...), t.Name)
 	for _, child := range nestedTypeDeclarations(bodyNode) {
-		nested, err := parseType(child, source, pkg, path, imports, nextEnclosing)
+		parameters := t.TypeParameterNames
+		if hasModifier(child, source, "static") || t.Kind == model.Interface || t.Kind == model.Annotation ||
+			child.Kind() == "interface_declaration" || child.Kind() == "annotation_type_declaration" ||
+			child.Kind() == "enum_declaration" || child.Kind() == "record_declaration" {
+			parameters = nil
+		}
+		nested, err := parseType(child, source, pkg, path, imports, nextEnclosing, parameters)
 		if err != nil {
 			return nil, err
 		}
@@ -241,6 +249,10 @@ func parseMethod(t *model.Type, node *sitter.Node, source []byte, constructor bo
 		Source:      t.Source,
 		Line:        int(node.StartPosition().Row) + 1,
 	}
+	m.TypeParameterNames = t.TypeParameterNames
+	if parameters := node.ChildByFieldName("type_parameters"); parameters != nil {
+		m.TypeParameterNames = append(append([]string(nil), t.TypeParameterNames...), typeParameterNames(parameters, source)...)
+	}
 	if !constructor {
 		if returnType := node.ChildByFieldName("type"); returnType != nil {
 			m.ReturnType = typeText(returnType, source)
@@ -250,6 +262,24 @@ func parseMethod(t *model.Type, node *sitter.Node, source []byte, constructor bo
 		}
 	}
 	return m
+}
+
+func typeParameterNames(parameters *sitter.Node, source []byte) []string {
+	var names []string
+	for i := uint(0); i < parameters.NamedChildCount(); i++ {
+		parameter := parameters.NamedChild(i)
+		if parameter.Kind() != "type_parameter" {
+			continue
+		}
+		for j := uint(0); j < parameter.NamedChildCount(); j++ {
+			child := parameter.NamedChild(j)
+			if child.Kind() == "type_identifier" {
+				names = append(names, child.Utf8Text(source))
+				break
+			}
+		}
+	}
+	return names
 }
 
 func parseParameters(parameters *sitter.Node, source []byte) []model.Parameter {

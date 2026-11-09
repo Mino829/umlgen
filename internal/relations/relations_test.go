@@ -266,3 +266,46 @@ class Service {
 		}
 	}
 }
+
+func TestParameterScopesApplyToIndexesResolversAndDiagnostics(t *testing.T) {
+	owner := model.Type{
+		Package: "app", Name: "Owner", TypeParameterNames: []string{"T", "Missing"},
+		Extends: []model.TypeReference{{Name: "Missing"}},
+		Fields: []model.Field{
+			{Name: "placeholder", Type: "T"},
+			{Name: "unknownPlaceholder", Type: "Missing"},
+			{Name: "concrete", Type: "Q"},
+		},
+		Methods: []model.Method{{
+			Name: "convert", TypeParameterNames: []string{"Method"},
+			Parameters: []model.Parameter{{Name: "input", Type: "Method"}},
+			ReturnType: "app.T",
+		}},
+	}
+	types := []model.Type{owner, {Package: "app", Name: "T"}, {Package: "app", Name: "Q"}}
+	index := NewIndex(types)
+	for reference, want := range map[string]string{"T": "", "Missing": "", "Q": "app.Q", "app.T": "app.T"} {
+		got, ok := index.Resolve(owner, reference)
+		if got != want || ok != (want != "") {
+			t.Fatalf("Resolve(%q) = %q, %v; want %q", reference, got, ok, want)
+		}
+	}
+	analysis := AnalyzeWithResolver(types, func(scope model.Type, reference string, _ bool) (string, bool) {
+		if reference == "T" || reference == "Missing" || reference == "Method" {
+			t.Fatalf("generic parameter escaped to the custom resolver: %q", reference)
+		}
+		return index.Resolve(scope, reference)
+	})
+	if len(analysis.Relations) != 2 || len(analysis.Diagnostics) != 0 {
+		t.Fatalf("scoped custom analysis = %#v", analysis)
+	}
+	hidden := Analyze([]model.Type{owner}, types)
+	if len(hidden.Relations) != 0 || len(hidden.Diagnostics) != 2 {
+		t.Fatalf("hidden concrete references = %#v", hidden)
+	}
+	for _, diagnostic := range hidden.Diagnostics {
+		if diagnostic.Status != StatusOutsideDiagram || (diagnostic.Target != "app.T" && diagnostic.Target != "app.Q") {
+			t.Fatalf("parameter produced an unresolved/outside diagnostic: %#v", diagnostic)
+		}
+	}
+}

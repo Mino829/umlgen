@@ -1,16 +1,31 @@
 # 次にやること
 
-確認日: 2026-11-08
+確認日: 2026-11-09
 
 ## Issueの順次解消（2026-11-09）
 
 実画像生成に失敗する#70を先に扱い、その後#47（中優先度）、#48（低優先度）、#15（導入改善）、#82（共通IR整理）を1 Issueずつ実装・検証・PR化する。#14のwatchはPR #80で実装済みで、最新mainにはv0.6.0準備PR #81を通して統合されている。以下のリリース準備・個別開発の記録は当時の状況を残す。
 
-#70ではGoの匿名struct／interfaceを含むフィールド・引数・戻り値を表示層で1行の安全な文字列に変換し、解析モデル・キャッシュは変更しない。実PlantUMLによるSVG回帰はflat／hierarchical／noneの全3表示で失敗前・成功後を確認し、Linux CIでも実行する。レンダラー未検出と実行失敗の診断を分離し、明示されたJARへのフォールバックは維持する。修正は未マージ・未リリース。
+#70は[PR #83](https://github.com/Mino829/umlgen/pull/83)でmainへマージ済み・未リリース。Goの匿名struct／interfaceを含むフィールド・引数・戻り値を表示層で1行の安全な文字列に変換し、解析モデル・キャッシュは変更しない。実PlantUMLによるSVG回帰はflat／hierarchical／noneの全3表示で失敗前・成功後を確認し、Linux CIでも実行する。レンダラー未検出と実行失敗の診断を分離し、明示されたJARへのフォールバックは維持する。
 
 ローカル確認: `go test ./...`、`go vet ./...`、CLI build、actionlint成功。実CLIでGoのSVG／PNGを生成し、画像上の後続フィールド・メソッドを確認した。Go／Javaのcold／warm／`--no-cache`でPlantUMLがバイト一致。実PlantUMLの構文エラーと空PATHの未検出は、ともに終了コード5・元PlantUML保持のまま異なる診断を表示する。OS別CIの結果はPRで確認する。
 
 PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導入でPlantUMLがエラー画像を返し、実SVG内のメンバー検証が失敗した。CIの依存へ`graphviz`を明示追加し、画像内容のassertは維持する。
+
+### #47：中優先度レビュー項目（M1〜M7）
+
+後続ブランチで実装・ローカル検証済み。未マージ・未リリース。
+
+- M1：既存の`--config`手動スキップを標準flag解析へ置き換え、コマンド名と同じ設定ファイル名、値欠落、未知コマンドを回帰で固定した。
+- M2：Goのaliasを専用の構文メタデータとして保持し、class／packageの図への投影から除外する。名前付き定義型は維持し、別ファイルのalias receiverも偽classにしない。宣言ファイルが未取得のreceiver部分解析とその推定実装は維持する。
+- M3：Javaの型・メソッド・constructor・入れ子スコープ、Goの型・receiverの型パラメーター名を保持する。同名の実型への誤った関係線と未解決診断を除き、具体的な型引数・完全修飾名・static境界を維持する。構文cacheはGo `go-ast-v6`、Java `java-tree-sitter-v4`へ更新。
+- M4：Javaデフォルトパッケージを空packageブロックで囲まず描画する。単独・名前付きpackageとの混在を実SVG回帰で検証し、対応するgoldenだけを更新した。
+- M5：明示file／directory探索の`filepath.Abs`失敗を返す。macOSでは削除済みcwdも解決できたため、相対file読取は可能だが絶対パス取得が失敗する深いcwdを隔離processで作り、両経路を検証した。
+- M6：既存の言語別cache directoryをchmodせず、新規directoryには`0700`を指定する。umaskによる制限を広げず、既存の`0750`／`0500`を回帰で維持する。
+- M7：rootのdispatchからclass処理を分離し、`class_options.go`で引数・設定、`class_sources.go`で共有解析cacheを使った現在／Git baseのソース収集を処理する。`class.go`は範囲抽出と既存の生成／出力／rendererを接続する。
+
+ローカル確認：`go test ./...`、`go vet ./...`、CLI build、actionlint成功。実CLIでGo／Javaの型パラメーター由来の偽辺が消え、具体型の辺が残ること、classのcold／warm／`--no-cache`で図・説明が一致することを確認した。packageの全3依存modeも同じ3cache条件で図・説明が一致。デフォルトパッケージの画像は修正前の終了コード5からSVG／PNG成功へ変わり、画像内容を確認。既存cache directoryの`0750`保持、`--config class class src`、公開Java demoのbefore／after／Git差分SVGも実行した。OS別CIの結果はPRで確認する。
+
 
 ## v0.6.0のリリース候補
 

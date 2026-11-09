@@ -20,6 +20,8 @@ const (
 	Annotation TypeKind = "annotation"
 	Enum       TypeKind = "enum"
 	Record     TypeKind = "record"
+	// Alias preserves declaration identity without projecting a class or expanding its target.
+	Alias TypeKind = "alias"
 )
 
 type Project struct {
@@ -67,6 +69,12 @@ type Type struct {
 	Change         ChangeKind
 	// ImplementationMethods is derived by Go finalization only when explaining.
 	ImplementationMethods []ImplementationMethod `json:"-"`
+	// TypeParameterNames contains the declaration's in-scope type parameters,
+	// including parameters inherited from enclosing Java declarations.
+	TypeParameterNames []string
+	// ReceiverOnly marks Go method projections awaiting a type declaration in
+	// another source unit. It is not a declaration on its own.
+	ReceiverOnly bool
 }
 
 func (t Type) QualifiedName() string {
@@ -120,6 +128,9 @@ type Method struct {
 	PointerReceiver bool
 	Source          string `json:"-"`
 	Line            int
+	// TypeParameterNames is the complete parameter scope for this signature.
+	// Go receiver parameters may rename, rather than extend, the type's scope.
+	TypeParameterNames []string
 }
 
 type Parameter struct {

@@ -132,15 +132,21 @@ func Generate(project model.Project, opts Options) string {
 		lastPackage := "\x00"
 		for _, t := range types {
 			if t.Package != lastPackage {
-				if lastPackage != "\x00" {
+				if lastPackage != "\x00" && lastPackage != "" {
 					b.WriteString("}\n\n")
 				}
-				fmt.Fprintf(&b, "package %q {\n", t.Package)
+				if t.Package != "" {
+					fmt.Fprintf(&b, "package %q {\n", t.Package)
+				}
 				lastPackage = t.Package
 			}
-			writeType(&b, t, aliases[t.QualifiedName()], "  ", opts)
+			indent := ""
+			if t.Package != "" {
+				indent = "  "
+			}
+			writeType(&b, t, aliases[t.QualifiedName()], indent, opts)
 		}
-		if lastPackage != "\x00" {
+		if lastPackage != "\x00" && lastPackage != "" {
 			b.WriteString("}\n")
 		}
 	}

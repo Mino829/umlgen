@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/relations"
 	"github.com/Mino829/umlgen/internal/scanner"
 )
 
@@ -551,5 +552,77 @@ func TestParseSyntaxDiagnosticHasPhysicalMissingTokenSpan(t *testing.T) {
 	}
 	if unit.Span.End != wantPosition {
 		t.Fatalf("syntax source end = %#v", unit.Span.End)
+	}
+}
+
+func TestGenericDeclarationMethodAndEnclosingScopes(t *testing.T) {
+	unit, err := ParseSource("Scopes.java", []byte(`package sample;
+class T {}
+class U {}
+class Bound {}
+class Pair<A, B> {}
+interface Contract<T> { T take(T input); }
+class Box<T extends Bound & Comparable<T>> {
+ T value;
+ Pair<T, Pair<T, U>> nested;
+ sample.T qualified;
+ <U extends Bound> U convert(U input) { return input; }
+ <U> Box(U input) {}
+ U ordinary(U input) { return input; }
+ class Inner<V extends T> {
+  T enclosing;
+  V own;
+  U concrete;
+ }
+ static class Static { T concrete; }
+ interface Nested { T concrete(); }
+}
+class Outside {
+ T value;
+ <T> T hidden(T input) { return input; }
+ T concrete(T input) { return input; }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]model.Type{}
+	for _, typ := range unit.Types {
+		byName[typ.QualifiedName()] = typ
+	}
+	if got := byName["sample.Box"].TypeParameterNames; !reflect.DeepEqual(got, []string{"T"}) {
+		t.Fatalf("bounds were confused with parameters: %#v", got)
+	}
+	if got := byName["sample.Box.Inner"].TypeParameterNames; !reflect.DeepEqual(got, []string{"T", "V"}) {
+		t.Fatalf("nested parameter scope = %#v", got)
+	}
+	for _, name := range []string{"sample.Box.Static", "sample.Box.Nested", "sample.Outside"} {
+		if len(byName[name].TypeParameterNames) != 0 {
+			t.Fatalf("outer scope leaked into %s: %#v", name, byName[name])
+		}
+	}
+	analysis := relations.Analyze(unit.Types, unit.Types)
+	if len(analysis.Diagnostics) != 0 {
+		t.Fatalf("generic placeholders produced diagnostics: %#v", analysis.Diagnostics)
+	}
+	got := map[string]bool{}
+	for _, relation := range analysis.Relations {
+		got[relation.From+"|"+relation.Label+"|"+relation.To] = true
+	}
+	want := map[string]bool{
+		"sample.Box|nested|sample.Pair":           true,
+		"sample.Box|nested|sample.U":              true,
+		"sample.Box|qualified|sample.T":           true,
+		"sample.Box|ordinary(input)|sample.U":     true,
+		"sample.Box|ordinary|sample.U":            true,
+		"sample.Box.Inner|concrete|sample.U":      true,
+		"sample.Box.Static|concrete|sample.T":     true,
+		"sample.Box.Nested|concrete|sample.T":     true,
+		"sample.Outside|value|sample.T":           true,
+		"sample.Outside|concrete(input)|sample.T": true,
+		"sample.Outside|concrete|sample.T":        true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("generic relations = %#v, want %#v", got, want)
 	}
 }

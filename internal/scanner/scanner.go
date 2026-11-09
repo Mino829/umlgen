@@ -35,7 +35,10 @@ func SourceFiles(targets, excludes []string, extensions ...string) ([]string, er
 		}
 		if !info.IsDir() {
 			if supported[strings.ToLower(filepath.Ext(target))] {
-				abs, _ := filepath.Abs(target)
+				abs, err := filepath.Abs(target)
+				if err != nil {
+					return nil, fmt.Errorf("resolve source path %q: %w", target, err)
+				}
 				if !seen[abs] {
 					files, seen[abs] = append(files, abs), true
 				}
@@ -54,7 +57,10 @@ func SourceFiles(targets, excludes []string, extensions ...string) ([]string, er
 				return nil
 			}
 			if supported[strings.ToLower(filepath.Ext(entry.Name()))] && !ExcludedPath(path, excludes) {
-				abs, _ := filepath.Abs(path)
+				abs, err := filepath.Abs(path)
+				if err != nil {
+					return fmt.Errorf("resolve source path %q: %w", path, err)
+				}
 				if !seen[abs] {
 					files, seen[abs] = append(files, abs), true
 				}
