@@ -106,10 +106,13 @@ func renderAuto(ctx context.Context, format, pumlPath string, cfg Config) (strin
 		if jarErr == nil {
 			return jarPath, nil
 		}
-		return "", fmt.Errorf("PlantUML renderer failed. local command: %v; PLANTUML_JAR: %v", localErr, jarErr)
+		return "", fmt.Errorf("PlantUML renderer failed. local command: %w; PLANTUML_JAR: %w", localErr, jarErr)
+	}
+	if !errors.Is(localErr, exec.ErrNotFound) {
+		return "", fmt.Errorf("PlantUML renderer failed. local command: %w", localErr)
 	}
 	return "", fmt.Errorf(`PlantUML renderer was not found.
-local command error: %v
+local command error: %w
 To render images, choose one of:
   1. Install the plantuml command and add it to PATH.
   2. Set PLANTUML_JAR to the path of plantuml.jar.
@@ -153,13 +156,13 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, format, pumlPath string) (st
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("rendering timed out: %w", ctx.Err())
+			return "", fmt.Errorf("rendering timed out: %w: %w: %s", ctx.Err(), err, strings.TrimSpace(string(out)))
 		}
-		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	info, err := os.Stat(outPath)
 	if err != nil {
-		return "", fmt.Errorf("renderer did not produce output file %q", outPath)
+		return "", fmt.Errorf("renderer did not produce output file %q: %w", outPath, err)
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("renderer output path %q is a directory", outPath)

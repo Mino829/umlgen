@@ -167,7 +167,7 @@ func writeType(b *strings.Builder, t model.Type, alias, indent string, opts Opti
 		}
 		for _, f := range t.Fields {
 			if visible(f.Visibility, opts) {
-				fmt.Fprintf(b, "%s  %s%s%s: %s\n", indent, memberModifier(f.Static, false), visibilitySymbol(f.Visibility), f.Name, f.Type)
+				fmt.Fprintf(b, "%s  %s%s%s: %s\n", indent, memberModifier(f.Static, false), visibilitySymbol(f.Visibility), f.Name, memberTypeText(f.Type))
 			}
 		}
 	}
@@ -178,17 +178,27 @@ func writeType(b *strings.Builder, t model.Type, alias, indent string, opts Opti
 			}
 			var params []string
 			for _, p := range m.Parameters {
-				params = append(params, p.Name+": "+p.Type)
+				params = append(params, p.Name+": "+memberTypeText(p.Type))
 			}
 			showAbstract := m.Abstract && t.Kind != model.Interface && t.Kind != model.Annotation
 			fmt.Fprintf(b, "%s  %s%s%s(%s)", indent, memberModifier(m.Static, showAbstract), visibilitySymbol(m.Visibility), m.Name, strings.Join(params, ", "))
 			if !m.Constructor && m.ReturnType != "" {
-				fmt.Fprintf(b, ": %s", m.ReturnType)
+				fmt.Fprintf(b, ": %s", memberTypeText(m.ReturnType))
 			}
 			b.WriteByte('\n')
 		}
 	}
 	fmt.Fprintf(b, "%s}\n", indent)
+}
+
+// Structural Go types may span lines and contain braces, tags and method
+// signatures. Render their punctuation literally rather than as member syntax;
+// ordinary type spellings retain their existing output.
+func memberTypeText(text string) string {
+	if !strings.ContainsAny(text, "{}\r\n\t") {
+		return text
+	}
+	return packageText(text)
 }
 
 type packageNode struct {
