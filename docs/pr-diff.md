@@ -4,7 +4,7 @@
 
 実際の出力例は [`examples/order-service/README.md`](../examples/order-service/README.md) を参照してください。
 
-開発版では`--diagram package`でパッケージ依存の差分も生成できます。[package差分の契約](#パッケージ依存の差分開発版)を参照してください。以下の既定動作・GitHub Actions・変更型の説明は`--diagram class`（省略時）を対象とし、package差分の固定snapshot規約とは異なります。
+v0.6.0では`--diagram package`でパッケージ依存の差分も生成できます。[package差分の契約](#パッケージ依存の差分)を参照してください。以下の既定動作・GitHub Actions・変更型の説明は`--diagram class`（省略時）を対象とし、package差分の固定snapshot規約とは異なります。
 
 ## 導入方法
 
@@ -47,7 +47,7 @@ review-scope.json
 
 全体図は PR の head commit の Java ソースから生成されます。削除された型や差分の変更色は含まれません。Java ファイルの変更がない PR でも生成されます。
 
-開発版workflowではPR本文の`umlgen` blockから、差分図の`--include`／`--relations`／`--depth`／`--direction`を指定できます。全体図には適用しません。構文・上限・安全境界・本文編集時の再生成と結果の読み方は[PR本文フィルタ](github-actions.md#pr本文でレビュー範囲を指定する開発版)を参照してください。
+対応workflowではPR本文の`umlgen` blockから、差分図の`--include`／`--relations`／`--depth`／`--direction`を指定できます。全体図には適用しません。構文・上限・安全境界・本文編集時の再生成と結果の読み方は[PR本文フィルタ](github-actions.md#pr本文でレビュー範囲を指定する)を参照してください。
 
 ワークフローの入力・出力・セキュリティに関する詳細は [`docs/github-actions.md`](./github-actions.md) を参照してください。
 
@@ -71,7 +71,7 @@ umlgen diff main...HEAD --format svg
 
 デフォルトの出力先は `change-diagram.puml` です。
 
-## パッケージ依存の差分（開発版）
+## パッケージ依存の差分
 
 ```bash
 umlgen diff main...HEAD --diagram package --dependency-source both --explain

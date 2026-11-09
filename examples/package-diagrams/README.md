@@ -1,6 +1,6 @@
 # パッケージ依存図をソースから読む
 
-開発版の`umlgen package`を使うJava／Goの例。リポジトリのルートで実行する。fixtureは循環・未解決参照・曖昧な名前を意図的に含む**構文解析用の入力**であり、コンパイル可能なアプリケーションではない。
+v0.6.0の`umlgen package`を使うJava／Goの例。リポジトリのルートで実行する。fixtureは循環・未解決参照・曖昧な名前を意図的に含む**構文解析用の入力**であり、コンパイル可能なアプリケーションではない。
 
 ## 生成する
 
@@ -62,7 +62,7 @@ Goの[`app/app.go`](../../testdata/package/go/app/app.go)と[`app/backup.go`](..
 
 ## Gitの両側から根拠の変化を読む
 
-開発版の`diff --diagram package`はGitの完全な両snapshotを比較する。既存repoを変更せず、一時repoに「同じ辺を支える2ファイル」を作る例:
+`diff --diagram package`はGitの完全な両snapshotを比較する。既存repoを変更せず、一時repoに「同じ辺を支える2ファイル」を作る例:
 
 ```sh
 demo=$(mktemp -d)
@@ -98,7 +98,7 @@ git -C "$demo" commit -am "remove one proof"
 
 部分解析失敗では不確かな差分と説明を生成し、終了コード3を返す。片側の選択sourceが全件失敗なら前回図を保持する。未解決／曖昧な参照があるpackageの辺や関係する循環も`uncertain`として扱うため、参照は残っているのに型解決ができなくなっただけの状態を「依存削除」「循環解消」と断定しない。未解決診断だけの場合は構文解析失敗ではなく、終了コード0で診断と不確かさを表示する。
 
-SVG／PNG・`--explain`・関係選択・外部表示・レイアウトは利用可能。package差分の`--focus`／`--depth`／`--direction`は未対応として明示エラーにする。既定の`diff`または`--diagram class`は従来のクラス差分のまま。全規約は[差分機能](../../docs/pr-diff.md#パッケージ依存の差分開発版)を参照。
+SVG／PNG・`--explain`・関係選択・外部表示・レイアウトは利用可能。package差分の`--focus`／`--depth`／`--direction`は未対応として明示エラーにする。既定の`diff`または`--diagram class`は従来のクラス差分のまま。全規約は[差分機能](../../docs/pr-diff.md#パッケージ依存の差分)を参照。
 
 ## 保証しないこと
 

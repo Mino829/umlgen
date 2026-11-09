@@ -1,7 +1,7 @@
 # UML図拡張の設計・開発計画
 
-- 状態: **Phase 1A・1B、Phase 2（静的シーケンス図）、Phase 3A（単一関数CFG／activity）、Phase 3B（明示状態図とソース代入候補）は開発版で実装・検証済み**。Phase 4は未実装の計画。
-- 初回調査対象: `feat/learner-explanations`、コミット `1b6e4a0`。Phase 1A／1B／2はPR #71までの統合でmainへマージ済み。Phase 3AはPR #75（全4環境CI成功・レビュー待ち）、Phase 3Bはその後続ブランチで、未マージ・未リリース。個別開発時の記録と統合状況を区別する。
+- 公開状況: **package・package差分・sequence・activity・state・明示component・宣言deploymentは[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)に収録済み**。現在の仕様・解析限界は[README](../README.md)を参照。
+- 以下の提案・調査・検証記録は開発当時の履歴。初回調査対象は`feat/learner-explanations`、コミット`1b6e4a0`。「未実装」「レビュー待ち」「未リリース」等は各記録時点の状態であり、現在の公開状態を示さない。
 - 表記: **現状（実装確認）**はコードまたは実CLIで確認した事実、**提案**は今後の仕様、**未決定**は実装前の検証・判断が必要な事項。
 - 関連方針: [開発方針](development-direction.md)、[差分機能](pr-diff.md)、[性能基準](performance.md)。既存文書の方針やPR本文フィルタの案は変更しない。
 
@@ -244,7 +244,7 @@ JavaはJDK標準の`JavacTask.parse`／`analyze`を採用し、JDK 17以上、�
 
 ### 4.5 Phase 4: コンポーネント図・配置図
 
-**コンポーネント（Phase 4A、開発版で実装）:** Phase 1のpackage graphを、厳密な`version: 1`境界YAMLへ投影する。利用例と設定は[README](../README.md#明示コンポーネント図開発版)を参照。未マージ・未リリースの後続ブランチとしてレビューする。
+**コンポーネント（Phase 4A、開発版で実装）:** Phase 1のpackage graphを、厳密な`version: 1`境界YAMLへ投影する。利用例と設定は[README](../README.md#明示コンポーネント図)を参照。未マージ・未リリースの後続ブランチとしてレビューする。
 
 - 必須languageと、package prefix／exact Go module／exact物理source rootを指定する。selector内はAND、component内の行はOR。prefixは言語ごとの区切り単位で、globや最長prefix優先ではない。rootはYAML基準のパスで、部分directory選択ではなく解析文脈との完全一致。symlink親参照と大小文字aliasも物理identityで扱う。
 - 異なるcomponentへの重複所属は終了コード2で旧図を保持し、先勝ちにしない。未所属packageは文脈別ノード、未使用境界は空ノードと診断を残す。内部依存に自己矢印を描かず、境界間／非表示外部の辺に元package ID・型関係・推定根拠・import・位置・hashを保持する。
@@ -252,7 +252,7 @@ JavaはJDK標準の`JavacTask.parse`／`analyze`を採用し、JDK 17以上、�
 - 提供／要求interfaceは設定由来の表示契約だけとし、同名でもproviderへ自動接続しない。Goの全interface、Javaの全public型をサービス境界やAPI配線としない。
 - 依存sourceの既定は`both`、外部表示は`hide`。型関係レコードとimport宣言の件数を分ける。部分失敗ファイルは除外して診断付き図と終了コード3、全件失敗は旧図を保持する。未解決・曖昧・非表示・失敗を依存不在の根拠にしない。説明には取得済みソース抜粋・境界位置／hash・moduleの取得根拠も残す。
 
-**配置（Phase 4B、開発版で実装）:** 明示した単一manifestファイルの希望構成を別モデルへ投影する。詳細な対応範囲・利用例・終了コードは[README](../README.md#宣言された配置図開発版)を参照。
+**配置（Phase 4B、開発版で実装）:** 明示した単一manifestファイルの希望構成を別モデルへ投影する。詳細な対応範囲・利用例・終了コードは[README](../README.md#宣言された配置図)を参照。
 
 - Composeの単一documentからservice／image／起動条件／port／network／named volumeを読む。`depends_on`は設定された起動依存で、health確認済み・HTTP/RPC通信の証拠ではない。外部network／volumeも存在確認しない。[S11]
 - Kubernetesはcore v1 Pod／Service／List、apps/v1 Deployment／StatefulSet／DaemonSet、batch/v1 Jobに限定し、multi-docを許容する。selectorは同じ宣言namespace内の非空labels一致だけを候補とする。selectorなし／空／一致なしは未知endpoint、ExternalNameは宣言DNS alias。省略namespace・実node・稼働replica・通信を補わない。[S12]
@@ -741,7 +741,7 @@ server rendererを利用すると図の識別子・式・設定由来の情報�
 
 ### Phase 1Bの実装状況（開発版・未リリース）
 
-既存class diffを変更ファイルだけのpackage差分へ流用せず、以下の4単位を実装した。GitHub上のIssue作成・マージ・リリースを表すものではない。ユーザー向けの全規約は[差分機能](pr-diff.md#パッケージ依存の差分開発版)と[利用例](../examples/package-diagrams/README.md#gitの両側から根拠の変化を読む)に記載する。
+既存class diffを変更ファイルだけのpackage差分へ流用せず、以下の4単位を実装した。GitHub上のIssue作成・マージ・リリースを表すものではない。ユーザー向けの全規約は[差分機能](pr-diff.md#パッケージ依存の差分)と[利用例](../examples/package-diagrams/README.md#gitの両側から根拠の変化を読む)に記載する。
 
 | 実装単位 | 実装・受入結果 | 依存 |
 | --- | --- | --- |

@@ -20,7 +20,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $installer -InstallPlantUML
 - SVG生成用のPlantUML
 - コマンド名だけで起動するためのユーザーPATH設定
 
-インストール先は`%LOCALAPPDATA%\Programs\umlgen`です。クラス図の生成と同梱PlantUMLによるSVG出力には、管理者権限やJavaの別途インストールは不要です。v0.6.0候補のJava `sequence`／`activity`／`state`には、**別途フルJDK 17以上**をPATHに設定し、`java -version`と`javac -version`を確認してください（PlantUMLの実行環境では代用できません）。class／package／componentおよびclass／packageのwatchはJDK不要です。
+インストール先は`%LOCALAPPDATA%\Programs\umlgen`です。クラス図の生成と同梱PlantUMLによるSVG出力には、管理者権限やJavaの別途インストールは不要です。v0.6.0のJava `sequence`／`activity`／`state`には、**別途フルJDK 17以上**をPATHに設定し、`java -version`と`javac -version`を確認してください（PlantUMLの実行環境では代用できません）。class／package／componentおよびclass／packageのwatchはJDK不要です。
 
 インストーラーはGitHub Releasesからだけファイルを取得し、Release APIに記録されたSHA-256と一致することを確認してから展開します。
 
@@ -35,7 +35,7 @@ umlgen version
 次のようにバージョンが表示されれば完了です。
 
 ```text
-umlgen version 0.5.0
+umlgen version 0.6.0
 ```
 
 ## 3. Javaプロジェクトへ移動する
@@ -91,12 +91,12 @@ GitHub Actionsを使う場合、Windows PCへumlgenをインストールしな�
 特定バージョンを使う場合：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.5.0 -InstallPlantUML
+powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.6.0 -InstallPlantUML
 ```
 
 ## 公開前の候補版を試す
 
-通常導入は公開安定版（現在v0.5.0）を取得します。候補を試す場合は、リリース準備PRの成功したCIからartifact `release-assets`をダウンロードし、ZIPと`SHA256SUMS.txt`を同じフォルダーへ展開します。**artifactを作ったcommitのinstaller**を使ってください。
+通常導入は公開安定版（現在[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)）を取得します。以下は今後の候補をオフラインで試す手順です。リリース準備PRの成功したCIからartifact `release-assets`をダウンロードし、ZIPと`SHA256SUMS.txt`を同じフォルダーへ展開します。**artifactを作ったcommitのinstaller**を使ってください。下の`0.6.0-rc.1`は過去の配布リハーサル例なので、試すartifactの実際の版へ置き換えます。
 
 ```powershell
 # 候補checkoutのrepository rootで実行。安定版とは別の場所へ配置

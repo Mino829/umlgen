@@ -4,7 +4,7 @@
 
 umlgenは、JavaとGoのソースコードや対応する配置manifestを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、生成済みPlantUMLを外部送信します。配置図は環境変数・Secret／ConfigMapの値を取り込みません。
 
-`package`・package差分・`sequence`・`activity`・`state`・`component`・`deployment`・`watch`は**v0.6.0のリリース候補**です。現在の公開安定版はv0.5.0で、通常のインストーラーは引き続き公開版を取得します。候補版の範囲・配布検証・公開条件は[次にやること](docs/next-steps.md#v060のリリース候補)を参照してください。
+`package`・package差分・`sequence`・`activity`・`state`・`component`・`deployment`・`watch`は**公開安定版[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)に含まれます**。通常のインストーラーは最新の公開安定版を取得します。変更範囲と統合記録は[次にやること](docs/next-steps.md#v060公開安定版)を参照してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -165,7 +165,7 @@ chmod +x umlgen
 mv umlgen ~/.local/bin/
 ```
 
-### v0.6.0候補の動作環境
+### v0.6.0の動作環境
 
 | 用途 | 要件 |
 | --- | --- |
@@ -177,7 +177,7 @@ mv umlgen ~/.local/bin/
 | SVG／PNG | ローカルPlantUML。server方式は明示選択時だけ送信。PlantUMLのJava要件は意味解析用JDKとは別 |
 | Git差分 | GitをPATHに設定 |
 
-候補版はPRのCI artifact `release-assets`（4種類のアーカイブと`SHA256SUMS.txt`）から確認できます。展開後は必ずチェックサムを検証してください。候補の番号`0.6.0-rc.1`は配布リハーサル用で、GitHub Releaseを公開したという意味ではありません。候補インストールは[macOS](docs/macos-setup.md#公開前の候補版を試す)／[Windows](docs/windows-setup.md#公開前の候補版を試す)の手順を参照してください。
+公開版は[v0.6.0 Release](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)から取得し、チェックサムを検証してください。今後の公開前候補を試す場合だけ、PRのCI artifact `release-assets`を利用します。公開版と候補artifactは区別してください。オフライン候補インストールは[macOS](docs/macos-setup.md#公開前の候補版を試す)／[Windows](docs/windows-setup.md#公開前の候補版を試す)を参照してください。
 
 ## 基本的な使い方
 
@@ -297,7 +297,7 @@ layout:
 
 これらの設定は`--focus`と`diff`でも共通です。差分プレースホルダにも配置方向とskinparamが適用されます。レイアウト設定だけの変更では、解析キャッシュを無効化しません。
 
-## パッケージ依存図（開発版）
+## パッケージ依存図
 
 `class --package-grouping`は型を囲む枠の設定です。`package`は**package自体を端点**にして、利用側→依存先の関係を集約します。
 
@@ -345,7 +345,7 @@ diagrams:
 
 Java／Goの実ソース、依存種別ごとの件数、曖昧な型・外部import・循環の読み方は[パッケージ図の利用例](examples/package-diagrams/README.md)を参照してください。[性能比較](docs/performance.md)には測定条件とclassとの差を記載しています。全フラグは`umlgen package --help`で確認できます。
 
-### package差分（開発版）
+### package差分
 
 ```bash
 umlgen diff main...HEAD --diagram package --dependency-source both --explain
@@ -362,9 +362,9 @@ umlgen diff HEAD~1..HEAD ./src --diagram package --language go \
 - invocation時の設定・include／excludeを両commitへ同じ条件で適用します。対象はGit repo内のパス。片側で削除済みの対象も指定でき、選択したsource symlink／submoduleは明示エラーにします。build条件や外部本文は解析しません。
 - package差分では`--focus`／`--depth`／`--direction`とclass専用flagを拒否します。全体package図のfocusと既存class diffの近傍指定は従来どおりです。
 
-再現可能なGit操作例は[利用例](examples/package-diagrams/README.md)、snapshotと終了コードの詳細は[差分機能](docs/pr-diff.md#パッケージ依存の差分開発版)を参照してください。既存GitHub Actions workflowの既定コマンドや配布版は変更していません。
+再現可能なGit操作例は[利用例](examples/package-diagrams/README.md)、snapshotと終了コードの詳細は[差分機能](docs/pr-diff.md#パッケージ依存の差分)を参照してください。既存GitHub Actions workflowの既定コマンドは引き続きclass diffです。
 
-## 静的シーケンス図（開発版）
+## 静的シーケンス図
 
 `sequence`は、指定したentryからの**静的な呼び出し・構造化された分岐やループ**を描きます。実行traceではなく、引数の実行値・分岐結果・ループ回数・スケジュールを推定しません。
 
@@ -389,7 +389,7 @@ umlgen sequence ./src --entry 'sample.Checkout.PlaceOrder(boolean,sample.Reposit
 
 実行できる両言語の例、YAML、動的呼び出し・例外・channelの読み方は[シーケンス図の利用例](examples/sequence/README.md)を参照してください。全フラグは`umlgen sequence --help`で確認できます。
 
-## 単一関数アクティビティ図（開発版）
+## 単一関数アクティビティ図
 
 `activity`は、指定関数内の**分岐先・ループの接続先・終了先**をCFGとして描きます。低レベルの制御辺を失わないよう、PlantUMLの明示的なactivityノードとラベル付き接続を使います。入れ子のif／whileへ無理に変換せず、実行trace・値・到達可能性の証明とは区別します。
 
@@ -421,7 +421,7 @@ diagrams:
 
 CLI指定は設定より優先します。未知のnamespace／キーや型違いは設定エラーです。全フラグは`umlgen activity --help`で確認できます。
 
-## 明示状態遷移図（開発版）
+## 明示状態遷移図
 
 `state`は、YAMLで明示した状態機械と、指定した型・フィールドのソース代入候補を照合します。**enumの列挙や変数名から、実行時の状態機械を自動復元する機能ではありません。**
 
@@ -464,7 +464,7 @@ transitions:
 
 `.umlgen.yaml`の`diagrams.state`には`state_config`・`type`・`field`・`max_nodes`・`java_release`・`analysis_timeout`を設定できます。`state_config`は共有設定ファイルのディレクトリ基準、CLIで渡す`--state-config`は現在の作業ディレクトリ基準です。型／フィールドはCLI→`diagrams.state`→状態定義の順。既存output／renderer／exclude／期限の規約を維持します。設定と入力のSHA256、元ソースの位置・抜粋、CFG node IDとcoverageは`--explain`で辿れます。
 
-## 明示コンポーネント図（開発版）
+## 明示コンポーネント図
 
 `component`は、既存のpackage依存を**利用者が明示した境界**へ集約します。package名から責務・サービス・実行時通信・配置を推定する機能ではありません。Javaも構文解析のみでJDK不要です。
 
@@ -516,7 +516,7 @@ diagrams:
     external: hide
 ```
 
-## 宣言された配置図（開発版）
+## 宣言された配置図
 
 `deployment`は、**manifestに宣言された希望構成**を描きます。実際の配置node・稼働replica・health・疎通・通信を観測する機能ではありません。ソース解析、Docker／kubectl／Helm／build tool／生成scriptの実行、クラスタ問い合わせは行いません。
 
@@ -543,7 +543,7 @@ umlgen deployment --manifest testdata/deployment/kubernetes.yaml \
 
 ### componentとの明示対応
 
-対応は任意です。省略するとcomponent／sourceとartifactの対応は不明のままです。`--boundary-config`は[component境界定義](#明示コンポーネント図開発版)から名前・位置・hashを読みますが、ソースを走査せず、`match`をmanifestへ適用しません。
+対応は任意です。省略するとcomponent／sourceとartifactの対応は不明のままです。`--boundary-config`は[component境界定義](#明示コンポーネント図)から名前・位置・hashを読みますが、ソースを走査せず、`match`をmanifestへ適用しません。
 
 `--mapping-config`には別の厳密な`version: 1` YAMLを指定します。mappingを指定する場合はboundaryも必要です。
 
@@ -577,7 +577,7 @@ diagrams:
 - 入力IO失敗1、構文・schema・重複identity・不明binding等は2で旧図を保持します。対応するtopologyが1件もない入力も2。出力失敗4、画像失敗5では生成済みPlantUMLと説明を残します。
 - `--explain`はmanifest・boundary・mappingのSHA256、元document番号と行、各宣言・辺の種類と不確かさを表示します。機密値を含み得るraw snippetsは再読込・表示せず、端点不明や非対応箇所を「通信なし」の証拠にしません。
 
-## 保存に追従するwatch（開発版）
+## 保存に追従するwatch
 
 `watch`はJava／Goの**class／package図**を継続再生成します。既定はclass。既存の解析キャッシュ・設定・図別flagを再利用し、ソースや任意のhook／buildを実行しません。
 
@@ -655,7 +655,7 @@ umlgen class ./src \
 
 ### 関係線の根拠を確認する
 
-`--explain`は、生成した関係線の種類・意味、解決先、根拠となった型・メンバー、ソースファイルと1始まりの宣言行番号を標準出力へ表示します。開発版では宣言のソース抜粋と解析状況も表示します。Java／Goに対応し、通常の`.puml`や画像の内容は変更しません。
+`--explain`は、生成した関係線の種類・意味、解決先、根拠となった型・メンバー、ソースファイルと1始まりの宣言行番号に加え、宣言のソース抜粋と解析状況を標準出力へ表示します。Java／Goに対応し、通常の`.puml`や画像の内容は変更しません。
 
 ```bash
 # 図を生成しながら、関係線の理由も読む
@@ -741,7 +741,7 @@ jobs:
 
 導入方法、入力、Fork Pull Requestのセキュリティ上の注意は[`docs/github-actions.md`](docs/github-actions.md)を参照してください。
 
-開発版workflowでは、PR本文の`umlgen` blockから差分図の`--include`／`--relations`／`--depth`／`--direction`だけを安全に指定できます。本文編集で再生成するには、callerの`pull_request.types`に`edited`も含めます。全体図には本文フィルタを適用せず、適用引数・比較commit・本文hashをSummaryと`review-scope.json`へ残します。[構文・上限・失敗時の扱い](docs/github-actions.md#pr本文でレビュー範囲を指定する開発版)を確認してください。既存の参照先を対応workflowのcommitへ更新するまでは利用できません。
+対応workflowでは、PR本文の`umlgen` blockから差分図の`--include`／`--relations`／`--depth`／`--direction`だけを安全に指定できます。本文編集で再生成するには、callerの`pull_request.types`に`edited`も含めます。全体図には本文フィルタを適用せず、適用引数・比較commit・本文hashをSummaryと`review-scope.json`へ残します。[構文・上限・失敗時の扱い](docs/github-actions.md#pr本文でレビュー範囲を指定する)を確認してください。既存の参照先を対応workflowのcommitへ更新するまでは利用できません。
 
 ## 設定ファイル
 
