@@ -70,7 +70,7 @@ func TestAnalyzeConcurrentRepositories(t *testing.T) {
 		if err := os.Mkdir(nested, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		canonicalRoot, err := filepath.EvalSymlinks(root)
+		expectedRoot, err := os.Stat(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,14 +82,19 @@ func TestAnalyzeConcurrentRepositories(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if result.Root != canonicalRoot {
-					t.Fatalf("root = %q, want %q", result.Root, canonicalRoot)
+				actualRoot, err := os.Stat(result.Root)
+				if err != nil || !os.SameFile(expectedRoot, actualRoot) {
+					t.Fatalf("root %q does not identify repository %q: %v", result.Root, root, err)
 				}
 				if len(result.Current) != 1 || result.Current[modified] != model.Modified {
 					t.Fatalf("current files = %#v, want only %s modified", result.Current, modified)
 				}
-				if len(result.Deleted) != 1 || result.Deleted[0].Path != filepath.Join(canonicalRoot, deleted) || string(result.Deleted[0].Content) != deletedContent {
+				if len(result.Deleted) != 1 || string(result.Deleted[0].Content) != deletedContent {
 					t.Fatalf("deleted files = %#v, want only %s with content %q", result.Deleted, deleted, deletedContent)
+				}
+				relative, err := filepath.Rel(result.Root, result.Deleted[0].Path)
+				if err != nil || relative != deleted {
+					t.Fatalf("deleted path %q is not %q within repository %q: %v", result.Deleted[0].Path, deleted, result.Root, err)
 				}
 			}
 		})

@@ -40,6 +40,8 @@ PR #84のheadをbaseとする後続ブランチで実装・ローカル検証済
 
 ローカル確認：標準GoとGo 1.25.0で`go test ./...`・build成功、標準Goのvet・Git／CLI race検査・actionlintも成功。実PlantUMLのSVG／PNGでtitleの記号がそのまま表示され、Go／Javaのファイル名除外、結合flag、class／packageのcache一致、独立repoの並列Git差分SVGを確認した。実CLIのローカルHTTP rendererで32MiB成功・1byte超過／stream超過／大きなエラー応答の失敗、前回画像・生成済みPlantUML保持、既存0640／新規umask077の権限、負の期限の送信前拒否を確認。無期限watchの描画中SIGINTは速やかに終了コード0となり、未公開stageを除去した。OS別CIは後続PRで確認する。
 
+PR #85の初回Windows CIでは、並列Git回帰のGit形式`C:/...`とGo形式`C:\...`の文字列比較が失敗した。区切り表記のassertは削除し、`os.SameFile`による実directory同一性と、削除fileのrepo内相対path・内容の検証へ変更した。Windows skipやrepo混同検出の緩和は行わない。
+
 ## v0.6.0のリリース候補
 
 **到達点は、機能追加を止めてレビュー・公開判断ができる候補版を揃えること。まだv0.6.0を公開していない。** 通常のinstaller／PR差分workflowの既定版は、公開済みのv0.5.0を維持する。
