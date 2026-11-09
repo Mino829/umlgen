@@ -116,7 +116,7 @@ func TestSequenceCLIControlOrderLimitsAndCapturedEvidence(t *testing.T) {
 
 func TestSequenceCLIConfigPrecedenceAndDistinctDefaultOutput(t *testing.T) {
 	root := t.TempDir()
-	packageCLIChdir(t, root)
+	t.Chdir(root)
 	sourceRoot := filepath.Join(root, "project", "sources")
 	sequenceFixture(t, "go", sourceRoot)
 	cfg := filepath.Join(root, "project", "settings.yaml")

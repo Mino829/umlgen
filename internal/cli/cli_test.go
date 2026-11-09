@@ -98,14 +98,7 @@ func TestDiffCommand(t *testing.T) {
 	runGit(t, root, "commit", "-m", "base")
 	writeJava(t, root, "Service.java", `package sample; class Service { Repository repository; int revision; }`)
 
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(previous)
+	t.Chdir(root)
 
 	out := filepath.Join(root, "changes.puml")
 	var stdout, stderr bytes.Buffer
@@ -137,14 +130,7 @@ func TestDiffCommandNoChangedTypes(t *testing.T) {
 	writeJava(t, root, "package-info.java", `package sample;
 /** module docs */`)
 
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(previous)
+	t.Chdir(root)
 
 	out := filepath.Join(root, "changes.puml")
 	var stdout, stderr bytes.Buffer
@@ -179,14 +165,7 @@ func TestDiffCommandNoChangedTypesAfterDeletion(t *testing.T) {
 	runGit(t, root, "add", "-A")
 	runGit(t, root, "commit", "-m", "remove package-info")
 
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(previous)
+	t.Chdir(root)
 
 	out := filepath.Join(root, "changes.puml")
 	var stdout, stderr bytes.Buffer
@@ -215,14 +194,7 @@ func TestDiffCommandFailsWhenChangedFileCannotBeParsed(t *testing.T) {
 	runGit(t, root, "commit", "-m", "base")
 	writeJava(t, root, "Broken.java", `package sample; class Broken {`)
 
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(previous)
+	t.Chdir(root)
 
 	out := filepath.Join(root, "changes.puml")
 	var stdout, stderr bytes.Buffer
@@ -450,14 +422,7 @@ func TestGoDiffCommand(t *testing.T) {
 	runGit(t, root, "commit", "-m", "base")
 	writeGo(t, root, "service_methods.go", "package app\nfunc (s *Service) Revision() int { return 2 }\n")
 
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(previous)
+	t.Chdir(root)
 
 	out := filepath.Join(root, "changes.puml")
 	var stdout, stderr bytes.Buffer
@@ -1042,14 +1007,7 @@ func TestDiffExplainUsesDeletedSourceSnapshot(t *testing.T) {
 	if err := os.Remove(deleted); err != nil {
 		t.Fatal(err)
 	}
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(previous)
+	t.Chdir(root)
 	var stdout, stderr bytes.Buffer
 	code, err := Run([]string{"diff", "HEAD", "--quiet", "--explain", "-o", filepath.Join(root, "diff.puml")}, &stdout, &stderr)
 	if code != exitOK || err != nil {

@@ -14,7 +14,7 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 
 ### #47：中優先度レビュー項目（M1〜M7）
 
-後続ブランチで実装・ローカル検証済み。未マージ・未リリース。
+[PR #84](https://github.com/Mino829/umlgen/pull/84)で実装・4環境CI成功、mainへマージ済み。未リリース。
 
 - M1：既存の`--config`手動スキップを標準flag解析へ置き換え、コマンド名と同じ設定ファイル名、値欠落、未知コマンドを回帰で固定した。
 - M2：Goのaliasを専用の構文メタデータとして保持し、class／packageの図への投影から除外する。名前付き定義型は維持し、別ファイルのalias receiverも偽classにしない。宣言ファイルが未取得のreceiver部分解析とその推定実装は維持する。
@@ -26,6 +26,21 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 
 ローカル確認：`go test ./...`、`go vet ./...`、CLI build、actionlint成功。実CLIでGo／Javaの型パラメーター由来の偽辺が消え、具体型の辺が残ること、classのcold／warm／`--no-cache`で図・説明が一致することを確認した。packageの全3依存modeも同じ3cache条件で図・説明が一致。デフォルトパッケージの画像は修正前の終了コード5からSVG／PNG成功へ変わり、画像内容を確認。既存cache directoryの`0750`保持、`--config class class src`、公開Java demoのbefore／after／Git差分SVGも実行した。OS別CIの結果はPRで確認する。
 
+### #48：低優先度レビュー項目（L1〜L7）
+
+[PR #85](https://github.com/Mino829/umlgen/pull/85)で実装し、最新headの登録check全13件が成功した。#84のmain統合後に旧`fix/medium-priority-review`へマージされたため、#85の`merged`表示だけではmainへの取り込みを保証しない。今回のmain向け統合PRで不足する修正を取り込む。未リリース。
+
+- L1：classと差分placeholderのtitleも他図と同じ安全な文字エスケープに統一した。既存の生title文字列のassertは削除し、実SVGで記号・HTML風文字列・`%date()`がリテラルに残ることを検証する。titleを含む3つのgoldenだけを意図した表記へ更新した。
+- L2：`gitdiff.Analyze`へworking directoryを明示し、独立repoの並列解析を回帰で固定した。CLIテストの手動cwd変更・復帰と旧helperを除去し、標準`t.Chdir`の非並列guardへ移行した。
+- L3：Issueの「Go 1.25未リリース」という前提は[公式リリースノート](https://go.dev/doc/go1.25)と一致しない。`go.mod`のGo 1.25要件は維持し、実Go 1.25.0で全体テスト・buildと生成CLIのGo SVGを確認した。Go 1.23／1.24対応の追加は行わない。
+- L4：登録済み一文字flagの結合と値の直結を扱い、単一dash長名・未知option・競合・`--`・flag風の値を区別する。root／各図／diff／watchの共有解析へ接続した。
+- L5：除外パターンのdotヒューリスティックを除去した。`User.java`・`.generated`等はパス成分として扱い、類似名を巻き込まない。通常探索と両Git snapshotの回帰、明示file優先を維持する。
+- L6：既定30秒、明示0は無期限、負値はエラーにした。0でもcaller cancellationは維持する。仮想時刻の31秒renderと30秒deadlineの比較、実CLIのYAML 0s／CLI期限上書き／watch Ctrl+Cで検証した。
+- L7：Server画像32MiB・エラー本文8KiBを上限にし、既知長・長さ不明・chunkedに適用する。画像はstage後に公開し、上限超過等では前回画像と元PlantUMLを保持する。新規画像でumaskの制限を広げず、既存modeを維持する。
+
+ローカル確認：標準GoとGo 1.25.0で`go test ./...`・build成功、標準Goのvet・Git／CLI race検査・actionlintも成功。実PlantUMLのSVG／PNGでtitleの記号がそのまま表示され、Go／Javaのファイル名除外、結合flag、class／packageのcache一致、独立repoの並列Git差分SVGを確認した。実CLIのローカルHTTP rendererで32MiB成功・1byte超過／stream超過／大きなエラー応答の失敗、前回画像・生成済みPlantUML保持、既存0640／新規umask077の権限、負の期限の送信前拒否を確認。無期限watchの描画中SIGINTは速やかに終了コード0となり、未公開stageを除去した。OS別CIは後続PRで確認する。
+
+PR #85の初回Windows CIでは、並列Git回帰のGit形式`C:/...`とGo形式`C:\...`の文字列比較が失敗した。区切り表記のassertは削除し、`os.SameFile`による実directory同一性と、削除fileのrepo内相対path・内容の検証へ変更した。Windows skipやrepo混同検出の緩和は行わない。
 
 ## v0.6.0のリリース候補
 
@@ -39,8 +54,9 @@ PR #83の初回Linux CIでは、`--no-install-recommends`によるGraphviz未導
 - 明示component境界と契約、Compose／限定したKubernetes宣言のdeployment。通信実績・実配置・build来歴は推定せず、秘密値を図や説明に出さない。
 - class／packageの安全なwatch。debounce、追加／削除、関連設定の再読込、失敗時の旧成果物保持、Ctrl+Cの中断。
 - PR本文の許可された範囲指定、4環境の候補アーカイブ生成・インストール・実CLI受入検証、公開前artifactからのオフライン導入。
+- #70の実PlantUML描画修正、#47の型パラメーター・alias・デフォルトpackage・cache権限修正、#48のtitle安全化・Git解析のcwd分離・短縮flag・dotを含む除外・renderer期限と応答上限。
 
-PR #77はmainへマージ済み。#78→#79→#80は既にmainへ統合済みの古いfeatureブランチへ順にマージされたため、PRの`merged`表示だけではmainに全機能が揃わなかった。リリース準備ブランチで現在のmainと最後の統合tipを合わせ、**mainをbaseにした1本のPR**として不足分と配布準備をレビューする。下の個別開発記録は当時の検証・統合状況であり、現在の状態は本節を優先する。
+PR #78→#79→#80の不足分と配布準備はPR #81でmainへ統合済み。今回もPR #85がmain統合済みの旧featureブランチへマージされていたため、**mainをbaseにした統合PR**で不足分を取り込む。統合開始時点のmainは`2f29fb5`、#85のmerge commitは`6f6f46a`。PRの`merged`表示ではなく、mainからの到達性・統合後CI・実際の配布候補を確認する。下の個別開発記録は当時の検証・統合状況であり、現在の公開条件は本節を優先する。
 
 ### 公開前の受入条件
 
@@ -51,6 +67,10 @@ PR #77はmainへマージ済み。#78→#79→#80は既にmainへ統合済みの
 5. レビュー承認後にmainへマージし、別途公開を承認したうえで`v0.6.0`タグを作る。タグ専用workflowが同じ配布ビルド・受入検証を再実行し、成功後だけGitHub Releaseを作成する。RCタグを明示公開する場合はprerelease扱いでlatestにしない。**本準備作業ではタグもReleaseも作成しない。**
 
 配布リハーサルはPR権限のread-only buildであり、タグもGitHub Releaseも不要。`scripts/package-release.py`はローカルのネイティブ候補を生成し、`scripts/smoke-release.py`はインストールしたCLIを検証する。macOS／Windowsの`--archive-dir`／`-ArchiveDirectory`は明示版とチェックサムを要求し、破損・重複checksum・不正member・版違いでは既存の実行ファイルを置き換えない。
+
+今回の統合候補のローカル確認：全package test・vet、Git／CLI／rendererのrace検査、配布workflowのactionlintに成功した。native `0.6.0-rc.1`アーカイブを作成し、オフラインinstallerで導入した実行fileで全図種・cache一致・汚れた作業ツリーを含めないGit差分・配置図の秘密値非表示・watch更新／削除／中断を確認。installerの破損・版違い・重複checksum・不正archive拒否と既存実行file保持も確認した。同じ導入済みCLIでGo構造型のSVGを3表示方式すべてで生成し、titleの制御構文風文字列と後続メンバーを検証、PNGも目視した。4環境のCI・downloadした候補artifact・main統合後の結果は統合PRに記録する。
+
+今回の準備ではmainへの統合と公開前の受入検証までを行う。`v0.6.0`タグ作成・GitHub Release公開・installerの既定版変更は別途公開承認後に行う。#15（Homebrew／Scoop）と#82（共通IR）は次の開発項目であり、今回の候補へ追加しない。
 
 ### 今回の非対象
 

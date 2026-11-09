@@ -21,8 +21,8 @@ type Result struct {
 	Deleted []DeletedSource
 }
 
-func Analyze(rangeSpec string) (Result, error) {
-	rootOutput, err := runGit("", "rev-parse", "--show-toplevel")
+func Analyze(workingDir, rangeSpec string) (Result, error) {
+	rootOutput, err := runGit(workingDir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return Result{}, fmt.Errorf("not inside a Git repository: %w", err)
 	}
@@ -130,9 +130,7 @@ func absolute(root, path string) string {
 
 func runGit(dir string, args ...string) ([]byte, error) {
 	command := exec.Command("git", args...)
-	if dir != "" {
-		command.Dir = dir
-	}
+	command.Dir = dir
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr

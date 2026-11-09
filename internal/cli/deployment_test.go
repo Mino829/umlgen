@@ -9,7 +9,7 @@ import (
 
 func TestDeploymentDeclaredTopologyWithoutTools(t *testing.T) {
 	root := t.TempDir()
-	packageCLIChdir(t, root)
+	t.Chdir(root)
 	t.Setenv("PATH", "")
 	packageCLIWrite(t, "compose.yaml", "services:\n  api:\n    image: example/api:1\n    environment:\n      PASSWORD: PRIVATE_SENTINEL\n    env_file: missing.env\n")
 	result := packageCLISuccess(t, "deployment", "--manifest", "compose.yaml", "--explain")
@@ -68,7 +68,7 @@ func TestDeploymentIncompleteWritesDiagram(t *testing.T) {
 
 func TestDeploymentOverrideReplacesInvalidConfigRelativeManifest(t *testing.T) {
 	root := t.TempDir()
-	packageCLIChdir(t, root)
+	t.Chdir(root)
 	packageCLIWrite(t, filepath.Join(root, "settings", "declared.yaml"), "services: [\n")
 	packageCLIWrite(t, "override.yaml", "services:\n  overridden:\n    image: overridden:1\n")
 	cfg := packageCLIConfig(t, filepath.Join(root, "settings"), "diagrams:\n  deployment:\n    manifest: declared.yaml\noutput:\n  file: configured.puml\n")

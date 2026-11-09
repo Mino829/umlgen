@@ -81,7 +81,7 @@ func validSkinParam(key, value string) bool {
 func writePreamble(b *strings.Builder, title string, opts Options) {
 	b.WriteString("@startuml\n")
 	if title != "" {
-		fmt.Fprintf(b, "title %s\n", escapeTitle(title))
+		fmt.Fprintf(b, "title %s\n", packageText(title))
 	}
 	if opts.LayoutDirection == "left-to-right" {
 		b.WriteString("left to right direction\n")
@@ -447,8 +447,4 @@ func safeAlias(s string) string {
 		}
 	}
 	return b.String()
-}
-
-func escapeTitle(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", " ")
 }

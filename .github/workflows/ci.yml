@@ -214,6 +214,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends plantuml graphviz
-          go test ./internal/cli -run '^Test(GoStructuralMemberTypes|DefaultPackageClasses)RenderSVG$' -count=1
+          go test ./internal/cli -run '^Test((GoStructuralMemberTypes|DefaultPackageClasses)RenderSVG|ClassTitleRendersLiteralMarkupAndPreprocessorText)$' -count=1
           UMLGEN_BIN="$PWD/umlgen" \
             ./examples/order-service/generate.sh "$RUNNER_TEMP/umlgen-demo"
