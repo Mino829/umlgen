@@ -14,6 +14,16 @@ umlgen class ./src/main/java
 umlgen class . --language go
 ```
 
+## 🎬 紹介動画
+
+[![umlgenでコードの構造を可視化するデモ](docs/media/umlgen-preview.gif)](docs/media/umlgen-demo.mp4)
+
+[音声付きデモを見る（MP4・約42秒）](docs/media/umlgen-demo.mp4) · [静止画で見る](docs/media/umlgen-poster.png)
+
+コードを理解するための、ひとつの道具。クラス図の生成、`--focus`による絞り込み、`--explain`による依存の根拠の確認を紹介します。
+
+対象は **v0.6.0**。実行確認したGoサンプルの結果を使い、ターミナルと図を読みやすく再構成しています。ナレーションはAI生成音声です。[素材・検証範囲](docs/media/README.md)
+
 ## 🎯 こんな方におすすめ
 
 - **既存コードの理解**: 大規模プロジェクトの構造を視覚的に把握したい
