@@ -1,0 +1,158 @@
+@startuml
+title umlgen package dependencies
+
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>cmd<U+002F>umlgen" as PKG_0 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>activity" as PKG_1 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>cli" as PKG_2 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>component" as PKG_3 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>config" as PKG_4 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>deployment" as PKG_5 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>explain" as PKG_6 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>focus" as PKG_7 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>fsidentity" as PKG_8 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>gitdiff" as PKG_9 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>gitsnapshot" as PKG_10 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>golang" as PKG_11 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>java" as PKG_12 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>javacache" as PKG_13 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>language" as PKG_14 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>model" as PKG_15 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>packagediff" as PKG_16 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>packagegraph" as PKG_17 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>plantuml" as PKG_18 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>relations" as PKG_19 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>renderer" as PKG_20 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>scanner" as PKG_21 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>sequence" as PKG_22 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>sequencego" as PKG_23 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>sequencejava" as PKG_24 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>state" as PKG_25 {
+}
+package "github<U+002E>com<U+002F>Mino829<U+002F>umlgen<U+002F>internal<U+002F>watch" as PKG_26 {
+}
+PKG_0 --> PKG_2 : types=0; imports=1
+PKG_1 --> PKG_15 : types=0; imports=1
+PKG_1 --> PKG_22 : types=0; imports=1
+PKG_2 --> PKG_1 : types=0; imports=2
+PKG_2 --> PKG_3 : types=0; imports=1
+PKG_2 --> PKG_4 : types=0; imports=12
+PKG_2 --> PKG_5 : types=0; imports=1
+PKG_2 --> PKG_6 : types=0; imports=10
+PKG_2 --> PKG_7 : types=0; imports=3
+PKG_2 --> PKG_8 : types=0; imports=1
+PKG_2 --> PKG_9 : types=0; imports=3
+PKG_2 --> PKG_10 : types=0; imports=1
+PKG_2 --> PKG_11 : types=0; imports=1
+PKG_2 --> PKG_13 : types=0; imports=2
+PKG_2 --> PKG_14 : types=0; imports=10
+PKG_2 --> PKG_15 : types=0; imports=5
+PKG_2 --> PKG_16 : types=0; imports=1
+PKG_2 --> PKG_17 : types=0; imports=4
+PKG_2 --> PKG_18 : types=0; imports=12
+PKG_2 --> PKG_19 : types=0; imports=4
+PKG_2 --> PKG_20 : types=0; imports=11
+PKG_2 --> PKG_21 : types=0; imports=2
+PKG_2 --> PKG_22 : types=0; imports=3
+PKG_2 --> PKG_23 : types=0; imports=3
+PKG_2 --> PKG_24 : types=0; imports=3
+PKG_2 --> PKG_25 : types=0; imports=1
+PKG_2 --> PKG_26 : types=0; imports=4
+PKG_3 --> PKG_8 : types=0; imports=1
+PKG_3 --> PKG_17 : types=0; imports=2
+PKG_4 --> PKG_1 : types=0; imports=1
+PKG_4 --> PKG_22 : types=0; imports=1
+PKG_5 --> PKG_3 : types=0; imports=1
+PKG_6 --> PKG_1 : types=0; imports=1
+PKG_6 --> PKG_3 : types=0; imports=1
+PKG_6 --> PKG_5 : types=0; imports=1
+PKG_6 --> PKG_15 : types=0; imports=6
+PKG_6 --> PKG_16 : types=0; imports=1
+PKG_6 --> PKG_17 : types=0; imports=3
+PKG_6 --> PKG_19 : types=0; imports=7
+PKG_6 --> PKG_22 : types=0; imports=1
+PKG_6 --> PKG_25 : types=0; imports=1
+PKG_7 --> PKG_15 : types=0; imports=1
+PKG_7 --> PKG_19 : types=0; imports=1
+PKG_9 --> PKG_15 : types=0; imports=1
+PKG_10 --> PKG_11 : types=0; imports=1
+PKG_10 --> PKG_15 : types=0; imports=1
+PKG_10 --> PKG_21 : types=0; imports=1
+PKG_11 --> PKG_15 : types=0; imports=1
+PKG_11 --> PKG_19 : types=0; imports=1
+PKG_12 --> PKG_15 : types=0; imports=1
+PKG_13 --> PKG_12 : types=0; imports=1
+PKG_13 --> PKG_15 : types=0; imports=1
+PKG_14 --> PKG_11 : types=0; imports=1
+PKG_14 --> PKG_12 : types=0; imports=1
+PKG_14 --> PKG_15 : types=0; imports=1
+PKG_14 --> PKG_21 : types=0; imports=1
+PKG_16 --> PKG_15 : types=0; imports=1
+PKG_16 --> PKG_17 : types=0; imports=3
+PKG_16 --> PKG_19 : types=0; imports=2
+PKG_17 --> PKG_15 : types=0; imports=5
+PKG_17 --> PKG_19 : types=0; imports=4
+PKG_18 --> PKG_1 : types=0; imports=1
+PKG_18 --> PKG_3 : types=0; imports=1
+PKG_18 --> PKG_5 : types=0; imports=1
+PKG_18 --> PKG_15 : types=0; imports=1
+PKG_18 --> PKG_16 : types=0; imports=1
+PKG_18 --> PKG_17 : types=0; imports=3
+PKG_18 --> PKG_19 : types=0; imports=2
+PKG_18 --> PKG_22 : types=0; imports=2
+PKG_18 --> PKG_25 : types=0; imports=1
+PKG_19 --> PKG_15 : types=0; imports=2
+PKG_22 --> PKG_15 : types=0; imports=1
+PKG_23 --> PKG_1 : types=0; imports=2
+PKG_23 --> PKG_11 : types=0; imports=1
+PKG_23 --> PKG_15 : types=0; imports=1
+PKG_23 --> PKG_22 : types=0; imports=4
+PKG_23 --> PKG_25 : types=0; imports=1
+PKG_24 --> PKG_1 : types=0; imports=2
+PKG_24 --> PKG_22 : types=0; imports=3
+PKG_24 --> PKG_25 : types=0; imports=1
+PKG_25 --> PKG_1 : types=0; imports=2
+PKG_25 --> PKG_15 : types=0; imports=1
+PKG_25 --> PKG_22 : types=0; imports=1
+
+legend bottom
+Dependencies: imports; types = declaration relations, imports = source declarations
+Selected analysis scope: 27 packages, 83 dependencies
+Visible: 27 packages, 83 dependencies; hidden: 0 packages, 0 dependencies
+Type relation selection: all
+External import paths: hidden; existence/types/build compatibility unverified
+Cycles in selected analysis scope: declared=0; candidate=0
+Cycle groups are SCC member sets, not ordered call paths
+Cycle analysis precedes focus/external hiding; omitted edges may hide the cycle
+Selected-scope diagnostics: unresolved=0; ambiguous=0; syntax failures=0; read failures=0; unsupported=0
+Incomplete/unresolved analysis is not evidence of absent dependencies
+Solid arrows have declaration/import proof; dashed arrows are inferred-only
+Source model only: not compilation, Go import-cycle validation, or runtime behavior
+Build tags/classpath and unselected sources are not evaluated
+endlegend
+
+@enduml
