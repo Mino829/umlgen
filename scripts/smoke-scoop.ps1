@@ -36,7 +36,8 @@ try {
     Invoke-Git -C $tapRepo init --quiet
     Invoke-Git -C $tapRepo add bucket/umlgen.json
     Invoke-Git -C $tapRepo -c user.name=PackageSmoke -c user.email=smoke@example.invalid -c commit.gpgsign=false commit --quiet -m 'Published v0.6.0 baseline'
-    Invoke-Scoop bucket add umlgen $tapRepo
+    # Scoop validates Git URLs; a Windows drive path is not accepted as a bucket URL.
+    Invoke-Scoop bucket add umlgen ([Uri]$tapRepo).AbsoluteUri
     Invoke-Scoop install umlgen/umlgen
     Test-Package '0.6.0' 'baseline'
 

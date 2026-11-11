@@ -15,6 +15,10 @@
 
 IRとの統合確認：全体test（27 package成功、2 packageはtestなし）・vet・buildが成功した。Go／Javaのclass条件とpackage全3modeの28条件で公開v0.6.0と図・説明が一致し、cold／warm／無効cache・explain有無も一致した。実local PlantUMLのGo SVG／Java PNGを生成して画像確認し、既存受入scriptで全図種・class／package差分・dirtyな作業ツリーとの分離・watch更新／空図／native中断を確認した。OS別CIの結果は各PRへ記録する。
 
+初回CIでは標準ライブラリの[#92：`GO-2026-6859`](https://github.com/Mino829/umlgen/issues/92)（Go 1.26.10、修正版1.26.11）で脆弱性検査が停止した。検査を抑制せず、通常CI・CodeQL・native配布ビルドのGoを1.26.11へ統一する。公開済みv0.6.0のassetを差し替える変更ではない。修正後のCI結果は各PRへ記録する。
+
+Scoopの初回CIでは、bucket追加時にWindowsのdrive pathがGit URLとして拒否された。native smokeのローカルGit remoteを標準の`file://` URIへ変更し、導入・更新・削除の検証自体は維持する。
+
 ## Issueの解消状況
 
 #70・#47・#48はv0.6.0に含まれる。#14のwatchを含む準備変更はPR #81、最終の不足分は[PR #86](https://github.com/Mino829/umlgen/pull/86)でmainへ統合済み。#15（Homebrew／Scoopによる導入改善）と#82（共通IR整理）は今後の開発項目であり、v0.6.0の公開条件には含めない。以下の個別確認は開発当時の記録で、新たな再検証の結果ではない。
