@@ -231,8 +231,27 @@ jobs:
             --output "$RUNNER_TEMP/umlgen-packages.puml"
           cmp docs/diagrams/umlgen-packages.puml "$RUNNER_TEMP/umlgen-packages.puml"
           test -s "$RUNNER_TEMP/umlgen-packages.svg"
-          plantuml -tpng "$RUNNER_TEMP/umlgen-packages.puml"
-          test -s "$RUNNER_TEMP/umlgen-packages.png"
+          python3 - "$RUNNER_TEMP/umlgen-packages.svg" "$RUNNER_TEMP/umlgen-packages.puml" <<'PY'
+          import math
+          import os
+          from pathlib import Path
+          import struct
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+
+          svg, puml = map(Path, sys.argv[1:])
+          _, _, width, height = map(float, ET.parse(svg).getroot().attrib["viewBox"].split())
+          # PlantUML otherwise silently clips PNG canvases at 4096 pixels.
+          env = dict(os.environ, PLANTUML_LIMIT_SIZE=str(math.ceil(max(width, height))))
+          subprocess.run(["plantuml", "-tpng", str(puml)], env=env, check=True)
+          with puml.with_suffix(".png").open("rb") as image:
+              png_width, png_height = struct.unpack(">II", image.read(24)[16:24])
+          # SVG canvas dimensions are rounded up; PNG can be one pixel smaller.
+          if png_width < width - 1 or png_height < height - 1:
+              raise SystemExit(f"PNG is clipped: {png_width}x{png_height}, SVG: {width:g}x{height:g}")
+          print(f"Full PNG canvas: {png_width}x{png_height}; SVG: {width:g}x{height:g}")
+          PY
       - name: Upload self-generated package diagram
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

@@ -144,6 +144,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 このリポジトリのCIは、同一リポジトリ内の公開PRで検証が成功すると、**PRのConversationに「UML画像プレビュー」コメントを1つ投稿**します。
 
 - メインには、CIが検証したmerge commitから生成したumlgenのGoパッケージ依存図をPNGで表示します。画像をクリックすると原寸で開けます。
+- PNG生成時はSVGの`viewBox`から必要なサイズ上限を設定し、[PlantUML既定の4096px上限](https://plantuml.com/faq)による切り落としを防ぎます。生成後もPNGの幅・高さをSVGと照合し、丸め差の1pxを超えて小さければCIを失敗させ、欠けた画像を投稿しません。
 - Windows／Scoopで実際に生成したサンプルのクラス図は、折りたたみ欄へ表示します。公開版CLIの描画確認であり、PRのJava差分図ではありません。
 - 同じPRへのpush後は既存のbotコメントを更新します。PR head／CI checkoutのSHAとrunへのリンクを併記し、古いheadのrunや閉じたPRからは更新しません。失敗したrunでは新しいプレビューを投稿しないため、前回のコメントがあれば記載SHAを確認してください。
 - SVG・PlantUMLは従来どおり`umlgen-self-package-diagram`／`scoop-renderer-smoke` artifactから取得できます。投稿jobのActions Summaryにもコメントへのリンクを表示します。
