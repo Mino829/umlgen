@@ -118,6 +118,8 @@ watchは安定した入力観測後に同じclass／package処理をステージ
 
 `BenchmarkGeneratePlantUML`は解析済み入力からのテキスト生成だけを計測するようにし、関係解析は`BenchmarkResolveRelations`へ分離した。過去の解析込み生成値との直接比較はしない（[performance.md](performance.md)）。
 
+初回CIでは既存の固定Go 1.26.10に対し`GO-2026-6859`が報告され、機能テスト通過後の脆弱性検査で停止した。[#92](https://github.com/Mino829/umlgen/issues/92)として通常CI・CodeQL・native配布ビルドを修正版1.26.11へ更新する。検査の抑制や公開済みassetの差し替えは行わず、修正後の結果はPRに記録する。
+
 ## 拡張の順序
 
 新言語ではまず`SourceUnit / Type`に既存の構文事実・位置・診断を渡し、言語固有情報を勝手に確定関係へ昇格させない。新出力形式は必要な既存解析／図別投影を消費し、generator内で関係を再推論しない。package循環やcomponent境界は既存graphを再利用する。
