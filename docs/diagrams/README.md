@@ -16,4 +16,4 @@ plantuml -tsvg docs/diagrams/umlgen-packages.puml
 
 図のartifact名は`umlgen-self-package-diagram`です。配布物の集約は`umlgen-linux-amd64`・`umlgen-darwin-arm64`・`umlgen-darwin-amd64`・`umlgen-windows-amd64`だけを選び、図を配布ディレクトリへ混在させません。集約後の「正確に4アーカイブ」とchecksumの検証は維持します。
 
-ソース変更で図が変わった場合は`make diagram`を実行し、生成差分を同じPRに含めてください。
+ソース変更で図が変わった場合は`make diagram`を実行し、生成差分を同じPRに含めてください。mainの取り込みで依存やimport件数が変わる場合も、取り込み後のソースから再生成します。CIはmainとの統合結果で図を照合するため、古いベースで生成した図のままでは一致しません。
