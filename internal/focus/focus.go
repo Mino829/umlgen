@@ -28,21 +28,23 @@ func ParseDirection(value string) (Direction, error) {
 }
 
 // Apply returns the focused type and connected types within maxDepth.
-func Apply(types []model.Type, name string, maxDepth int, direction Direction) ([]model.Type, error) {
-	return ApplyMany(types, []string{name}, maxDepth, direction)
+func Apply(analysis relations.Analysis, name string, maxDepth int, direction Direction) (relations.Analysis, error) {
+	return ApplyMany(analysis, []string{name}, maxDepth, direction)
 }
 
-// ApplyMany focuses the graph around multiple seeds. Seed names may be simple
-// names, display names for nested types, or fully qualified names.
-func ApplyMany(types []model.Type, names []string, maxDepth int, direction Direction) ([]model.Type, error) {
+// ApplyMany focuses the supplied graph around multiple seeds. Seed names may be
+// simple, nested display, or fully qualified names. All relation kinds participate,
+// independently of the renderer's relation and member visibility settings.
+func ApplyMany(analysis relations.Analysis, names []string, maxDepth int, direction Direction) (relations.Analysis, error) {
 	if len(names) == 0 {
-		return types, nil
+		return analysis, nil
 	}
+	types := analysis.Project.Types
 	if maxDepth < 0 {
-		return nil, fmt.Errorf("--depth must be zero or greater")
+		return relations.Analysis{}, fmt.Errorf("--depth must be zero or greater")
 	}
 	if _, err := ParseDirection(string(direction)); err != nil {
-		return nil, err
+		return relations.Analysis{}, err
 	}
 
 	qualified := make(map[string]int, len(types))
@@ -57,7 +59,7 @@ func ApplyMany(types []model.Type, names []string, maxDepth int, direction Direc
 	for _, name := range names {
 		start, err := resolveFocus(name, qualified, simple, display, types)
 		if err != nil {
-			return nil, err
+			return relations.Analysis{}, err
 		}
 		starts = append(starts, start)
 	}
@@ -66,7 +68,7 @@ func ApplyMany(types []model.Type, names []string, maxDepth int, direction Direc
 	for i := range adjacent {
 		adjacent[i] = map[int]bool{}
 	}
-	for _, relation := range relations.Build(types) {
+	for _, relation := range analysis.Relations {
 		from, fromOK := qualified[relation.From]
 		to, toOK := qualified[relation.To]
 		if !fromOK || !toOK {
@@ -115,7 +117,7 @@ func ApplyMany(types []model.Type, names []string, maxDepth int, direction Direc
 			result = append(result, t)
 		}
 	}
-	return result, nil
+	return analysis.Select(result), nil
 }
 
 func resolveFocus(

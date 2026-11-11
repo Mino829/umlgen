@@ -84,7 +84,7 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 
 - 型宣言、structのフィールド・埋め込み、interfaceのメソッド・埋め込み、レシーバー付きメソッドのシグネチャを抽出する。
 - **レシーバーのない関数の宣言・本体はスキップする。`main`、`init`、通常のパッケージ関数と、その本体・呼び出しは現在の型モデルにない。** 型0件の関数ファイルも、package節・importを持つ`SourceUnit`として残る。
-- 非struct/interfaceの型もクラス図向けの型へ投影し、合成フィールド`value`を使う。型aliasと定義型の意味上の区別は保持しない。
+- 非struct/interfaceの定義型もクラス図向けの型へ投影し、合成フィールド`value`を使う。型aliasは`model.Alias`として宣言identityを保持し、クラスや参照先へ展開しない。
 - importにはaliasを保持し、dot／blankもそのまま区別する。`ParseSource`／`ParseFile`はpackage節を含む`SourceUnit`を返し、キャッシュ保存後の`BindContext(unit)`がソースの祖先から`go.mod`を探してmodule名と相対ディレクトリで`PackagePath`と型のpackage完全名を構成する。見つからない場合はpackage節へフォールバックする。
 - `go.work`、replace、実際のビルド対象、依存パッケージの型情報をロードしない。`_test.go`は言語側の対象から除外するが、GOOS/GOARCHやbuild tagsによる選別はない。
 - `Finalize`で同じ完全名の型・別ファイルのメソッドを統合する。クラス図の型へ投影したimportは従来どおり統合されるが、各`SourceUnit`のimportは独立して保持する。**既存クラス図resolverのファイル別alias解決はこの変更で拡張しない**。新しいpackage graphでは元のunitを使う。
@@ -108,7 +108,7 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 | 関係・根拠・診断 | From/To、種類、label、多重度、宣言位置、推定、未解決／図の外 | 型関係以外の語彙や、実行順序・遷移のモデルなし |
 | `packagegraph.Graph` / `View` | 文脈付きPackageID、集約辺、宣言／候補SCC、focus前の解析範囲と表示射影、元位置・診断 | CLI接続済み。コンパイラーによる意味解析はない。図生成は`plantuml.GeneratePackage`へ分離 |
 
-`relations.Build`は軽量な関係生成、`Analyze`は根拠と診断を含む処理である。対象は継承、実装、フィールド、引数、戻り値の5種類。型文字列から参照名を抽出し、既知の型、同じpackage、明示import、wildcard等で解決する。**importそのものは関係線ではなく、ローカル変数や式での利用も含まない。**
+`relations.Analyze(Input, details)`は軽量／詳細を同じ関係解析で扱う。`Input`は選択済み宣言と、図の外の既知参照を判定する文脈を分ける。対象は継承、実装、フィールド、引数、戻り値の5種類。型文字列から参照名を抽出し、同じpackage、明示import、wildcard等で解決する。`Analysis`をfocus・生成・説明で共有し、表示対象だけで再解決しない。**importそのものは関係線ではなく、ローカル変数や式での利用も含まない。** #82の採用設計・IDの限界・図別モデルとの関係は[architecture.md](architecture.md)を参照。
 
 制約:
 
@@ -121,7 +121,7 @@ Tree-sitterは構文を読む基盤であり、外部JAR、オーバーロード
 
 ### 2.6 PlantUML生成と画像化
 
-[plantuml/generator.go](../internal/plantuml/generator.go)の`Generate`は型ノードを出し、`relations.Build`からクラス図の線を出す。`Options`もメンバー表示、型関係、package wrapper、レイアウトを含むクラス図中心の設計であり、汎用グラフIRではない。
+[plantuml/generator.go](../internal/plantuml/generator.go)の`Generate`は、上流から供給された`relations.Analysis`の型ノードと関係線を描き、関係を再構築しない。`Options`もメンバー表示、型関係、package wrapper、レイアウトを含むクラス図中心の設計であり、汎用グラフIRではない。
 
 - flat／hierarchical／noneは**型を囲む枠**の違い。hierarchicalはJavaのドットやGoのパス構造を扱うが、packageノード同士の依存には変換しない。
 - クラス図の生成経路は維持し、package図はP1-05の`GeneratePackage(View, PackageOptions)`で別生成する。安全なpreamble・layout検証を再利用し、packageの名前・titleは指示やリンクにならない文字escapeを行う。`PKG_n`等の図上aliasは永続的なPackageIDにしない。
@@ -156,7 +156,7 @@ P1-05の内部APIに続き、P1-06で実際の`package` CLIからもlocal PlantU
 - [config/config.go](../internal/config/config.go): yaml.v3で既定値へ読み込む。source/outputは設定ファイル基準で解決し、CLIによる上書きパスはcwd基準。新しい`diagrams`／`diagrams.package`は未知キー・型を検証するが、旧namespace全体は一律に厳格化しない。
 - [scanner/scanner.go](../internal/scanner/scanner.go): 拡張子、既定の除外ディレクトリ、明示パターンで探索し、絶対パスを重複排除・ソートする。`.gitignore`や真のglob一般を解釈する機能ではなく、明示ファイル指定と再帰探索で除外の適用差もある。
 - CLIのexcludeは設定リストへの追加ではなく置き換え。include/package除外には解析後の型フィルターもある。削除ファイルは通常探索を経由しないため、全経路へ同一に適用されるとは限らない。
-- [focus/focus.go](../internal/focus/focus.go): 型名を解決し、型関係でBFSする。現在は`--relations`の表示絞り込みがBFSの辺を制限しない。package／call用focusへそのまま流用できない。
+- [focus/focus.go](../internal/focus/focus.go): seed名を解決し、供給された`relations.Analysis`の型関係でBFSして表示を射影する。`--relations`の表示絞り込みはBFSの辺を制限しない。package／call用focusへそのまま流用できない。
 - 既存の`--depth`はfocusからの関係距離で、再帰呼び出しの展開回数ではない。`diff`とfocusの併用は現在禁止されている。
 
 ## 3. 図の比較と優先順位

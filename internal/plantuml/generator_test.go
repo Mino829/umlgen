@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/relations"
 )
 
 func TestGenerate(t *testing.T) {
@@ -26,7 +27,7 @@ func TestGenerate(t *testing.T) {
 		{Package: "sample", Name: "GoUser", Kind: model.Struct},
 		{Package: "sample", Name: "UserId", Kind: model.Record, Change: model.Added},
 	}}
-	got := Generate(project, Options{
+	got := Generate(relations.Analyze(relations.Input{Types: project.Types}, false), Options{
 		ShowFields: true, ShowMethods: true, ShowPrivate: true, ShowPublic: true,
 		ShowProtected: true, ShowPackage: true, ShowRelations: true,
 		Inheritance: true, Implementation: true, FieldDependency: true,
@@ -63,7 +64,7 @@ func TestGenerateCommonJavaModifiersAndMembers(t *testing.T) {
 			Methods: []model.Method{{Name: "value", ReturnType: "String", Visibility: model.Public, Abstract: true}},
 		},
 	}}
-	got := Generate(project, Options{
+	got := Generate(relations.Analyze(relations.Input{Types: project.Types}, false), Options{
 		ShowFields: true, ShowMethods: true, ShowPrivate: true, ShowPublic: true,
 		ShowProtected: true, ShowPackage: true,
 	})
@@ -108,7 +109,7 @@ func TestGenerateUsesDistinctAliasesForCollidingNames(t *testing.T) {
 
 	for _, grouping := range []string{"flat", "hierarchical", "none"} {
 		t.Run(grouping, func(t *testing.T) {
-			got := Generate(model.Project{Types: types}, Options{
+			got := Generate(relations.Analyze(relations.Input{Types: types}, false), Options{
 				PackageGrouping: grouping,
 				ShowRelations:   true, FieldDependency: true, ShowRelationLabels: true,
 			})
@@ -185,7 +186,7 @@ func TestGeneratePackageLayoutGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := Generate(tc.project, tc.options)
+			got := Generate(relations.Analyze(relations.Input{Types: tc.project.Types}, false), tc.options)
 			if got != string(want) {
 				t.Fatalf("output differs from %s:\nwant:\n%s\ngot:\n%s", tc.fixture, want, got)
 			}
@@ -193,7 +194,7 @@ func TestGeneratePackageLayoutGolden(t *testing.T) {
 			for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
 				reversed[i], reversed[j] = reversed[j], reversed[i]
 			}
-			if reordered := Generate(model.Project{Types: reversed}, tc.options); reordered != got {
+			if reordered := Generate(relations.Analyze(relations.Input{Types: reversed}, false), tc.options); reordered != got {
 				t.Fatalf("output depends on input order:\n%s", reordered)
 			}
 		})
@@ -236,7 +237,7 @@ func TestValidateLayout(t *testing.T) {
 				}
 				// The string-only renderers must not expose raw options even
 				// when called without the CLI's validation.
-				for _, got := range []string{Generate(model.Project{}, opts), Placeholder("", opts)} {
+				for _, got := range []string{Generate(relations.Analysis{}, opts), Placeholder("", opts)} {
 					if strings.Contains(got, "skinparam ") || strings.Contains(got, "!include") ||
 						strings.Count(got, "@enduml") != 1 {
 						t.Fatalf("unsafe setting reached output:\n%s", got)
@@ -260,5 +261,28 @@ func TestPlaceholderLayout(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing placeholder layout setting %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestGenerateUsesSuppliedAnalysisWithoutReinference(t *testing.T) {
+	analysis := relations.Analysis{
+		Project: model.Project{Types: []model.Type{
+			{Package: "sample", Name: "Service", Kind: model.Class, Fields: []model.Field{{Name: "raw", Type: "Raw"}}},
+			{Package: "sample", Name: "Raw", Kind: model.Class},
+			{Package: "sample", Name: "Resolved", Kind: model.Class},
+		}},
+		Relations: []relations.Relation{{
+			From: "sample.Service", To: "sample.Resolved", Kind: relations.Field, Label: "bound", Multiplicity: "*",
+		}},
+	}
+	opts := Options{ShowRelations: true, FieldDependency: true, ShowRelationLabels: true}
+	got := Generate(analysis, opts)
+	if !strings.Contains(got, `T_sample_Service --> "*" T_sample_Resolved : field bound`) ||
+		strings.Contains(got, `T_sample_Service --> "1" T_sample_Raw`) {
+		t.Fatalf("renderer inferred relations instead of consuming analysis:\n%s", got)
+	}
+	analysis.Relations = nil
+	if got := Generate(analysis, opts); strings.Contains(got, " --> ") {
+		t.Fatalf("renderer reconstructed missing analysis:\n%s", got)
 	}
 }
