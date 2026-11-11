@@ -231,6 +231,27 @@ jobs:
             --output "$RUNNER_TEMP/umlgen-packages.puml"
           cmp docs/diagrams/umlgen-packages.puml "$RUNNER_TEMP/umlgen-packages.puml"
           test -s "$RUNNER_TEMP/umlgen-packages.svg"
+          python3 - "$RUNNER_TEMP/umlgen-packages.svg" "$RUNNER_TEMP/umlgen-packages.puml" <<'PY'
+          import math
+          import os
+          from pathlib import Path
+          import struct
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+
+          svg, puml = map(Path, sys.argv[1:])
+          _, _, width, height = map(float, ET.parse(svg).getroot().attrib["viewBox"].split())
+          # PlantUML otherwise silently clips PNG canvases at 4096 pixels.
+          env = dict(os.environ, PLANTUML_LIMIT_SIZE=str(math.ceil(max(width, height))))
+          subprocess.run(["plantuml", "-tpng", str(puml)], env=env, check=True)
+          with puml.with_suffix(".png").open("rb") as image:
+              png_width, png_height = struct.unpack(">II", image.read(24)[16:24])
+          # SVG canvas dimensions are rounded up; PNG can be one pixel smaller.
+          if png_width < width - 1 or png_height < height - 1:
+              raise SystemExit(f"PNG is clipped: {png_width}x{png_height}, SVG: {width:g}x{height:g}")
+          print(f"Full PNG canvas: {png_width}x{png_height}; SVG: {width:g}x{height:g}")
+          PY
       - name: Upload self-generated package diagram
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -239,6 +260,7 @@ jobs:
           path: |
             ${{ runner.temp }}/umlgen-packages.puml
             ${{ runner.temp }}/umlgen-packages.svg
+            ${{ runner.temp }}/umlgen-packages.png
 
   package-manager-definitions:
     name: Test package-manager updater
@@ -309,3 +331,142 @@ jobs:
           name: scoop-renderer-smoke
           path: ${{ runner.temp }}/scoop-renderer-smoke
           if-no-files-found: error
+
+  pr-diagram-preview:
+    name: Publish PR UML preview
+    needs: [test, package-manager-smoke]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.repository.private
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: umlgen-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Download package diagram
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: umlgen-self-package-diagram
+          path: ${{ runner.temp }}/umlgen-preview
+      - name: Download Windows rendering example
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: scoop-renderer-smoke
+          path: ${{ runner.temp }}/umlgen-preview
+      - name: Publish images and update the PR comment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PREVIEW_DIRECTORY: ${{ runner.temp }}/umlgen-preview
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const {owner, repo} = context.repo;
+            const number = context.payload.pull_request.number;
+            const head = context.payload.pull_request.head.sha;
+            const isCurrent = async () => {
+              const {data: pr} = await github.rest.pulls.get({owner, repo, pull_number: number});
+              return pr.state === 'open' && pr.head.sha === head;
+            };
+            if (!await isCurrent()) {
+              core.info('Skipping preview for an outdated or closed pull request.');
+              return;
+            }
+
+            // Publish only PNG data; never check out or execute PR/artifact code.
+            const treeEntries = [];
+            for (const [source, target] of [
+              ['umlgen-packages.png', 'packages.png'],
+              ['class-png.png', 'scoop.png']
+            ]) {
+              const filename = path.join(process.env.PREVIEW_DIRECTORY, source);
+              const stat = fs.statSync(filename);
+              if (!stat.isFile() || stat.size > 10 * 1024 * 1024) {
+                throw new Error(`Invalid PNG size: ${source}`);
+              }
+              const image = fs.readFileSync(filename);
+              const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+              if (!image.subarray(0, 8).equals(signature)) {
+                throw new Error(`Not a PNG: ${source}`);
+              }
+              const {data: blob} = await github.rest.git.createBlob({
+                owner, repo, content: image.toString('base64'), encoding: 'base64'
+              });
+              treeEntries.push({path: target, mode: '100644', type: 'blob', sha: blob.sha});
+            }
+
+            // Each PR has its own image-only branch, avoiding cross-PR ref races.
+            const branch = `umlgen-preview/pr-${number}`;
+            let parent;
+            try {
+              const {data: ref} = await github.rest.git.getRef({owner, repo, ref: `heads/${branch}`});
+              ({data: parent} = await github.rest.git.getCommit({owner, repo, commit_sha: ref.object.sha}));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const {data: tree} = await github.rest.git.createTree({
+              owner, repo, tree: treeEntries
+            });
+            let imageCommit = parent?.sha;
+            if (tree.sha !== parent?.tree.sha) {
+              const {data: commit} = await github.rest.git.createCommit({
+                owner, repo,
+                message: `UML preview for PR #${number} (${head.slice(0, 7)})`,
+                tree: tree.sha,
+                parents: parent ? [parent.sha] : []
+              });
+              imageCommit = commit.sha;
+              if (parent) {
+                await github.rest.git.updateRef({owner, repo, ref: `heads/${branch}`, sha: imageCommit});
+              } else {
+                await github.rest.git.createRef({owner, repo, ref: `refs/heads/${branch}`, sha: imageCommit});
+              }
+            }
+            if (!await isCurrent()) {
+              core.info('PR changed during publication; not replacing its preview comment.');
+              return;
+            }
+
+            const marker = '<!-- umlgen:pr-diagram-preview -->';
+            const images = `https://raw.githubusercontent.com/${owner}/${repo}/${imageCommit}`;
+            const repository = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}`;
+            const run = `${repository}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '## UML画像プレビュー',
+              '',
+              '### umlgenのパッケージ依存図',
+              `[![umlgenのパッケージ依存図](${images}/packages.png)](${images}/packages.png)`,
+              '',
+              `[原寸で開く](${images}/packages.png) · [CI結果・SVG・PlantUML](${run})`,
+              '',
+              '<details>',
+              '<summary>Windows / Scoop の画像生成確認</summary>',
+              '',
+              `![Windows / Scoopで生成したクラス図](${images}/scoop.png)`,
+              '',
+              '公開版CLIの画像生成を確認するサンプルです。PRのソース差分図ではありません。',
+              '',
+              '</details>',
+              '',
+              `PR head: [\`${head.slice(0, 7)}\`](${repository}/commit/${head}) · ` +
+                `CI checkout: [\`${context.sha.slice(0, 7)}\`](${repository}/commit/${context.sha})`,
+              '',
+              'このコメントはpush後の検証成功時に更新されます。'
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: number, per_page: 100
+            });
+            const existing = comments.find(comment =>
+              comment.user.login === 'github-actions[bot]' && comment.body.startsWith(marker));
+            const {data: comment} = existing
+              ? await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body})
+              : await github.rest.issues.createComment({owner, repo, issue_number: number, body});
+            await core.summary.addHeading('UML画像プレビュー')
+              .addLink('PRの画像プレビューを開く', comment.html_url).write();

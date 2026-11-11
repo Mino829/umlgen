@@ -139,6 +139,22 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 呼び出し側リポジトリのActions設定で、公開リポジトリのaction／reusable workflow利用が許可されているか確認する。
 
+## umlgen自身のPR: 画像を会話画面に表示
+
+このリポジトリのCIは、同一リポジトリ内の公開PRで検証が成功すると、**PRのConversationに「UML画像プレビュー」コメントを1つ投稿**します。
+
+- メインには、CIが検証したmerge commitから生成したumlgenのGoパッケージ依存図をPNGで表示します。画像をクリックすると原寸で開けます。
+- PNG生成時はSVGの`viewBox`から必要なサイズ上限を設定し、[PlantUML既定の4096px上限](https://plantuml.com/faq)による切り落としを防ぎます。生成後もPNGの幅・高さをSVGと照合し、丸め差の1pxを超えて小さければCIを失敗させ、欠けた画像を投稿しません。
+- Windows／Scoopで実際に生成したサンプルのクラス図は、折りたたみ欄へ表示します。公開版CLIの描画確認であり、PRのJava差分図ではありません。
+- 同じPRへのpush後は既存のbotコメントを更新します。PR head／CI checkoutのSHAとrunへのリンクを併記し、古いheadのrunや閉じたPRからは更新しません。失敗したrunでは新しいプレビューを投稿しないため、前回のコメントがあれば記載SHAを確認してください。
+- SVG・PlantUMLは従来どおり`umlgen-self-package-diagram`／`scoop-renderer-smoke` artifactから取得できます。投稿jobのActions Summaryにもコメントへのリンクを表示します。
+
+画像はPRごとの`umlgen-preview/pr-<番号>`ブランチへPNGだけを保存し、コメントでは不変のcommit SHAを参照します。ソースブランチやPR本文は変更せず、外部の描画サービスにも送信しません。履歴の画像URLを維持するため、画像専用ブランチは自動削除しません。
+
+書き込み権限は、成果物をダウンロードしてPNGを公開する独立jobだけに付与します。このjobはPRソースをcheckout・実行せず、artifact内のコードも実行しません。Fork PR／非公開リポジトリ／PR以外の実行では投稿jobを実行せず、artifact経路を維持します。
+
+これはumlgen自身の`.github/workflows/ci.yml`の機能です。上記の再利用可能なJava差分workflowは従来どおりread-onlyで、呼び出し先のPRへコメントを投稿しません。
+
 ## メンテナー向け: 公開前の配布リハーサル
 
 これは上記の利用者向けPR差分workflowとは別です。umlgen自身のCIは`.github/workflows/release-build.yml`を版`0.6.0-rc.1`で呼び、Linux amd64／macOS arm64・amd64／Windows amd64をネイティブビルドします。Go 1.26.11と意味解析の最小JDK 17を使用し、Linux配布はUbuntu 22.04（glibc 2.35）を基準にします。

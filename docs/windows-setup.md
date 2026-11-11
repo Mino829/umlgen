@@ -204,3 +204,5 @@ umlgen class . --exclude target --exclude build
 公開済みの厳密な安定版と`SHA256SUMS.txt`からHomebrew／Scoop両方を同時更新します。生成script・手動dispatch・PR権限がない場合のartifact経路・CI確認は[配布定義の更新手順](macos-setup.md#配布定義の更新メンテナー向け)を参照してください。Windowsのnative smokeは、既存のumlgen導入やbucketがない検証用PCでScoop導入後に`./scripts/smoke-scoop.ps1`を実行します。
 
 SVG／PNGまで検証する場合は、前述のJDK・PlantUML・Graphvizを導入してから、`./scripts/smoke-scoop.ps1 -RenderOutputDirectory "$env:TEMP\umlgen-scoop-render"`を実行します。ScoopのJARを現在のプロセスへ設定し、導入した実CLIで両形式の画像とPlantUMLの一致を確認します。画像とPlantUMLは指定先に残し、一時bucketとumlgenを削除した後は元の`PLANTUML_JAR`設定へ戻します。CIでも同じ経路を実行し、画像をartifactへ保存します。
+
+このリポジトリ内の公開PRでは、CI成功後にPRの「UML画像プレビュー」コメントへ画像も表示します。Windows／Scoopの検証画像は折りたたみ欄にあります。適用条件と保存先は[PR画像プレビュー](github-actions.md#umlgen自身のpr-画像を会話画面に表示)を参照してください。
