@@ -55,10 +55,22 @@ type ReferenceDiagnostic struct {
 	Status    ReferenceStatus
 }
 
-// Analysis separates displayed relationships from references we cannot display.
+// Input separates the selected class declarations from the complete parsed
+// context. Known is used only to classify references outside the selection;
+// it must not introduce edges or change the existing class resolution policy.
+type Input struct {
+	Types []model.Type
+	Known []model.Type
+}
+
+// Analysis is the class projection shared by focus, PlantUML and explanations.
+// Project and Relations describe the visible graph; diagnostics and captured
+// references are populated only when details are requested.
 type Analysis struct {
+	Project     model.Project
 	Relations   []Relation
 	Diagnostics []ReferenceDiagnostic
+	references  []ReferenceDiagnostic
 }
 
 type Index struct {
@@ -187,24 +199,20 @@ func (i *Index) Type(name string) (model.Type, bool) {
 	return i.types[position], true
 }
 
-func Build(types []model.Type) []Relation {
-	return build(types, nil, false, nil).Relations
-}
-
-// Analyze collects declaration evidence and distinguishes unresolved references
-// from known declarations hidden by the diagram's selection.
-func Analyze(types, known []model.Type) Analysis {
-	return build(types, known, true, nil)
+// Analyze builds the selected graph once. Details adds declaration evidence and
+// reference diagnostics without changing its edges. Input slices are read-only.
+func Analyze(input Input, details bool) Analysis {
+	return build(input.Types, input.Known, details, nil, details)
 }
 
 // AnalyzeWithResolver reuses declaration relation semantics with a scoped name
 // resolver. The boolean identifies inferred parent references, whose canonical
 // names must not capture ordinary file-local selectors. Ambiguity is rejected.
 func AnalyzeWithResolver(types []model.Type, resolve func(model.Type, string, bool) (string, bool)) Analysis {
-	return build(types, nil, true, resolve)
+	return build(types, nil, true, resolve, false)
 }
 
-func build(types, known []model.Type, explain bool, resolve func(model.Type, string, bool) (string, bool)) Analysis {
+func build(types, known []model.Type, explain bool, resolve func(model.Type, string, bool) (string, bool), captureReferences bool) Analysis {
 	var index *Index
 	if resolve == nil {
 		index = NewIndex(types)
@@ -220,6 +228,15 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 		}
 	}
 	var diagnostics []ReferenceDiagnostic
+	var references []ReferenceDiagnostic
+	capture := func(owner model.Type, ref, target string, kind Kind, evidence Evidence) {
+		if captureReferences {
+			references = append(references, ReferenceDiagnostic{
+				From: owner.QualifiedName(), Kind: kind, Reference: ref,
+				Target: target, Evidence: evidence, Status: StatusOutsideDiagram,
+			})
+		}
+	}
 	var seenDiagnostics map[ReferenceDiagnostic]bool
 	diagnose := func(owner model.Type, ref string, kind Kind, evidence Evidence) {
 		if !explain || ref == "" || isBuiltin(Base(ref)) || isTypeParameter(owner, Base(ref)) {
@@ -272,6 +289,7 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 			if target == owner.QualifiedName() {
 				continue
 			}
+			capture(owner, ref, target, kind, evidence)
 			store(Relation{
 				From: owner.QualifiedName(), To: target, Kind: kind,
 				Label: label, Multiplicity: multiplicity,
@@ -295,6 +313,7 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 					evidence = locateEvidence(t, evidence)
 				}
 				if target, ok := resolve(t, parent.Name, parent.Inferred); ok && target != t.QualifiedName() {
+					capture(t, Base(parent.Name), target, parents.kind, evidence)
 					relation := Relation{From: t.QualifiedName(), To: target, Kind: parents.kind}
 					store(relation, evidence)
 					if explain && parent.Inferred {
@@ -376,31 +395,8 @@ func build(types, known []model.Type, explain bool, resolve func(model.Type, str
 		left, right := result[a], result[b]
 		return relationKey(left) < relationKey(right)
 	})
-	if len(diagnostics) > 1 {
-		sort.Slice(diagnostics, func(a, b int) bool {
-			left, right := diagnostics[a], diagnostics[b]
-			if left.From != right.From {
-				return left.From < right.From
-			}
-			if left.Kind != right.Kind {
-				return left.Kind < right.Kind
-			}
-			if left.Evidence.Source != right.Evidence.Source {
-				return left.Evidence.Source < right.Evidence.Source
-			}
-			if left.Evidence.Line != right.Evidence.Line {
-				return left.Evidence.Line < right.Evidence.Line
-			}
-			if left.Evidence.Member != right.Evidence.Member {
-				return left.Evidence.Member < right.Evidence.Member
-			}
-			if left.Reference != right.Reference {
-				return left.Reference < right.Reference
-			}
-			return left.Status < right.Status
-		})
-	}
-	return Analysis{Relations: result, Diagnostics: diagnostics}
+	sortDiagnostics(diagnostics)
+	return Analysis{Project: model.Project{Types: types}, Relations: result, Diagnostics: diagnostics, references: references}
 }
 
 func relationKey(r Relation) string {

@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
+	"github.com/Mino829/umlgen/internal/relations"
 )
 
 func TestClassAndPlaceholderTitlesCannotIntroducePlantUMLSyntax(t *testing.T) {
 	payload := "review\r\n@enduml\n!include local.puml\n@startuml\n} [[link]] <img:local.png> %date()"
 	for _, diagram := range []string{
-		Generate(model.Project{Types: []model.Type{{Name: "Visible", Kind: model.Class}}}, Options{Title: payload}),
+		Generate(relations.Analysis{Project: model.Project{Types: []model.Type{{Name: "Visible", Kind: model.Class}}}}, Options{Title: payload}),
 		Placeholder(payload, Options{}),
 	} {
 		if strings.Count(diagram, "@startuml") != 1 || strings.Count(diagram, "@enduml") != 1 {

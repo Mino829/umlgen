@@ -826,7 +826,7 @@ func (ID) Hidden() {}
 		append(append([]model.Type(nil), unit.Types...), methods.Types...),
 		append(append([]model.Type(nil), methods.Types...), unit.Types...),
 	} {
-		analysis := relations.Analyze(types, types)
+		analysis := relations.Analyze(relations.Input{Types: types, Known: types}, true)
 		if len(analysis.Diagnostics) != 0 || len(analysis.Relations) != 1 ||
 			analysis.Relations[0].From != "sample.Unknown" || analysis.Relations[0].To != "sample.Named" {
 			t.Fatalf("alias and method-only source relations = %#v", analysis)
@@ -892,7 +892,7 @@ func (b Box[U, V]) Use(value U, concrete T, other V) Pair[U, Concrete] { panic("
 			}
 		}
 	}
-	analysis := relations.Analyze(types, types)
+	analysis := relations.Analyze(relations.Input{Types: types, Known: types}, true)
 	if len(analysis.Diagnostics) != 0 {
 		t.Fatalf("generic placeholders produced diagnostics: %#v", analysis.Diagnostics)
 	}

@@ -16,7 +16,7 @@ import (
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
-var Version = "0.6.0-dev"
+var Version = "0.7.0-dev"
 
 const (
 	exitOK     = 0

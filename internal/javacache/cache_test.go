@@ -207,7 +207,7 @@ class Service extends Target implements Contract {
 		if err != nil || result.Hit != (i == 1) {
 			t.Fatalf("%s: hit=%v err=%v", name, result.Hit, err)
 		}
-		got := relations.Analyze(result.Unit.Types, nil).Relations
+		got := relations.Analyze(relations.Input{Types: result.Unit.Types}, true).Relations
 		if len(got) != len(wantLines) {
 			t.Fatalf("%s relations = %#v", name, got)
 		}
