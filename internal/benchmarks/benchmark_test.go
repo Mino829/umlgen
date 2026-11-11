@@ -56,7 +56,7 @@ func BenchmarkResolveRelations(b *testing.B) {
 			types := modelTypes(count)
 			b.ResetTimer()
 			for range b.N {
-				got := relations.Build(types)
+				got := relations.Analyze(relations.Input{Types: types}, false).Relations
 				if len(got) != count {
 					b.Fatalf("relations=%d", len(got))
 				}
@@ -76,9 +76,10 @@ func BenchmarkGeneratePlantUML(b *testing.B) {
 	for _, count := range []int{100, 1000} {
 		b.Run(fmt.Sprintf("types_%d", count), func(b *testing.B) {
 			project := model.Project{Types: modelTypes(count)}
+			analysis := relations.Analyze(relations.Input{Types: project.Types}, false)
 			b.ResetTimer()
 			for range b.N {
-				if got := plantuml.Generate(project, options); got == "" {
+				if got := plantuml.Generate(analysis, options); got == "" {
 					b.Fatal("empty PlantUML")
 				}
 			}

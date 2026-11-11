@@ -218,6 +218,27 @@ jobs:
           go test ./internal/cli -run '^Test((GoStructuralMemberTypes|DefaultPackageClasses)RenderSVG|ClassTitleRendersLiteralMarkupAndPreprocessorText)$' -count=1
           UMLGEN_BIN="$PWD/umlgen" \
             ./examples/order-service/generate.sh "$RUNNER_TEMP/umlgen-demo"
+      - name: Verify self-generated package diagram
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          make diagram
+          git diff --exit-code -- docs/diagrams/umlgen-packages.puml
+          ./umlgen package . --language go --dependency-source imports \
+            --include github.com/Mino829/umlgen --exclude testdata --exclude examples \
+            --title 'umlgen package dependencies' --no-cache \
+            --format svg --renderer local \
+            --output "$RUNNER_TEMP/umlgen-packages.puml"
+          cmp docs/diagrams/umlgen-packages.puml "$RUNNER_TEMP/umlgen-packages.puml"
+          test -s "$RUNNER_TEMP/umlgen-packages.svg"
+      - name: Upload self-generated package diagram
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: umlgen-self-package-diagram
+          path: |
+            ${{ runner.temp }}/umlgen-packages.puml
+            ${{ runner.temp }}/umlgen-packages.svg
 
   package-manager-definitions:
     name: Test package-manager updater

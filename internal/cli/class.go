@@ -13,6 +13,7 @@ import (
 	"github.com/Mino829/umlgen/internal/language"
 	"github.com/Mino829/umlgen/internal/model"
 	"github.com/Mino829/umlgen/internal/plantuml"
+	"github.com/Mino829/umlgen/internal/relations"
 	"github.com/Mino829/umlgen/internal/renderer"
 )
 
@@ -89,7 +90,7 @@ func runClassMode(
 			explanation.Failures = append(explanation.Failures, explain.Failure{
 				Source: strings.Join(targets, ", "), Message: err.Error(), Origin: "working tree",
 			})
-			writeExplanation(stdout, explanation, nil, nil, opts)
+			writeExplanation(stdout, explanation, relations.Analysis{}, opts)
 		}
 		return exitError, err
 	}
@@ -98,7 +99,7 @@ func runClassMode(
 	}
 	if len(files) == 0 && (diffSelection == nil || len(diffSelection.Deleted) == 0) {
 		if o.explain {
-			writeExplanation(stdout, explanation, nil, nil, opts)
+			writeExplanation(stdout, explanation, relations.Analysis{}, opts)
 		}
 		return exitError, fmt.Errorf("no %s files found in: %s", sourceParser.DisplayName(), strings.Join(targets, ", "))
 	}
@@ -116,18 +117,23 @@ func runClassMode(
 	warnings, changedParseFailures := sources.warnings, sources.changedParseFailures
 	if diffSelection == nil && len(types) == 0 && warnings == len(files) {
 		if o.explain {
-			writeExplanation(stdout, explanation, nil, knownTypes, opts)
+			writeExplanation(stdout, explanation, relations.Analysis{}, opts)
 		}
 		return exitParse, fmt.Errorf("failed to parse all %s files", sourceParser.DisplayName())
 	}
 	if o.strictParse && warnings > 0 {
 		if o.explain {
-			writeExplanation(stdout, explanation, types, knownTypes, opts)
+			analysis := relations.Analysis{}
+			if opts.ShowRelations {
+				analysis = relations.Analyze(relations.Input{Types: types, Known: knownTypes}, true)
+			}
+			writeExplanation(stdout, explanation, analysis, opts)
 		}
 		return exitParse, fmt.Errorf("watch preserves the previous diagram because %d source file(s) failed to parse", warnings)
 	}
 	types = sourceParser.Finalize(types, o.explain)
 	var noChanges bool
+	var analysis relations.Analysis
 	if diffSelection != nil {
 		var changed []string
 		for i := range types {
@@ -143,35 +149,43 @@ func runClassMode(
 		if len(changed) == 0 {
 			if changedParseFailures > 0 {
 				if o.explain {
-					writeExplanation(stdout, explanation, nil, knownTypes, opts)
+					writeExplanation(stdout, explanation, relations.Analysis{}, opts)
 				}
 				return exitParse, fmt.Errorf("failed to parse changed %s files; no changed types could be generated", sourceParser.DisplayName())
 			}
 			noChanges = true
 		} else {
-			types, err = focus.ApplyMany(types, changed, o.depth, direction)
+			analysis = relations.Analyze(relations.Input{Types: types, Known: knownTypes}, o.explain && opts.ShowRelations)
+			analysis, err = focus.ApplyMany(analysis, changed, o.depth, direction)
 			if err != nil {
 				return exitArgs, err
 			}
+			types = analysis.Project.Types
 			if o.verbose {
 				fmt.Fprintf(stdout, "Focused on %d changed types with depth %d (%d types)\n", len(changed), o.depth, len(types))
 			}
 		}
 	} else if o.focus != "" {
-		types, err = focus.Apply(types, o.focus, o.depth, direction)
+		analysis = relations.Analyze(relations.Input{Types: types, Known: knownTypes}, o.explain && opts.ShowRelations)
+		analysis, err = focus.Apply(analysis, o.focus, o.depth, direction)
 		if err != nil {
 			return exitArgs, err
 		}
+		types = analysis.Project.Types
 		if o.verbose {
 			fmt.Fprintf(stdout, "Focused on %s with depth %d (%d types)\n", o.focus, o.depth, len(types))
 		}
+	} else if opts.ShowRelations {
+		analysis = relations.Analyze(relations.Input{Types: types, Known: knownTypes}, o.explain)
+	} else {
+		analysis.Project.Types = types
 	}
 	pumlPath := diagramOutputPath(cfg.Output.File)
 	var content string
 	if noChanges {
 		content = plantuml.Placeholder(o.title, opts)
 	} else {
-		content = plantuml.Generate(model.Project{Types: types}, opts)
+		content = plantuml.Generate(analysis, opts)
 	}
 	if err := writeDiagram(pumlPath, content); err != nil {
 		return exitOutput, err
@@ -189,11 +203,7 @@ func runClassMode(
 		}
 	}
 	if o.explain {
-		explainedTypes := types
-		if noChanges {
-			explainedTypes = nil
-		}
-		writeExplanation(stdout, explanation, explainedTypes, knownTypes, opts)
+		writeExplanation(stdout, explanation, analysis, opts)
 	}
 	return renderDiagram(cfg.Output.Format, pumlPath, renderer.Config{
 		Type: renderer.Type(cfg.Renderer.Type), ServerURL: cfg.Renderer.ServerURL,

@@ -141,7 +141,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 ## メンテナー向け: 公開前の配布リハーサル
 
-これは上記の利用者向けPR差分workflowとは別です。umlgen自身のCIは`.github/workflows/release-build.yml`を版`0.6.0-rc.1`で呼び、Linux amd64／macOS arm64・amd64／Windows amd64をネイティブビルドします。Go 1.26.10と意味解析の最小JDK 17を使用し、Linux配布はUbuntu 22.04（glibc 2.35）を基準にします。
+これは上記の利用者向けPR差分workflowとは別です。umlgen自身のCIは`.github/workflows/release-build.yml`を版`0.6.0-rc.1`で呼び、Linux amd64／macOS arm64・amd64／Windows amd64をネイティブビルドします。Go 1.26.11と意味解析の最小JDK 17を使用し、Linux配布はUbuntu 22.04（glibc 2.35）を基準にします。
 
 - チェックアウトの開発用CLIではなく、**アーカイブから取り出し／候補installerで配置したCLI**を`scripts/smoke-release.py`で検証します。版、全図種、cache一致、Git snapshot差分、秘密値非表示、watchの更新・削除・OS固有の中断が対象です。
 - macOS／Windowsではローカルarchive modeと`scripts/smoke-installer.py`も使用し、破損・版違い・重複checksum・不正／重複memberの拒否、既存CLI／PATH保持、アンインストールを検証します。従来の公開版ダウンロードとWindows PlantUMLの画像生成も通常CIに残します。
@@ -151,7 +151,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 ローカルでもネイティブ環境で今後の候補を生成できます（Python 3、Go／CGO／Cコンパイラーが必要）。下の`0.6.0-rc.1`は過去のリハーサル例です。公開済みv0.6.0とは区別し、次の候補では3箇所とも実際の候補版に置き換えてください。macOSの例:
 
 ```bash
-GOTOOLCHAIN=go1.26.10 python3 scripts/package-release.py \
+GOTOOLCHAIN=go1.26.11 python3 scripts/package-release.py \
   --version 0.6.0-rc.1 --output-dir /tmp/umlgen-rc-dist
 bash scripts/install-macos.sh --archive-dir /tmp/umlgen-rc-dist \
   --version 0.6.0-rc.1 --install-dir /tmp/umlgen-rc-install --skip-path-update
