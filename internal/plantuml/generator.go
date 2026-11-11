@@ -111,8 +111,9 @@ func Placeholder(title string, opts Options) string {
 	return b.String()
 }
 
-func Generate(project model.Project, opts Options) string {
-	types := append([]model.Type(nil), project.Types...)
+// Generate renders an analyzed class projection without resolving declarations.
+func Generate(analysis relations.Analysis, opts Options) string {
+	types := append([]model.Type(nil), analysis.Project.Types...)
 	sort.Slice(types, func(i, j int) bool { return types[i].QualifiedName() < types[j].QualifiedName() })
 	aliases := aliasesFor(types)
 
@@ -151,7 +152,7 @@ func Generate(project model.Project, opts Options) string {
 		}
 	}
 	if opts.ShowRelations {
-		rels := relationLines(types, aliases, opts)
+		rels := relationLines(analysis.Relations, aliases, opts)
 		if len(rels) > 0 {
 			b.WriteByte('\n')
 			for _, rel := range rels {
@@ -346,9 +347,9 @@ func aliasesFor(types []model.Type) map[string]string {
 	return aliases
 }
 
-func relationLines(types []model.Type, aliases map[string]string, opts Options) []string {
+func relationLines(graph []relations.Relation, aliases map[string]string, opts Options) []string {
 	var result []string
-	for _, relation := range relations.Build(types) {
+	for _, relation := range graph {
 		if !opts.IncludesRelation(relation.Kind) {
 			continue
 		}

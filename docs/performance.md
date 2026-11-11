@@ -16,6 +16,8 @@ go test ./internal/benchmarks -run '^$' -bench . -benchmem
 
 fixtureはベンチマーク内で決定的に生成する。ファイル探索は100／1,000ファイル、その他のフェーズは100／1,000型を中心に計測する。
 
+#82以降、classの`BenchmarkGeneratePlantUML`は事前に`relations.Analysis`を構築し、PlantUMLテキスト生成のみを計測する。関係解析は`BenchmarkResolveRelations`で軽量`Analyze`を計測する。下記の過去のclass生成値は関係構築込みの旧境界であり、新しい生成値と直接比較しない。fixtureと規模は変更していない。
+
 package用fixtureは100／1,000型、10／100ファイル・package・辺を生成する。1ファイルに10型を置き、次のpackageを1回importし、各型が次のpackageの対応する型をフィールドで参照する有向ring。型関係は100／1,000件、import宣言は10／100件、全体が1つのSCCになる。Goでは意図的にコンパイル不可能な循環を含む構文解析用データである。
 
 | Benchmark | 計測境界 |

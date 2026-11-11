@@ -601,7 +601,7 @@ class Outside {
 			t.Fatalf("outer scope leaked into %s: %#v", name, byName[name])
 		}
 	}
-	analysis := relations.Analyze(unit.Types, unit.Types)
+	analysis := relations.Analyze(relations.Input{Types: unit.Types, Known: unit.Types}, true)
 	if len(analysis.Diagnostics) != 0 {
 		t.Fatalf("generic placeholders produced diagnostics: %#v", analysis.Diagnostics)
 	}

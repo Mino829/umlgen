@@ -20,7 +20,7 @@ func TestBuildResolvesExplicitAndWildcardImports(t *testing.T) {
 			Fields:  []model.Field{{Name: "users", Type: "List<User>"}},
 		},
 	}
-	got := Build(types)
+	got := Analyze(Input{Types: types}, false).Relations
 	if len(got) != 1 {
 		t.Fatalf("relations = %#v", got)
 	}
@@ -39,7 +39,7 @@ func TestBuildResolvesGoImportAliases(t *testing.T) {
 			Fields:  []model.Field{{Name: "user", Type: "*entities.User"}},
 		},
 	}
-	got := Build(types)
+	got := Analyze(Input{Types: types}, false).Relations
 	if len(got) != 1 || got[0].To != "example.com/app/domain.User" {
 		t.Fatalf("relations = %#v", got)
 	}
@@ -54,7 +54,7 @@ func TestResolveDoesNotUseImportedTypeForDifferentQualifiedName(t *testing.T) {
 			Fields:  []model.Field{{Name: "external", Type: "other.Bar"}},
 		},
 	}
-	if got := Build(types); len(got) != 0 {
+	if got := Analyze(Input{Types: types}, false).Relations; len(got) != 0 {
 		t.Fatalf("unresolved qualified type gained a relation: %#v", got)
 	}
 }
@@ -64,7 +64,7 @@ func TestResolveDoesNotUseUnrelatedUniqueType(t *testing.T) {
 		{Package: "unrelated", Name: "Bar"},
 		{Package: "app", Name: "Service", Fields: []model.Field{{Name: "external", Type: "Bar"}}},
 	}
-	if got := Build(types); len(got) != 0 {
+	if got := Analyze(Input{Types: types}, false).Relations; len(got) != 0 {
 		t.Fatalf("unimported type gained a relation: %#v", got)
 	}
 }
@@ -79,7 +79,7 @@ func TestResolveNestedTypeThroughExplicitImport(t *testing.T) {
 			Fields:  []model.Field{{Name: "nested", Type: "Outer.Inner"}},
 		},
 	}
-	got := Build(types)
+	got := Analyze(Input{Types: types}, false).Relations
 	if len(got) != 1 || got[0].To != "com.acme.Outer.Inner" {
 		t.Fatalf("relations = %#v", got)
 	}
@@ -94,7 +94,7 @@ func TestResolveNestedType(t *testing.T) {
 			Fields: []model.Field{{Name: "inner", Type: "Inner"}},
 		},
 	}
-	got := Build(types)
+	got := Analyze(Input{Types: types}, false).Relations
 	if len(got) != 1 || got[0].To != "app.Outer.Inner" {
 		t.Fatalf("relations = %#v", got)
 	}
@@ -131,7 +131,7 @@ func TestBuildCompatibilityFixtureRelations(t *testing.T) {
 		types = append(types, unit.Types...)
 	}
 
-	got := Build(types)
+	got := Analyze(Input{Types: types}, false).Relations
 	if len(got) != 11 {
 		t.Fatalf("relations = %d, want 11: %#v", len(got), got)
 	}
@@ -205,7 +205,7 @@ class Service {
 			{Member: "load(Target, int)", Type: "Target", Source: path, Line: 5},
 		},
 	}
-	got := Analyze(unit.Types, nil).Relations
+	got := Analyze(Input{Types: unit.Types, Known: nil}, true).Relations
 	if len(got) != len(want) {
 		t.Fatalf("relations = %#v", got)
 	}
@@ -238,7 +238,7 @@ class Service {
 	if err != nil {
 		t.Fatal(err)
 	}
-	analysis := Analyze(unit.Types[1:], unit.Types)
+	analysis := Analyze(Input{Types: unit.Types[1:], Known: unit.Types}, true)
 	if len(analysis.Relations) != 0 {
 		t.Fatalf("hidden or unresolved targets gained edges: %#v", analysis.Relations)
 	}
@@ -299,7 +299,7 @@ func TestParameterScopesApplyToIndexesResolversAndDiagnostics(t *testing.T) {
 	if len(analysis.Relations) != 2 || len(analysis.Diagnostics) != 0 {
 		t.Fatalf("scoped custom analysis = %#v", analysis)
 	}
-	hidden := Analyze([]model.Type{owner}, types)
+	hidden := Analyze(Input{Types: []model.Type{owner}, Known: types}, true)
 	if len(hidden.Relations) != 0 || len(hidden.Diagnostics) != 2 {
 		t.Fatalf("hidden concrete references = %#v", hidden)
 	}
