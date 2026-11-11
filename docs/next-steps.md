@@ -1,6 +1,19 @@
 # 次にやること
 
-更新日: 2026-11-10
+更新日: 2026-11-11
+
+## 次期v0.7.0の作業
+
+公開安定版は引き続きv0.6.0。GitHubの[Milestone v0.7.0](https://github.com/Mino829/umlgen/milestone/1)に#15と#82を登録し、[ロードマップ #16](https://github.com/Mino829/umlgen/issues/16)を実際の公開状況に合わせて整理した。#13は完了済み、#14もmain統合とv0.6.0への収録を確認して完了に更新した。
+
+- **#15：Homebrew／Scoop** — 同一リポジトリのtap／bucket、公開済みv0.6.0のnative assetを参照する定義、SHA-256と公開Releaseの検証付きupdater、native導入CI、手順書を実装した。更新workflowは明示dispatchでpatch artifactを生成し、権限が許す場合だけ更新PRを作る。未公開版へ先取りしない。
+- **#82：既存IRの責務整理 — [PR #89](https://github.com/Mino829/umlgen/pull/89)** — 共通宣言・関係解析と図別モデルを再利用し、classのfocus・説明・PlantUML生成が一度の関係解析を共有するように移行した。汎用Node／Edgeや公開JSON APIは追加しない。IDの限界、根拠・診断・表示投影の契約は同PRの`docs/architecture.md`に記録した。mainへは未統合。
+
+両項目はPRでレビューする。mainへのマージ、タグ作成、GitHub Releaseの公開は本作業では行わない。開発版は`0.7.0-dev`、候補配布CIは`0.7.0-rc.1`とし、通常installer・配布済みCLI・package manager定義は実際の公開安定版を使う。
+
+2026-11-11のローカル確認：updaterの不正入力・hash不一致時の旧定義保持など6回帰、公開v0.6.0のasset／checksum照合、実Homebrewの導入・版表示・class生成・同版再導入・削除、actionlintが成功した。初期定義は既に最新の0.6.0なので、新版へのupgradeを実行したとは主張しない。Windows ScoopとmacOS amd64は追加CIで確認する。
+
+IRとの統合確認：全体test（27 package成功、2 packageはtestなし）・vet・buildが成功した。Go／Javaのclass条件とpackage全3modeの28条件で公開v0.6.0と図・説明が一致し、cold／warm／無効cache・explain有無も一致した。実local PlantUMLのGo SVG／Java PNGを生成して画像確認し、既存受入scriptで全図種・class／package差分・dirtyな作業ツリーとの分離・watch更新／空図／native中断を確認した。OS別CIの結果は各PRへ記録する。
 
 ## Issueの解消状況
 

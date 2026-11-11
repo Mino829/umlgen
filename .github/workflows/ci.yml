@@ -6,6 +6,7 @@ on:
       - main
       - "agent/**"
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +18,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/release-build.yml
     with:
-      version: 0.6.0-rc.1
+      version: 0.7.0-rc.1
 
   test:
     name: Test (${{ matrix.name }})
@@ -217,3 +218,56 @@ jobs:
           go test ./internal/cli -run '^Test((GoStructuralMemberTypes|DefaultPackageClasses)RenderSVG|ClassTitleRendersLiteralMarkupAndPreprocessorText)$' -count=1
           UMLGEN_BIN="$PWD/umlgen" \
             ./examples/order-service/generate.sh "$RUNNER_TEMP/umlgen-demo"
+
+  package-manager-definitions:
+    name: Test package-manager updater
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject malformed release metadata and checksums
+        run: python3 -m unittest discover -s scripts -p test_package_managers.py
+      - name: Check definitions against the exact published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("bucket/umlgen.json"))["version"])')"
+          python3 scripts/update-package-managers.py --version "$version" --check
+
+  package-manager-smoke:
+    name: Package manager (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Homebrew macOS arm64
+            runner: macos-15
+          - name: Homebrew macOS amd64
+            runner: macos-15-intel
+          - name: Scoop Windows amd64
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install, update and uninstall with Homebrew
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/smoke-homebrew.sh
+      - name: Install Scoop on the disposable Windows runner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
+            $installer = Join-Path $env:RUNNER_TEMP 'install-scoop.ps1'
+            Invoke-WebRequest https://raw.githubusercontent.com/ScoopInstaller/Install/master/install.ps1 -OutFile $installer
+            & $installer -RunAsAdmin
+          }
+          $scoopRoot = if ($env:SCOOP) { $env:SCOOP } else { Join-Path $HOME 'scoop' }
+          (Join-Path $scoopRoot 'shims') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install, update and uninstall with Scoop
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/smoke-scoop.ps1
