@@ -353,7 +353,7 @@ diagrams:
 
 部分解析失敗は警告と診断を残し、成功した入力から生成します。全件失敗は終了コード3で既存出力を保持します。関数本体・外部依存のソース・Java classpath・Go build tagsは解析せず、循環はコンパイル可否や実行時の呼び出し順を表しません。表示上の「依存0件」をリポジトリ全体の依存なしと解釈しないでください。
 
-Java／Goの実ソース、依存種別ごとの件数、曖昧な型・外部import・循環の読み方は[パッケージ図の利用例](examples/package-diagrams/README.md)を参照してください。[性能比較](docs/performance.md)には測定条件とclassとの差を記載しています。全フラグは`umlgen package --help`で確認できます。
+Java／Goの実ソース、依存種別ごとの件数、曖昧な型・外部import・循環の読み方は[パッケージ図の利用例](examples/package-diagrams/README.md)を参照してください。[性能比較](docs/performance.md)には測定条件とclassとの差を記載しています。全フラグは`umlgen package --help`で確認できます。 umlgen自身のGoソースから生成した[パッケージ依存図](docs/diagrams/umlgen-packages.puml)もあります。対象範囲、再生成手順、CIでの照合方法は[図の説明](docs/diagrams/README.md)を参照してください。
 
 ### package差分
 
