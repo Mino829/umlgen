@@ -6,7 +6,19 @@
 
 スタートメニューを開き、`PowerShell`と入力して「Windows PowerShell」を起動します。
 
-黒または青い画面が表示されたら、次のコマンドを1行ずつ貼り付けてEnterを押します。
+[Scoop](https://scoop.sh/)とGitを導入済みの場合、次を1行ずつ貼り付けてEnterを押します。Gitがない場合は先に`scoop install git`で導入してください。
+
+```powershell
+scoop bucket add umlgen https://github.com/Mino829/umlgen.git
+scoop install umlgen/umlgen
+umlgen version
+```
+
+このrepository自身の`bucket/umlgen.json`を使い、公開Windows amd64バイナリーを固定SHA-256で確認して配置し、`umlgen`のshimを作ります。別のbucket repositoryや認証情報は不要です。既存のスクリプト導入から移行する場合は、先に[旧インストーラーで導入した版の削除](#スクリプトで導入した場合の削除)を行い、`Get-Command umlgen`でScoop側のコマンドを確認してください。
+
+Scoop版はumlgen本体だけを導入します。Go・JDK・PlantUMLは一緒にインストールしません。Javaのclass／package／componentおよびclass／packageのwatchはJDK不要です。Java `sequence`／`activity`／`state`には、**別途フルJDK 17以上**をPATHに設定し、`java -version`と`javac -version`を確認してください。SVG／PNGにはPlantUMLとその実行環境が別途必要です。
+
+### Scoopを利用しない場合
 
 ```powershell
 $installer = "$env:TEMP\install-umlgen.ps1"
@@ -14,15 +26,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/
 powershell -NoProfile -ExecutionPolicy Bypass -File $installer -InstallPlantUML
 ```
 
-この操作で次をインストールします。
-
-- `umlgen.exe`
-- SVG生成用のPlantUML
-- コマンド名だけで起動するためのユーザーPATH設定
-
-インストール先は`%LOCALAPPDATA%\Programs\umlgen`です。クラス図の生成と同梱PlantUMLによるSVG出力には、管理者権限やJavaの別途インストールは不要です。v0.6.0のJava `sequence`／`activity`／`state`には、**別途フルJDK 17以上**をPATHに設定し、`java -version`と`javac -version`を確認してください（PlantUMLの実行環境では代用できません）。class／package／componentおよびclass／packageのwatchはJDK不要です。
-
-インストーラーはGitHub Releasesからだけファイルを取得し、Release APIに記録されたSHA-256と一致することを確認してから展開します。
+従来のインストーラーは`%LOCALAPPDATA%\Programs\umlgen`へ`umlgen.exe`・SVG生成用PlantUMLを導入し、ユーザーPATHを設定します。GitHub Releasesから取得し、Release APIのSHA-256を確認してから展開します。同梱PlantUMLによるクラス図のSVG出力にJavaの事前導入は不要ですが、同梱の実行環境はJava意味解析用フルJDKの代わりにはなりません。更新・削除は導入方法を混在させないでください。
 
 ## 2. インストールを確認する
 
@@ -58,7 +62,19 @@ umlgen class .\src\main\java
 
 プロジェクトのフォルダーに`class-diagram.puml`が作成されます。
 
-SVG・PNG画像も生成する場合：
+SVG・PNG画像も生成する場合は、まずローカルPlantUMLを用意します。Scoopの場合の追加例（JavaとPlantUMLは別管理です）：
+
+```powershell
+scoop bucket add java
+scoop install java/temurin17-jdk
+scoop bucket add extras
+scoop install extras/plantuml
+java -version
+javac -version
+plantuml -version
+```
+
+図の種類によっては[PlantUMLの案内](https://plantuml.com/starting)に従ってGraphvizも追加します。すでにローカルrendererを用意済み、または従来の`-InstallPlantUML`付きインストーラーで導入した場合は、次を実行できます：
 
 ```powershell
 umlgen class .\src\main\java --format svg
@@ -86,13 +102,17 @@ GitHub Actionsを使う場合、Windows PCへumlgenをインストールしな�
 
 ## 更新
 
-同じ3行のインストールコマンドをもう一度実行すると、最新Releaseへ更新できます。設定済みのPATHは重複しません。
-
-特定バージョンを使う場合：
+Scoopで導入した場合：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.6.0 -InstallPlantUML
+scoop update
+scoop update umlgen
+umlgen version
 ```
+
+新Release公開後に配布定義の更新PRがマージされると利用できます。更新PRのマージ前には従来版のままです。
+
+スクリプトで導入した場合は、最初のインストーラー取得・実行の3行をもう一度行います。PATHは重複しません。特定バージョンを使う場合は`powershell -NoProfile -ExecutionPolicy Bypass -File $installer -Version v0.6.0 -InstallPlantUML`と指定します。
 
 ## 公開前の候補版を試す
 
@@ -111,6 +131,17 @@ $candidateDir = Join-Path $env:LOCALAPPDATA 'Programs\umlgen-rc'
 
 ## アンインストール
 
+Scoopで導入した場合：
+
+```powershell
+scoop uninstall umlgen
+scoop bucket rm umlgen
+```
+
+別途導入したPlantUMLやJDKは削除されません。
+
+### スクリプトで導入した場合の削除
+
 PowerShellで次を1行ずつ実行します。
 
 ```powershell
@@ -127,6 +158,8 @@ umlgenの専用フォルダーと、追加したユーザーPATHだけを削除�
 
 PowerShellを一度閉じ、新しく開き直してください。それでも動かない場合：
 
+Scoopで導入した場合は`scoop list`と`Get-Command umlgen`で配置を確認し、Scoopのshimsディレクトリー（通常`$HOME\scoop\shims`）がPATHに含まれるか確認してください。以下は従来のスクリプトで導入した場合だけの確認です。
+
 ```powershell
 & "$env:LOCALAPPDATA\Programs\umlgen\umlgen.exe" version
 ```
@@ -135,7 +168,7 @@ PowerShellを一度閉じ、新しく開き直してください。それでも�
 
 ### スクリプトの実行が禁止されている
 
-手順にある`-ExecutionPolicy Bypass`を含めて実行してください。この指定はインストーラーを実行する1回だけに適用され、PC全体の設定は変更しません。
+従来のインストーラーでは手順にある`-ExecutionPolicy Bypass`を含めて実行してください。この指定はインストーラーを実行する1回だけに適用され、PC全体の設定は変更しません。Scoop自身の導入は[Scoop公式手順](https://scoop.sh/)に従ってください。
 
 ### Windows Defenderや会社のセキュリティ機能で止められる
 
@@ -158,3 +191,7 @@ src\main\java
 ```powershell
 umlgen class . --exclude target --exclude build
 ```
+
+## 配布定義の更新（メンテナー向け）
+
+公開済みの厳密な安定版と`SHA256SUMS.txt`からHomebrew／Scoop両方を同時更新します。生成script・手動dispatch・PR権限がない場合のartifact経路・CI確認は[配布定義の更新手順](macos-setup.md#配布定義の更新メンテナー向け)を参照してください。Windowsのnative smokeは、既存のumlgen導入やbucketがない検証用PCでScoop導入後に`./scripts/smoke-scoop.ps1`を実行します。

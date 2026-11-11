@@ -1,0 +1,114 @@
+name: Update package managers
+
+# Dispatch after the stable Release workflow has published all assets. Releases
+# created by GITHUB_TOKEN do not reliably emit another Actions release event.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact already-published stable release (e.g. v0.6.0)
+        required: true
+        type: string
+      create_pr:
+        description: Try creating a PR (requires repository policy allowing Actions PRs)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Validate release and prepare update
+    runs-on: ubuntu-22.04
+    outputs:
+      changed: ${{ steps.generate.outputs.changed }}
+      version: ${{ steps.generate.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Generate from exact published release and verified asset bytes
+        id: generate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          python3 scripts/update-package-managers.py --version "$RELEASE_VERSION"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+
+          destination = Path('package-manager-update')
+          for name in ('Formula/umlgen.rb', 'bucket/umlgen.json'):
+              target = destination / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(name, target)
+          patch = subprocess.check_output(['git', 'diff', '--binary', '--', 'Formula/umlgen.rb', 'bucket/umlgen.json'])
+          (destination / 'package-manager-update.patch').write_bytes(patch)
+          version = json.loads(Path('bucket/umlgen.json').read_text())['version']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'changed={str(bool(patch)).lower()}\nversion={version}\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f'## Package definitions for v{version}\n\n')
+              summary.write('Validated the published stable release, SHA256SUMS.txt, and downloaded package bytes.\n\n')
+              summary.write('The artifact contains the exact definitions and a patch. No automatic merging.\n\n')
+              summary.write('For the safe manual PR path, start from the default branch, create a branch, then:\n\n')
+              summary.write(f'```sh\ngh run download {os.environ["GITHUB_RUN_ID"]} -n package-manager-update -D package-manager-update\n')
+              summary.write('git apply package-manager-update/package-manager-update.patch\ngit add Formula/umlgen.rb bucket/umlgen.json\n')
+              summary.write(f'git commit -m "Update package managers to v{version}"\ngit push -u origin HEAD\ngh pr create\n```\n\n')
+              summary.write('Review the diff and run CI/native package smoke before merging. If no files changed, no update PR is needed.\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: package-manager-update
+          path: package-manager-update/
+          if-no-files-found: error
+
+  propose:
+    name: Propose optional update PR
+    needs: generate
+    if: inputs.create_pr && needs.generate.outputs.changed == 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: package-manager-update
+          path: package-manager-update
+      - name: Create a review-only update PR or report manual fallback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.generate.outputs.version }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          branch="package-manager-update/v${RELEASE_VERSION}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$branch"
+          cp package-manager-update/Formula/umlgen.rb Formula/umlgen.rb
+          cp package-manager-update/bucket/umlgen.json bucket/umlgen.json
+          git add Formula/umlgen.rb bucket/umlgen.json
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            -c commit.gpgsign=false commit -m "Update package managers to v${RELEASE_VERSION}"
+          if ! git push -u origin "$branch"; then
+            echo '::warning::Repository policy prevented pushing the update branch. Use the package-manager-update artifact to create a manual PR.'
+            echo 'Automatic branch push was denied; use the artifact/manual PR instructions in the generate job summary.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if ! gh pr create --base "$BASE_BRANCH" --head "$branch" \
+            --title "Update package managers to v${RELEASE_VERSION}" \
+            --body "Updates Homebrew and Scoop from the exact published v${RELEASE_VERSION} assets and SHA256SUMS.txt. No automatic merge. GITHUB_TOKEN-created PR workflows may require approval or not start automatically: a maintainer must approve pending runs or dispatch CI on this branch before merging (gh workflow run ci.yml --ref $branch)."; then
+            echo '::warning::Repository policy prevented Actions from creating a PR. The branch was pushed; open a PR manually or use the uploaded patch artifact.'
+            echo "Automatic PR creation was denied. Open a PR from $branch manually, or use the artifact/manual PR instructions in the generate job summary." >> "$GITHUB_STEP_SUMMARY"
+          fi

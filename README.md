@@ -35,17 +35,23 @@ umlgen class . --language go
 
 ### 1. インストール
 
-**macOS（推奨）:**
+**macOS（Homebrew推奨、Apple Silicon／Intel）:**
 ```bash
-curl -fL https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/install-macos.sh | bash
+brew tap mino829/umlgen https://github.com/Mino829/umlgen.git
+brew install mino829/umlgen/umlgen
+umlgen version
 ```
 
-**Windows（推奨）:**
+**Windows（Scoop推奨、amd64）:**
 ```powershell
-iwr https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/install-windows.ps1 | iex
+scoop bucket add umlgen https://github.com/Mino829/umlgen.git
+scoop install umlgen/umlgen
+umlgen version
 ```
 
-**その他:** [Releases](https://github.com/Mino829/umlgen/releases) からダウンロード
+Homebrew／Scoopは事前に導入してください（Scoopのbucket追加にはGitも必要）。どちらも公開安定版のバイナリーと固定SHA-256を利用し、Go・JDK・PlantUMLは一緒にインストールしません。`.puml`生成はそのまま利用できます。SVG／PNGとJava意味解析の追加要件は[動作環境](#v060の動作環境)を参照してください。
+
+**パッケージマネージャーを使わない場合:** [macOS／Windowsインストーラー](#インストール)、または[Releases](https://github.com/Mino829/umlgen/releases)からダウンロード。
 
 ### 2. クラス図の生成
 
@@ -130,9 +136,27 @@ umlgen class ./src --include com.example.service
 
 ## インストール
 
-### macOS（Apple Silicon／Intel）
+### macOS（Homebrew推奨、Apple Silicon／Intel）
 
-管理者権限なしのインストーラーがMacの種類を自動判定します。
+[Homebrew](https://brew.sh/)を導入済みの場合：
+
+```bash
+brew tap mino829/umlgen https://github.com/Mino829/umlgen.git
+brew install mino829/umlgen/umlgen
+umlgen version
+
+# 更新（配布定義の更新PRがマージされた後）
+brew update
+brew upgrade mino829/umlgen/umlgen
+
+# アンインストール
+brew uninstall mino829/umlgen/umlgen
+brew untap mino829/umlgen
+```
+
+このリポジトリー自身をtapとして利用するため、`brew tap`のURLを省略しないでください。既存のスクリプト導入から切り替える場合は、旧版をその導入方法で削除してから追加し、`command -v umlgen`で実体を確認します。
+
+Homebrewを利用しない場合は管理者権限なしのインストーラーも利用できます：
 
 ```bash
 installer="$TMPDIR/install-umlgen.sh"
@@ -140,11 +164,29 @@ curl -fL https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/install-m
 bash "$installer"
 ```
 
-インストール後にターミナルを開き直し、`umlgen version`で確認します。画面の開き方から図の生成、更新、アンインストールまでの説明は[Macセットアップガイド](docs/macos-setup.md)を参照してください。
+詳しい手順は[Macセットアップガイド](docs/macos-setup.md)を参照してください。
 
-### Windows（おすすめ）
+### Windows（Scoop推奨、amd64）
 
-PowerShellインストーラーを使うと、管理者権限やJavaの事前準備なしでumlgenとクラス図のSVG生成環境をセットアップできます。Javaの`sequence`／`activity`／`state`には、別途フルJDK 17以上が必要です（PlantUML同梱の実行環境では代用できません）。
+[Scoop](https://scoop.sh/)とGitを導入済みの通常のPowerShellで実行します：
+
+```powershell
+scoop bucket add umlgen https://github.com/Mino829/umlgen.git
+scoop install umlgen/umlgen
+umlgen version
+
+# 更新（配布定義の更新PRがマージされた後）
+scoop update
+scoop update umlgen
+
+# アンインストール
+scoop uninstall umlgen
+scoop bucket rm umlgen
+```
+
+PlantUML・Javaは自動追加しません。Javaのclass／package／componentはJDK不要ですが、`sequence`／`activity`／`state`には別途フルJDK 17以上が必要です。SVG／PNGには別途PlantUMLとその実行環境が必要です。旧インストーラーから切り替える場合は旧版をその導入方法で削除し、`Get-Command umlgen`で実体を確認します。
+
+Scoopを利用しない場合は、クラス図のSVG生成環境も導入できる従来のインストーラーを利用できます（同梱の実行環境は意味解析用JDKの代わりにはなりません）：
 
 ```powershell
 $installer = "$env:TEMP\install-umlgen.ps1"
@@ -152,7 +194,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/Mino829/umlgen/main/scripts/
 powershell -NoProfile -ExecutionPolicy Bypass -File $installer -InstallPlantUML
 ```
 
-インストール後にPowerShellを開き直し、`umlgen version`で確認します。画面の開き方から図の生成、更新、アンインストールまでの説明は[Windowsセットアップガイド](docs/windows-setup.md)を参照してください。
+詳しい手順は[Windowsセットアップガイド](docs/windows-setup.md)を参照してください。メンテナー向けの[配布定義の更新手順](docs/macos-setup.md#配布定義の更新メンテナー向け)も参照できます。
 
 ### Goからインストール
 
