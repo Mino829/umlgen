@@ -186,6 +186,8 @@ scoop bucket rm umlgen
 
 PlantUML・Javaは自動追加しません。Javaのclass／package／componentはJDK不要ですが、`sequence`／`activity`／`state`には別途フルJDK 17以上が必要です。SVG／PNGには別途PlantUMLとその実行環境が必要です。旧インストーラーから切り替える場合は旧版をその導入方法で削除し、`Get-Command umlgen`で実体を確認します。
 
+Scoop版PlantUMLで画像を生成する場合は、`PLANTUML_JAR`をインストール先のJARへ設定します。バッチshimだけに頼らない[Windowsの画像出力設定](docs/windows-setup.md#4-クラス図を生成する)を参照してください。
+
 Scoopを利用しない場合は、クラス図のSVG生成環境も導入できる従来のインストーラーを利用できます（同梱の実行環境は意味解析用JDKの代わりにはなりません）：
 
 ```powershell

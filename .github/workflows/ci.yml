@@ -286,9 +286,26 @@ jobs:
           }
           $scoopRoot = if ($env:SCOOP) { $env:SCOOP } else { Join-Path $HOME 'scoop' }
           (Join-Path $scoopRoot 'shims') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Install, update and uninstall with Scoop
+      - name: Install Scoop renderer dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          scoop bucket add java
+          if ($LASTEXITCODE -ne 0) { throw 'Could not add the Java bucket.' }
+          scoop bucket add extras
+          if ($LASTEXITCODE -ne 0) { throw 'Could not add the Extras bucket.' }
+          scoop install java/temurin17-jdk extras/plantuml main/graphviz
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install Scoop renderer dependencies.' }
+      - name: Install, update, render and uninstall with Scoop
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/smoke-scoop.ps1
+        run: ./scripts/smoke-scoop.ps1 -RenderOutputDirectory (Join-Path $env:RUNNER_TEMP 'scoop-renderer-smoke')
+      - name: Upload Scoop-rendered images
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: scoop-renderer-smoke
+          path: ${{ runner.temp }}/scoop-renderer-smoke
+          if-no-files-found: error
