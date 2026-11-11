@@ -1,4 +1,6 @@
 # Run on a disposable Windows runner with Scoop installed; never replace a user's installation.
+param([string] $RenderOutputDirectory)
+
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
@@ -30,6 +32,7 @@ function Test-Package([string] $Version, [string] $Name) {
 $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $work = Join-Path $tempRoot "umlgen-scoop-$([Guid]::NewGuid().ToString('N'))"
 $tapRepo = Join-Path $work 'bucket-repo'
+$previousPlantUMLJar = $env:PLANTUML_JAR
 try {
     python "$root/scripts/update-package-managers.py" --version v0.6.0 --output-dir $tapRepo
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate the published baseline.' }
@@ -57,6 +60,16 @@ try {
         Invoke-Scoop update umlgen --force
     }
     Test-Package $version 'current'
+    if ($RenderOutputDirectory) {
+        # Scoop's batch shim cannot be launched directly by the CLI; use its JAR.
+        $env:PLANTUML_JAR = Join-Path (Invoke-Scoop prefix plantuml) 'plantuml.jar'
+        if (-not (Test-Path -LiteralPath $env:PLANTUML_JAR -PathType Leaf)) {
+            throw 'Scoop PlantUML JAR was not found.'
+        }
+        $binary = (Get-Command umlgen -ErrorAction Stop).Source
+        python "$root/scripts/smoke-package-manager.py" --binary $binary --version $version --work-dir $RenderOutputDirectory --render
+        if ($LASTEXITCODE -ne 0) { throw 'Scoop SVG/PNG rendering smoke failed.' }
+    }
     Invoke-Scoop uninstall umlgen
     if (Get-Command umlgen -ErrorAction SilentlyContinue) {
         throw 'Scoop uninstall left the umlgen command on PATH.'
@@ -66,6 +79,7 @@ try {
     }
     Invoke-Scoop bucket rm umlgen
 } finally {
+    if ($RenderOutputDirectory) { $env:PLANTUML_JAR = $previousPlantUMLJar }
     if (Test-Path (Join-Path $scoopRoot 'apps/umlgen')) { & scoop uninstall umlgen }
     if (Test-Path (Join-Path $scoopRoot 'buckets/umlgen')) { & scoop bucket rm umlgen }
     if (Test-Path $work) { Remove-Item $work -Recurse -Force }

@@ -68,13 +68,20 @@ SVG・PNG画像も生成する場合は、まずローカルPlantUMLを用意し
 scoop bucket add java
 scoop install java/temurin17-jdk
 scoop bucket add extras
-scoop install extras/plantuml
+scoop install extras/plantuml main/graphviz
 java -version
 javac -version
 plantuml -version
+
+# 今のPowerShellと、今後開くターミナルにJARの場所を設定
+$env:PLANTUML_JAR = Join-Path (scoop prefix plantuml) 'plantuml.jar'
+[Environment]::SetEnvironmentVariable('PLANTUML_JAR', $env:PLANTUML_JAR, 'User')
+java -jar "$env:PLANTUML_JAR" -version
 ```
 
-図の種類によっては[PlantUMLの案内](https://plantuml.com/starting)に従ってGraphvizも追加します。すでにローカルrendererを用意済み、または従来の`-InstallPlantUML`付きインストーラーで導入した場合は、次を実行できます：
+Scoopの`plantuml`はバッチ形式のshimなので、umlgenからは`PLANTUML_JAR`を使ってJava経由で起動します。`$env:`の設定は現在のPowerShellへ、`User`の設定は今後開くターミナル向けに保存します。`plantuml -version`だけではumlgenから起動できることを確認できないため、JARの版表示も確認してください。
+
+この例はGraphvizも導入します。別のローカルrendererを用意済み、または従来の`-InstallPlantUML`付きインストーラーで導入した場合も、次の画像生成コマンドを利用できます：
 
 ```powershell
 umlgen class .\src\main\java --format svg
@@ -195,3 +202,5 @@ umlgen class . --exclude target --exclude build
 ## 配布定義の更新（メンテナー向け）
 
 公開済みの厳密な安定版と`SHA256SUMS.txt`からHomebrew／Scoop両方を同時更新します。生成script・手動dispatch・PR権限がない場合のartifact経路・CI確認は[配布定義の更新手順](macos-setup.md#配布定義の更新メンテナー向け)を参照してください。Windowsのnative smokeは、既存のumlgen導入やbucketがない検証用PCでScoop導入後に`./scripts/smoke-scoop.ps1`を実行します。
+
+SVG／PNGまで検証する場合は、前述のJDK・PlantUML・Graphvizを導入してから、`./scripts/smoke-scoop.ps1 -RenderOutputDirectory "$env:TEMP\umlgen-scoop-render"`を実行します。ScoopのJARを現在のプロセスへ設定し、導入した実CLIで両形式の画像とPlantUMLの一致を確認します。画像とPlantUMLは指定先に残し、一時bucketとumlgenを削除した後は元の`PLANTUML_JAR`設定へ戻します。CIでも同じ経路を実行し、画像をartifactへ保存します。
