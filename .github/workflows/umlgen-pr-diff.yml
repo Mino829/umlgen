@@ -108,7 +108,7 @@ jobs:
 
       - name: Prepare review receipt
         id: receipt
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REVIEW_ARGS_JSON: ${{ needs.filters.outputs.args-json }}
           REVIEW_METADATA_JSON: ${{ needs.filters.outputs.metadata-json }}
@@ -319,7 +319,7 @@ jobs:
 
       - name: Summarize review scope
         if: always() && !cancelled() && steps.receipt.outcome == 'success'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           DIFF_OUTCOME: ${{ steps.diagram.outcome }}
           FULL_OUTCOME: ${{ steps.full.outcome }}
