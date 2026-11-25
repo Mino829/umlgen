@@ -26,7 +26,7 @@ bash "$installer"
 
 このインストーラーもMacの種類を自動判定し、GitHub Releaseの`SHA256SUMS.txt`と照合してから`~/.local/bin`へ配置します。更新・削除は導入方法を混在させず、下の対応する手順を使ってください。
 
-この通常導入の対象は公開安定版（現在[v0.7.0](https://github.com/Mino829/umlgen/releases/tag/v0.7.0)）です。Java `sequence`／`activity`／`state`にはフルJDK 17以上が別途必要です。`java -version`と`javac -version`を確認してください。Javaのclass／package／componentとclass／package watchはJDK不要です。
+この通常導入の対象は公開安定版（現在[v0.7.1](https://github.com/Mino829/umlgen/releases/tag/v0.7.1)）です。Java `sequence`／`activity`／`state`にはフルJDK 17以上が別途必要です。`java -version`と`javac -version`を確認してください。Javaのclass／package／componentとclass／package watchはJDK不要です。
 
 ## 2. インストールを確認する
 
@@ -39,7 +39,7 @@ umlgen version
 次のようにバージョンが表示されれば完了です。
 
 ```text
-umlgen version 0.7.0
+umlgen version 0.7.1
 ```
 
 ## 3. Javaプロジェクトへ移動する
@@ -172,9 +172,9 @@ umlgen class . --exclude target --exclude build
 Homebrewの`Formula/umlgen.rb`とScoopの`bucket/umlgen.json`は同じrepositoryで管理します。別のtap／bucket repositoryや外部認証情報は不要です。更新対象は**公開済み安定版の厳密な`X.Y.Z`／`vX.Y.Z`**だけです。`latest`、prerelease、build metadataは受け付けません。Python 3.10以上で実行します。
 
 ```bash
-python3 scripts/update-package-managers.py --version v0.7.0
+python3 scripts/update-package-managers.py --version v0.7.1
 # 書き換えずに、公開版から生成した内容と一致するかを検査
-python3 scripts/update-package-managers.py --version v0.7.0 --check
+python3 scripts/update-package-managers.py --version v0.7.1 --check
 ```
 
 次回は公開済みの実際のタグに置き換えます。Release APIのtag・draft／prerelease・asset名／URL、`SHA256SUMS.txt`の形式と重複・欠落、実際にダウンロードしたmacOS／Windows archiveのSHA-256をすべて確認してから定義を書き換えます。GitHub APIのdigestがある場合はそれも照合します。checksumは改ざん検出用で、発行者の署名ではありません。API rate limitを避ける場合は任意で`GH_TOKEN`を設定できますが、公開Releaseの取得にsecretは必須ではありません。
@@ -185,7 +185,7 @@ Release workflowの成功後にActionsの **Update package managers** を手動�
 - repository設定でActionsのPR作成を許可した場合だけ`create_pr=true`を選びます。専用jobが`contents: write`／`pull-requests: write`で同repositoryにPRを提案します。push／PR作成が禁止された場合は明確なwarningとartifactによる手動経路を残します。PATやGitHub App secretを暗黙に要求しません。
 - tokenによるpush／PRではCIが自動開始しない、または実行承認が必要な場合があります。人が保留中workflowを承認するか、`gh workflow run ci.yml --ref <更新branch>`でCIを起動し、結果を確認してからレビュー・マージします。自動マージはしません。配布先はdefault branchなので、PRがマージされるまでは利用者へ反映されません。
 
-CIではHomebrew（macOS arm64／amd64）とScoop（Windows amd64）で公開v0.6.0を旧版として導入し、作業中の定義へ更新して`version`・クラス図生成・削除を確認します。公開済みの実アーカイブを使い、ソースビルドや架空の版は使いません。
+CIではHomebrew（macOS arm64／amd64）とScoop（Windows amd64）で公開v0.7.0を旧版として導入し、作業中の定義へ更新して`version`・クラス図生成・削除を確認します。公開済みの実アーカイブを使い、ソースビルドや架空の版は使いません。
 
 ```bash
 python3 -m unittest discover -s scripts -p test_package_managers.py

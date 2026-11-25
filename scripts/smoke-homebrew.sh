@@ -6,6 +6,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
 formula=mino829/umlgen/umlgen
+baseline=0.7.0
 case "$(brew tap)" in
   *mino829/umlgen*) echo 'Refusing to replace an existing mino829/umlgen tap.' >&2; exit 1 ;;
 esac
@@ -23,15 +24,15 @@ cleanup() {
 trap cleanup EXIT
 
 # Install a genuine older release, never a fabricated version of the new binary.
-python3 "$root/scripts/update-package-managers.py" --version v0.6.0 --output-dir "$tap_repo"
+python3 "$root/scripts/update-package-managers.py" --version "$baseline" --output-dir "$tap_repo"
 git -C "$tap_repo" init --quiet
 git -C "$tap_repo" add Formula/umlgen.rb
 git -C "$tap_repo" -c user.name=PackageSmoke -c user.email=smoke@example.invalid \
-  -c commit.gpgsign=false commit --quiet -m 'Published v0.6.0 baseline'
+  -c commit.gpgsign=false commit --quiet -m "Published v$baseline baseline"
 brew tap mino829/umlgen "$tap_repo"
 brew install "$formula"
 binary="$(brew --prefix)/bin/umlgen"
-python3 "$root/scripts/smoke-package-manager.py" --binary "$binary" --version 0.6.0 --work-dir "$work/baseline"
+python3 "$root/scripts/smoke-package-manager.py" --binary "$binary" --version "$baseline" --work-dir "$work/baseline"
 brew test "$formula"
 
 # Update the local Git remote as a real tap update would, testing this checkout's definition.
@@ -44,8 +45,8 @@ fi
 brew update
 brew upgrade "$formula"
 version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$root/bucket/umlgen.json")"
-if [ "$version" = 0.6.0 ]; then
-  # Initial tap has no newer release yet; also exercise replacement of the same version.
+if [ "$version" = "$baseline" ]; then
+  # Exercise replacement even when the tested definition is the baseline.
   brew reinstall "$formula"
 fi
 python3 "$root/scripts/smoke-package-manager.py" --binary "$binary" --version "$version" --work-dir "$work/current"
