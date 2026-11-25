@@ -13,6 +13,11 @@ on:
         required: false
         default: both
         type: string
+      language:
+        description: Source language (java or go)
+        required: false
+        default: java
+        type: string
     outputs:
       args-json:
         description: Validated change-diagram arguments as a JSON string array
@@ -41,6 +46,7 @@ jobs:
         env:
           INPUT_DEPTH: ${{ inputs.depth }}
           INPUT_DIRECTION: ${{ inputs.direction }}
+          INPUT_LANGUAGE: ${{ inputs.language }}
         with:
           script: |
             const fs = require('node:fs');
@@ -185,6 +191,10 @@ jobs:
             }
 
             try {
+              const language = process.env.INPUT_LANGUAGE;
+              if (language !== 'java' && language !== 'go') {
+                fail('Workflow language must be java or go.');
+              }
               const defaultDepthText = process.env.INPUT_DEPTH;
               const defaultDepth = Number(defaultDepthText);
               if (!/^(?:0|[1-9][0-9]*)$/.test(defaultDepthText || '') || !Number.isInteger(defaultDepth)) {
@@ -224,8 +234,13 @@ jobs:
                   fail('Review-filter include exceeds the 1024-byte limit.');
                 }
                 const javaPackage = /^[\p{ID_Start}_$][\p{ID_Continue}_$]*(?:\.[\p{ID_Start}_$][\p{ID_Continue}_$]*)*$/u;
-                if (!javaPackage.test(value)) {
+                // This is a prefix selector, not a build-time module validator.
+                const goPath = /^[a-zA-Z0-9_~][a-zA-Z0-9._~+-]*(?:\/[a-zA-Z0-9_~][a-zA-Z0-9._~+-]*)*$/;
+                if (language === 'java' && !javaPackage.test(value)) {
                   fail('Review-filter include must be one Java package prefix.');
+                }
+                if (language === 'go' && !goPath.test(value)) {
+                  fail('Review-filter include must be one Go import-path prefix.');
                 }
                 filters.include = value;
               }

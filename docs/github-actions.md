@@ -1,6 +1,6 @@
 # GitHub ActionsでPull Request差分図と変更後の全体図を生成する
 
-umlgenの再利用可能ワークフローを呼び出すと、Pull Requestのbase／headからJavaの差分クラス図を、PRのhead commitから変更後の全体クラス図を生成し、それぞれPlantUMLとSVGをActions artifactとして保存できる。
+再利用ワークフローは、Pull Requestのbase／headからJavaまたはGoの差分クラス図を生成し、headの全体クラス図とともにPlantUMLとSVGをActions artifactへ保存します。
 
 差分図の読み方、精度、ローカルCLIの使い方については[`docs/pr-diff.md`](./pr-diff.md)を参照してください。
 
@@ -29,6 +29,8 @@ jobs:
 
 導入直後の試用では`@main`を利用できる。本運用では、内容が変化しないumlgenのリリースタグまたは完全なcommit SHAへ固定する。
 
+Goプロジェクトでは、Goに対応したworkflowを参照し、呼び出し側の`with`に`language: go`を指定します。`source`はGoソースの場所に合わせます（リポジトリ全体なら`.`）。
+
 実行後、Actionsのrun summaryに適用条件・比較commit・本文hashを表示し、Artifactsから`umlgen-pr-diff`をダウンロードする。内容は次の5ファイル。
 
 ```text
@@ -39,13 +41,14 @@ full-diagram.svg
 review-scope.json
 ```
 
-`change-diagram`は変更型とその周辺の差分図、`full-diagram`はPRのhead commitにある対象パスのJava型の全体図です（`.umlgen.yaml`の除外設定は適用されます）。全体図に変更色や削除された型は含まれません。全体図はmerge commitではなくPRのhead commitから生成します。
+`change-diagram`は変更型とその周辺の差分図、`full-diagram`はPR headの対象パス・選択言語の全体図です。全体図には`.umlgen.yaml`の除外設定が適用され、変更色や削除型は含まれません。
 
 ## 入力
 
 | Input | Default | 説明 |
 | --- | --- | --- |
-| `source` | `.` | リポジトリ相対のJavaソースパス（このワークフローは`.java`ファイルの変更を検知します） |
+| `source` | `.` | リポジトリ相対のソースパス |
+| `language` | `java` | `java`または`go`。自動判定しない |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
 | `umlgen-version` | `v0.6.0` | ダウンロードするumlgenのリリースタグ |
@@ -54,9 +57,7 @@ review-scope.json
 | `base-sha` | Pull Requestのbase | base commitの上書き |
 | `head-sha` | Pull Requestのhead | head commitの上書き |
 
-`source`以下に変更されたJavaファイルがない場合も失敗にはしない。その場合は差分図に「Java変更なし」と記載したPlantUML／SVGを保存し、全体図は通常どおりheadのソースから生成する。headで対象パスのJavaソースがすべて削除された場合は、全体図に「Javaソースなし」と記載したPlantUML／SVGを保存する。
-
-なお、このワークフローは`.java`ファイルの変更のみを検知する。Goプロジェクトで利用する場合はローカルCLIまたは独自ワークフローで`umlgen diff`を呼び出してください。
+選択言語の変更がなければ、その旨を記載した差分図を保存し、全体図は通常どおり生成します。headですべて削除された場合は差分図に削除型を表示し、全体図に対象ソースなしと記載します。Goの`_test.go`はクラス図・変更検知の対象外です。
 
 ## PR本文でレビュー範囲を指定する
 
@@ -75,7 +76,7 @@ review-scope.json
 
 | 引数 | 受理する値 |
 | --- | --- |
-| `--include` | Javaのpackage prefixを**1つ**。Unicode識別子も可。UTF-8で1024 bytes以下。複数prefix・CSV・glob・ファイルパスは不可 |
+| `--include` | Javaのpackage prefix（Unicode可）またはGoのimport path prefixを1つ。Goの各要素はASCII英数字・`_`・`~`で始まり、以降は`.`・`+`・`-`も可。UTF-8で1024 bytes以下。CSV・glob・相対パスは不可 |
 | `--relations` | `inheritance,implementation,field,parameter,return`の一意な部分集合、または`all`単独 |
 | `--depth` | `0`〜`10`の整数。符号・小数・指数・先頭0は禁止。`0`は変更型のみ |
 | `--direction` | `in`／`out`／`both` |
@@ -91,7 +92,7 @@ review-scope.json
 
 全体図の`full-diagram`へ本文フィルタは適用しない。こちらは従来どおりheadの全体文脈で、repository設定は有効。差分図と全体図を同じレビュー条件の図として解釈しない。
 
-`review-scope.json`には、渡した引数、本文／workflow既定の別、base・比較merge-base・headの完全SHA、source path、CLI版、本文のSHA-256、run ID／attempt、生成status、Java変更なしの判定を記録する。本文そのものは保存しない。指定していないinclude／relationsのCLI・repository既定まで解決した公開APIではない。
+`review-scope.json`には、引数、本文／workflow既定の別、base・比較merge-base・headの完全SHA、source path、`language`、CLI版、本文のSHA-256、run ID／attempt、生成status、`no_source_changes`を記録します。互換用の`no_java_changes`はJavaの場合だけ真偽値、Goの場合は`null`です。本文そのものは保存せず、明示していないinclude／relationsの既定値までは解決しません。
 
 同じrepository・caller workflow・PR・artifact名の新しいrunが古いrunを取り消す。異なる図を同時生成する場合は`artifact-name`を分ける。caller側で同名のconcurrency groupを重ねて設定しない。artifactとSummaryはrun・commit・本文hashに結び付き、以前のrunのartifactは履歴であって「常に最新」のURLではない。
 
@@ -102,7 +103,8 @@ review-scope.json
 再利用ワークフローは次のoutputを返す。
 
 - `artifact-url`: 差分図と変更後の全体図を収めたartifactのURL
-- `no-java-changes`: 選択したパスにJava変更がなければ`true`
+- `no-source-changes`: 選択パスに選択言語のソース変更がなければ`true`。プレースホルダの有無とは別
+- `no-java-changes`: Javaの場合は`no-source-changes`と同じ。Goの場合は空
 
 呼び出し側で後続jobから参照する場合は、呼び出しjobへ`id`を付けるか、job outputとして引き継ぐ。
 
@@ -127,9 +129,9 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 通常は`pull_request`から呼び出す。別イベントから呼ぶ場合は`base-sha`と`head-sha`を明示する。
 
-### Java変更があるのに「変更なし」になる
+### ソース変更があるのに「変更なし」になる
 
-`source`がリポジトリ相対パスになっているか、変更ファイルがその配下にあるか確認する。
+`language`が対象言語と一致し、リポジトリ相対の`source`に変更ファイルが含まれるか確認します。
 
 ### 変更ファイルに型が含まれていない場合
 
@@ -153,7 +155,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 書き込み権限は、成果物をダウンロードしてPNGを公開する独立jobだけに付与します。このjobはPRソースをcheckout・実行せず、artifact内のコードも実行しません。Fork PR／非公開リポジトリ／PR以外の実行では投稿jobを実行せず、artifact経路を維持します。
 
-これはumlgen自身の`.github/workflows/ci.yml`の機能です。上記の再利用可能なJava差分workflowは従来どおりread-onlyで、呼び出し先のPRへコメントを投稿しません。
+これはumlgen自身の`.github/workflows/ci.yml`の機能です。再利用可能な差分workflowはread-onlyで、呼び出し先のPRへコメントを投稿しません。
 
 ## メンテナー向け: 公開前の配布リハーサル
 
