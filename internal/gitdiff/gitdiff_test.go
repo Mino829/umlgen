@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/Mino829/umlgen/internal/model"
@@ -46,6 +47,57 @@ func TestAnalyzeAddedModifiedAndDeletedFiles(t *testing.T) {
 	}
 	if len(result.Deleted) != 1 || string(result.Deleted[0].Content) != "class Delete {}" {
 		t.Fatalf("deleted = %#v", result.Deleted)
+	}
+}
+
+func TestAnalyzePreservesGitPathBytes(t *testing.T) {
+	modified := "変更.java"
+	renamedTo := "新しい.go"
+	untracked := " 未追跡.go"
+	if runtime.GOOS != "windows" {
+		modified = "変更\t.java"
+		renamedTo = "新しい\n.go"
+		untracked = " 未追跡\n.go"
+	}
+	const deleted = " 削除.java"
+	const added = "追加.java"
+	const renameSource = "旧.go"
+	const deletedSource = "class Removed {}"
+
+	root := t.TempDir()
+	git(t, root, "init")
+	git(t, root, "config", "user.email", "umlgen@example.test")
+	git(t, root, "config", "user.name", "umlgen test")
+	git(t, root, "config", "core.quotePath", "true")
+	write(t, root, modified, "class Changed {}")
+	write(t, root, deleted, deletedSource)
+	write(t, root, renameSource, "package project\n\ntype Moved struct{}\n")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "base")
+	write(t, root, modified, "class Changed { int value; }")
+	write(t, root, added, "class Added {}")
+	git(t, root, "add", "--", added)
+	git(t, root, "rm", "--", deleted)
+	git(t, root, "mv", "--", renameSource, renamedTo)
+	write(t, root, untracked, "package project\n\ntype Untracked struct{}\n")
+
+	result, err := Analyze(root, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]model.ChangeKind{
+		modified: model.Modified, added: model.Added, renamedTo: model.Modified, untracked: model.Added,
+	} {
+		if got, ok := result.ChangeFor(filepath.Join(root, path)); !ok || got != want {
+			t.Errorf("ChangeFor(%q) = %q, %v; want %q", path, got, ok, want)
+		}
+	}
+	if _, ok := result.ChangeFor(filepath.Join(root, renameSource)); ok {
+		t.Errorf("rename source %q should not be a changed current path", renameSource)
+	}
+	if len(result.Deleted) != 1 || filepath.Base(result.Deleted[0].Path) != deleted ||
+		string(result.Deleted[0].Content) != deletedSource {
+		t.Errorf("deleted = %#v; want %q with its base content", result.Deleted, deleted)
 	}
 }
 

@@ -9,7 +9,9 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/Mino829/umlgen/internal/plantuml"
 	"github.com/Mino829/umlgen/internal/watch"
@@ -155,17 +157,14 @@ func publishWatchOutputs(ctx context.Context, stage string, outputs []watchOutpu
 	}
 	completed := 0
 	for i := range outputs {
-		err := ctx.Err()
-		if err == nil {
-			err = os.Rename(outputs[i].staged, outputs[i].final)
-		}
+		err := renameWatchOutput(ctx, outputs[i].staged, outputs[i].final)
 		if err != nil {
 			failures := []error{err}
 			for j := completed - 1; j >= 0; j-- {
 				old := outputs[j]
 				var restore error
 				if old.existed {
-					restore = os.Rename(old.backup, old.final)
+					restore = renameWatchOutput(context.WithoutCancel(ctx), old.backup, old.final)
 				} else {
 					restore = os.Remove(old.final)
 				}
@@ -179,6 +178,36 @@ func publishWatchOutputs(ctx context.Context, stage string, outputs []watchOutpu
 	}
 	return nil
 }
+
+func renameWatchOutput(ctx context.Context, staged, final string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	err := os.Rename(staged, final)
+	// Windows may report access denied while a reader holds the destination
+	// without delete sharing. Do not discard a complete generation on that race.
+	if runtime.GOOS != "windows" || !errors.Is(err, os.ErrPermission) {
+		return err
+	}
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for range 5 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err = os.Rename(staged, final)
+		if !errors.Is(err, os.ErrPermission) {
+			break
+		}
+	}
+	return err
+}
+
 func copyWatchFile(source, destination string, mode os.FileMode) error {
 	input, err := os.Open(source)
 	if err != nil {
