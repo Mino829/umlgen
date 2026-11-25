@@ -39,7 +39,7 @@ umlgen version
 次のようにバージョンが表示されれば完了です。
 
 ```text
-umlgen version 0.6.0
+umlgen version 0.7.0
 ```
 
 ## 3. Javaプロジェクトへ移動する
@@ -123,7 +123,7 @@ umlgen version
 
 ## 公開前の候補版を試す
 
-通常導入は公開安定版（現在[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)）を取得します。以下は今後の候補をオフラインで試す手順です。リリース準備PRの成功したCIからartifact `release-assets`をダウンロードし、ZIPと`SHA256SUMS.txt`を同じフォルダーへ展開します。**artifactを作ったcommitのinstaller**を使ってください。下の`0.6.0-rc.1`は過去の配布リハーサル例なので、試すartifactの実際の版へ置き換えます。
+通常導入は公開安定版（現在[v0.7.0](https://github.com/Mino829/umlgen/releases/tag/v0.7.0)）を取得します。候補をオフラインで試すには、成功した準備CIのartifact `release-assets`からZIPと`SHA256SUMS.txt`を同じフォルダーへ展開し、**artifactを作ったcommitのinstaller**に候補の版を明示します。下の`0.6.0-rc.1`は過去の例です。
 
 ```powershell
 # 候補checkoutのrepository rootで実行。安定版とは別の場所へ配置

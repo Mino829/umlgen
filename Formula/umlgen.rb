@@ -2,19 +2,19 @@
 class Umlgen < Formula
   desc "Generate PlantUML diagrams from Java and Go source code"
   homepage "https://github.com/Mino829/umlgen"
-  version "0.6.0"
+  version "0.7.0"
   license "MIT"
 
   depends_on :macos
 
   on_arm do
-    url "https://github.com/Mino829/umlgen/releases/download/v0.6.0/umlgen-darwin-arm64.tar.gz"
-    sha256 "2767789b9c76f53fcac6461b78394741af7f341fa1bc6d3007e3bc484859f67d"
+    url "https://github.com/Mino829/umlgen/releases/download/v0.7.0/umlgen-darwin-arm64.tar.gz"
+    sha256 "75d8e2b9a6caae12a4fb0b90e65f977cdff94c21e5d42669f18a90d0f9e86f86"
   end
 
   on_intel do
-    url "https://github.com/Mino829/umlgen/releases/download/v0.6.0/umlgen-darwin-amd64.tar.gz"
-    sha256 "cc669e6b28daa38e973d7b0542c7b8277959846920cfa6e8758baae1acac12ae"
+    url "https://github.com/Mino829/umlgen/releases/download/v0.7.0/umlgen-darwin-amd64.tar.gz"
+    sha256 "d1912d2d7592a823750752a4a4d899d2e0c98b1b68f9caaf7041e8b922ee14a0"
   end
 
   def install

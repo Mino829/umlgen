@@ -51,7 +51,7 @@ review-scope.json
 | `language` | `java` | `java`または`go`。自動判定しない |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
-| `umlgen-version` | `v0.6.0` | ダウンロードするumlgenのリリースタグ |
+| `umlgen-version` | `v0.7.0` | ダウンロードするumlgenのリリースタグ（mainのworkflowの既定値。古いworkflow refでは明示指定） |
 | `artifact-name` | `umlgen-pr-diff` | artifact名 |
 | `retention-days` | `14` | artifact保持日数 |
 | `base-sha` | Pull Requestのbase | base commitの上書き |
@@ -135,7 +135,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 ### 変更ファイルに型が含まれていない場合
 
-`package-info.java`など型を含まないファイルだけが変更された場合、既定の`v0.6.0` CLIはプレースホルダ図を生成する。`v0.4.0`のように「変更ファイルに型がない」というエラーだけを出した場合も、ワークフロー側でプレースホルダ図を生成するフォールバックが動作する。この場合もJavaファイルの変更はあるため、`no-java-changes`は`false`になる。解析警告を伴う場合や、その他の終了コード1のエラーは失敗として扱う。
+`package-info.java`など型を含まないファイルだけが変わった場合、v0.7.0のCLIはプレースホルダを生成します。この場合もJavaの変更はあるため、`no-java-changes`は`false`です。v0.4.0の旧エラーに対するワークフロー側のフォールバックも維持します。
 
 ### 再利用ワークフローを呼び出せない
 
@@ -159,7 +159,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 ## メンテナー向け: 公開前の配布リハーサル
 
-これは上記の利用者向けPR差分workflowとは別です。umlgen自身のCIは`.github/workflows/release-build.yml`を版`0.6.0-rc.1`で呼び、Linux amd64／macOS arm64・amd64／Windows amd64をネイティブビルドします。Go 1.26.11と意味解析の最小JDK 17を使用し、Linux配布はUbuntu 22.04（glibc 2.35）を基準にします。
+これは利用者向けPR差分workflowとは別です。umlgen自身のCIは`.github/workflows/release-build.yml`を呼び、Linux amd64／macOS arm64・amd64／Windows amd64をネイティブビルドします。Go 1.26.11と意味解析の最小JDK 17を使用し、Linux配布はUbuntu 22.04（glibc 2.35）を基準にします。
 
 - チェックアウトの開発用CLIではなく、**アーカイブから取り出し／候補installerで配置したCLI**を`scripts/smoke-release.py`で検証します。版、全図種、cache一致、Git snapshot差分、秘密値非表示、watchの更新・削除・OS固有の中断が対象です。
 - macOS／Windowsではローカルarchive modeと`scripts/smoke-installer.py`も使用し、破損・版違い・重複checksum・不正／重複memberの拒否、既存CLI／PATH保持、アンインストールを検証します。従来の公開版ダウンロードとWindows PlantUMLの画像生成も通常CIに残します。
