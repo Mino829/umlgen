@@ -407,6 +407,7 @@ Examples:
 
 --diagram class (default) preserves the existing changed-type/working-tree behavior.
 Class flags such as --depth, --direction, --output, --format, and --explain are supported.
+A target deleted by the comparison can still be selected using its former path.
 
 --diagram package compares complete immutable Git trees, not changed files alone.
 A single revision means revision..HEAD; A..B uses both commits; A...B uses merge-base(A,B)..B.

@@ -45,9 +45,7 @@ func TestAnalyzeAddedModifiedAndDeletedFiles(t *testing.T) {
 	if change, ok := result.ChangeFor(filepath.Join(root, "Keep.java")); !ok || change != model.Modified {
 		t.Fatalf("ChangeFor(Keep.java) = %q, %v", change, ok)
 	}
-	if len(result.Deleted) != 1 || string(result.Deleted[0].Content) != "class Delete {}" {
-		t.Fatalf("deleted = %#v", result.Deleted)
-	}
+	checkDeleted(t, result, "Delete.java", "class Delete {}")
 }
 
 func TestAnalyzePreservesGitPathBytes(t *testing.T) {
@@ -95,9 +93,17 @@ func TestAnalyzePreservesGitPathBytes(t *testing.T) {
 	if _, ok := result.ChangeFor(filepath.Join(root, renameSource)); ok {
 		t.Errorf("rename source %q should not be a changed current path", renameSource)
 	}
-	if len(result.Deleted) != 1 || filepath.Base(result.Deleted[0].Path) != deleted ||
-		string(result.Deleted[0].Content) != deletedSource {
-		t.Errorf("deleted = %#v; want %q with its base content", result.Deleted, deleted)
+	checkDeleted(t, result, deleted, deletedSource)
+}
+
+func checkDeleted(t *testing.T, result Result, name, want string) {
+	t.Helper()
+	if len(result.Deleted) != 1 || result.Deleted[0] != name {
+		t.Fatalf("deleted files = %q; want only %q", result.Deleted, name)
+	}
+	content, err := result.ReadDeleted(result.Deleted[0])
+	if err != nil || string(content) != want {
+		t.Fatalf("deleted content = %q, %v; want %q", content, err, want)
 	}
 }
 
@@ -141,13 +147,7 @@ func TestAnalyzeConcurrentRepositories(t *testing.T) {
 				if len(result.Current) != 1 || result.Current[modified] != model.Modified {
 					t.Fatalf("current files = %#v, want only %s modified", result.Current, modified)
 				}
-				if len(result.Deleted) != 1 || string(result.Deleted[0].Content) != deletedContent {
-					t.Fatalf("deleted files = %#v, want only %s with content %q", result.Deleted, deleted, deletedContent)
-				}
-				relative, err := filepath.Rel(result.Root, result.Deleted[0].Path)
-				if err != nil || relative != deleted {
-					t.Fatalf("deleted path %q is not %q within repository %q: %v", result.Deleted[0].Path, deleted, result.Root, err)
-				}
+				checkDeleted(t, result, deleted, deletedContent)
 			}
 		})
 	}

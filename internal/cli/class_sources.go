@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 
 	"github.com/Mino829/umlgen/internal/config"
 	"github.com/Mino829/umlgen/internal/explain"
@@ -71,21 +72,23 @@ func collectClassSources(files []string, o classOptions, cfg config.Config, sour
 		return result, nil
 	}
 	for _, deleted := range diffSelection.Deleted {
-		if !sourceParser.MatchesPath(deleted.Path) {
-			continue
+		content, err := diffSelection.ReadDeleted(deleted)
+		if err != nil {
+			return result, err
 		}
+		path := filepath.Join(diffSelection.Root, filepath.FromSlash(deleted))
 		if o.explain {
 			explanation.Scope.Files++
-			explanation.Sources[deleted.Path] = explain.Source{Content: deleted.Content, Origin: "Git base"}
+			explanation.Sources[path] = explain.Source{Content: content, Origin: "Git base"}
 		}
-		unit, parseErr := sourceParser.ParseSource(deleted.Path, deleted.Content)
+		unit, parseErr := sourceParser.ParseSource(path, content)
 		if parseErr != nil {
 			result.warnings++
 			result.changedParseFailures++
-			fmt.Fprintf(stderr, "Warning: failed to parse deleted file %s: %v\n", deleted.Path, parseErr)
+			fmt.Fprintf(stderr, "Warning: failed to parse deleted file %s: %v\n", path, parseErr)
 			if o.explain {
 				explanation.Failures = append(explanation.Failures, explain.Failure{
-					Source: deleted.Path, Message: parseErr.Error(), Origin: "Git base",
+					Source: path, Message: parseErr.Error(), Origin: "Git base",
 				})
 			}
 			continue

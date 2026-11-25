@@ -10,15 +10,12 @@ import (
 	"github.com/Mino829/umlgen/internal/model"
 )
 
-type DeletedSource struct {
-	Path    string
-	Content []byte
-}
-
 type Result struct {
 	Root    string
 	Current map[string]model.ChangeKind
-	Deleted []DeletedSource
+	// Deleted holds repository-relative Git paths; their blobs are loaded on demand.
+	Deleted []string
+	base    string
 }
 
 func Analyze(workingDir, rangeSpec string) (Result, error) {
@@ -36,7 +33,7 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 		return Result{}, err
 	}
 
-	result := Result{Root: root, Current: map[string]model.ChangeKind{}}
+	result := Result{Root: root, Current: map[string]model.ChangeKind{}, base: base}
 	for len(statusOutput) != 0 {
 		status, rest, statusOK := bytes.Cut(statusOutput, []byte{0})
 		path, rest, pathOK := bytes.Cut(rest, []byte{0})
@@ -57,14 +54,7 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 			statusOutput = rest
 			result.Current[relative(string(destination))] = model.Modified
 		case 'D':
-			name := string(path)
-			content, showErr := runGit(root, "show", base+":"+name)
-			if showErr != nil {
-				return Result{}, fmt.Errorf("failed to load deleted source file %q: %w", name, showErr)
-			}
-			result.Deleted = append(result.Deleted, DeletedSource{
-				Path: absolute(root, name), Content: content,
-			})
+			result.Deleted = append(result.Deleted, string(path))
 		}
 	}
 	untracked, err := runGit(root, "ls-files", "-z", "--others", "--exclude-standard", "--", "*.java", "*.go")
@@ -122,12 +112,13 @@ func relative(path string) string {
 	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
 }
 
-func absolute(root, path string) string {
-	result, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(path)))
+// ReadDeleted loads the base blob for a path from Deleted.
+func (r Result) ReadDeleted(path string) ([]byte, error) {
+	content, err := runGit(r.Root, "show", r.base+":"+path)
 	if err != nil {
-		return filepath.Clean(filepath.Join(root, filepath.FromSlash(path)))
+		return nil, fmt.Errorf("failed to load deleted source file %q: %w", path, err)
 	}
-	return filepath.Clean(result)
+	return content, nil
 }
 
 func runGit(dir string, args ...string) ([]byte, error) {
