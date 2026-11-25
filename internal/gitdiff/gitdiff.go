@@ -26,8 +26,8 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("not inside a Git repository: %w", err)
 	}
-	root := strings.TrimSpace(string(rootOutput))
-	statusOutput, err := runGit(root, "diff", "--name-status", "--find-renames", rangeSpec, "--", "*.java", "*.go")
+	root := string(bytes.TrimSuffix(rootOutput, []byte{'\n'}))
+	statusOutput, err := runGit(root, "diff", "--name-status", "-z", "--find-renames", rangeSpec, "--", "*.java", "*.go")
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to inspect Git diff %q: %w", rangeSpec, err)
 	}
@@ -37,41 +37,43 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 	}
 
 	result := Result{Root: root, Current: map[string]model.ChangeKind{}}
-	for _, line := range strings.Split(strings.TrimSpace(string(statusOutput)), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
+	for len(statusOutput) != 0 {
+		status, rest, statusOK := bytes.Cut(statusOutput, []byte{0})
+		path, rest, pathOK := bytes.Cut(rest, []byte{0})
+		if !statusOK || !pathOK || len(status) == 0 || len(path) == 0 {
+			return Result{}, fmt.Errorf("invalid Git diff status for %q", rangeSpec)
 		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 2 {
-			continue
-		}
-		status := fields[0]
+		statusOutput = rest
 		switch status[0] {
 		case 'A':
-			result.Current[relative(fields[1])] = model.Added
+			result.Current[relative(string(path))] = model.Added
 		case 'M', 'T':
-			result.Current[relative(fields[1])] = model.Modified
+			result.Current[relative(string(path))] = model.Modified
 		case 'R', 'C':
-			if len(fields) >= 3 {
-				result.Current[relative(fields[2])] = model.Modified
+			destination, rest, ok := bytes.Cut(statusOutput, []byte{0})
+			if !ok || len(destination) == 0 {
+				return Result{}, fmt.Errorf("missing Git diff destination for %q", rangeSpec)
 			}
+			statusOutput = rest
+			result.Current[relative(string(destination))] = model.Modified
 		case 'D':
-			content, showErr := runGit(root, "show", base+":"+filepath.ToSlash(fields[1]))
+			name := string(path)
+			content, showErr := runGit(root, "show", base+":"+name)
 			if showErr != nil {
-				return Result{}, fmt.Errorf("failed to load deleted source file %s: %w", fields[1], showErr)
+				return Result{}, fmt.Errorf("failed to load deleted source file %q: %w", name, showErr)
 			}
 			result.Deleted = append(result.Deleted, DeletedSource{
-				Path: absolute(root, fields[1]), Content: content,
+				Path: absolute(root, name), Content: content,
 			})
 		}
 	}
-	untracked, err := runGit(root, "ls-files", "--others", "--exclude-standard", "--", "*.java", "*.go")
+	untracked, err := runGit(root, "ls-files", "-z", "--others", "--exclude-standard", "--", "*.java", "*.go")
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to inspect untracked source files: %w", err)
 	}
-	for _, path := range strings.Split(strings.TrimSpace(string(untracked)), "\n") {
-		if path != "" {
-			result.Current[relative(path)] = model.Added
+	for path := range bytes.SplitSeq(untracked, []byte{0}) {
+		if len(path) != 0 {
+			result.Current[relative(string(path))] = model.Added
 		}
 	}
 	if len(result.Current) == 0 && len(result.Deleted) == 0 {
