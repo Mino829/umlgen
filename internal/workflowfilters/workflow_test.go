@@ -21,8 +21,9 @@ import (
 
 // Exercise the shipped script, rather than a second implementation of its parser.
 type workflowHarness struct {
-	node   string
-	script string
+	node     string
+	script   string
+	language string
 }
 
 type workflowResult struct {
@@ -76,7 +77,7 @@ func loadWorkflow(t *testing.T) workflowHarness {
 	if script == "" {
 		t.Fatal("validation workflow has no inline parse script")
 	}
-	return workflowHarness{node: node, script: script}
+	return workflowHarness{node: node, script: script, language: "java"}
 }
 
 func (h workflowHarness) run(t *testing.T, event any, depth, direction, dir string) workflowResult {
@@ -115,14 +116,14 @@ func (h workflowHarness) run(t *testing.T, event any, depth, direction, dir stri
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		_, replaced := paths[key]
-		if !replaced && key != "INPUT_DEPTH" && key != "INPUT_DIRECTION" && key != "NODE_OPTIONS" {
+		if !replaced && key != "INPUT_DEPTH" && key != "INPUT_DIRECTION" && key != "INPUT_LANGUAGE" && key != "NODE_OPTIONS" {
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
 	for key, value := range paths {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
-	cmd.Env = append(cmd.Env, "INPUT_DEPTH="+depth, "INPUT_DIRECTION="+direction)
+	cmd.Env = append(cmd.Env, "INPUT_DEPTH="+depth, "INPUT_DIRECTION="+direction, "INPUT_LANGUAGE="+h.language)
 	log, runErr := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		t.Fatalf("workflow script did not finish: %v", ctx.Err())
@@ -292,6 +293,22 @@ func TestWorkflowFilterAcceptedSyntax(t *testing.T) {
 			requireSuccess(t, h.run(t, prEvent(tc.body), "27", "out", ""), tc.body, "pr-body", tc.depth, tc.direction, tc.include, tc.relations)
 		})
 	}
+}
+
+func TestWorkflowFilterGoImportPath(t *testing.T) {
+	h := loadWorkflow(t)
+	h.language = "go"
+	const include = "example.com/team/service-v2/internal/order"
+	body := fenced("--include " + include + " --depth 0")
+	requireSuccess(t, h.run(t, prEvent(body), "1", "both", ""), body, "pr-body", 0, "both", text(include), nil)
+
+	for _, value := range []string{"../private", "example.com//order", "example.com/order/*", "example.com/$HOME", "example.com/order,other"} {
+		t.Run(value, func(t *testing.T) {
+			requireFailure(t, h.run(t, prEvent(fenced("--include "+value)), "1", "both", ""))
+		})
+	}
+	h.language = "auto"
+	requireFailure(t, h.run(t, prEvent(""), "1", "both", ""))
 }
 
 func TestWorkflowFilterRejectedSyntax(t *testing.T) {

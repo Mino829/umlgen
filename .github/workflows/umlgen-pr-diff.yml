@@ -4,9 +4,14 @@ on:
   workflow_call:
     inputs:
       source:
-        description: Repository-relative Java source path
+        description: Repository-relative source path
         required: false
         default: .
+        type: string
+      language:
+        description: Source language (java or go)
+        required: false
+        default: java
         type: string
       depth:
         description: Relationship depth around changed types
@@ -47,8 +52,11 @@ on:
       artifact-url:
         description: URL of the uploaded diagram artifact
         value: ${{ jobs.generate.outputs.artifact-url }}
+      no-source-changes:
+        description: Whether the selected path had no changed source files for the chosen language
+        value: ${{ jobs.generate.outputs.no-source-changes }}
       no-java-changes:
-        description: Whether the selected source path had no changed Java files
+        description: Legacy alias for no-source-changes in Java mode; empty in Go mode
         value: ${{ jobs.generate.outputs.no-java-changes }}
 
 permissions:
@@ -65,6 +73,7 @@ jobs:
     with:
       depth: ${{ inputs.depth }}
       direction: ${{ inputs.direction }}
+      language: ${{ inputs.language }}
 
   generate:
     name: Generate PR class diagram
@@ -75,7 +84,8 @@ jobs:
       contents: read
     outputs:
       artifact-url: ${{ steps.artifact.outputs.artifact-url }}
-      no-java-changes: ${{ steps.diagram.outputs.no-java-changes }}
+      no-source-changes: ${{ steps.sources.outputs.no-source-changes }}
+      no-java-changes: ${{ steps.sources.outputs.no-java-changes }}
     steps:
       - name: Check out pull request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -116,6 +126,7 @@ jobs:
           HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
           COMPARISON_BASE_SHA: ${{ steps.revisions.outputs.comparison-base-sha }}
           SOURCE: ${{ inputs.source }}
+          LANGUAGE: ${{ inputs.language }}
           UMLGEN_VERSION: ${{ inputs.umlgen-version }}
         with:
           script: |
@@ -134,6 +145,7 @@ jobs:
               head_sha: process.env.HEAD_SHA,
               comparison_base_sha: process.env.COMPARISON_BASE_SHA,
               source_path: process.env.SOURCE,
+              language: process.env.LANGUAGE,
               umlgen_version: process.env.UMLGEN_VERSION,
               run_id: process.env.GITHUB_RUN_ID,
               run_attempt: process.env.GITHUB_RUN_ATTEMPT,
@@ -148,6 +160,42 @@ jobs:
           HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
         run: git checkout --detach "$HEAD_SHA"
 
+      - name: Detect changed and current source paths
+        id: sources
+        shell: bash
+        env:
+          COMPARISON_BASE_SHA: ${{ steps.revisions.outputs.comparison-base-sha }}
+          HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
+          SOURCE: ${{ inputs.source }}
+          LANGUAGE: ${{ inputs.language }}
+        run: |
+          set -euo pipefail
+          shopt -s nocasematch
+          candidates="$RUNNER_TEMP/umlgen-source-paths"
+          has_source() {
+            local path
+            while IFS= read -r -d '' path; do
+              if [[ "$LANGUAGE" == go && "$path" == *_test.go ]]; then
+                continue
+              fi
+              if [[ "$path" == *."$LANGUAGE" ]]; then
+                return 0
+              fi
+            done < "$candidates"
+            return 1
+          }
+          git --literal-pathspecs diff --no-renames --name-only -z \
+            "$COMPARISON_BASE_SHA" "$HEAD_SHA" -- "$SOURCE" > "$candidates"
+          no_changes=true
+          if has_source; then no_changes=false; fi
+          echo "no-source-changes=$no_changes" >> "$GITHUB_OUTPUT"
+          if [[ "$LANGUAGE" == java ]]; then
+            echo "no-java-changes=$no_changes" >> "$GITHUB_OUTPUT"
+          fi
+          git --literal-pathspecs ls-files -z -- "$SOURCE" > "$candidates"
+          head_has_source=false
+          if has_source; then head_has_source=true; fi
+          echo "head-has-source=$head_has_source" >> "$GITHUB_OUTPUT"
 
       - name: Download and verify umlgen
         shell: bash
@@ -191,10 +239,14 @@ jobs:
           BASE_SHA: ${{ steps.revisions.outputs.base-sha }}
           HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
           SOURCE: ${{ inputs.source }}
+          LANGUAGE: ${{ inputs.language }}
+          NO_SOURCE_CHANGES: ${{ steps.sources.outputs.no-source-changes }}
           REVIEW_ARGS_FILE: ${{ runner.temp }}/umlgen-review-args
         run: |
           set -euo pipefail
           OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
+          language_name=Java
+          if [[ "$LANGUAGE" == go ]]; then language_name=Go; fi
           UMLGEN_BIN="$RUNNER_TEMP/umlgen/umlgen-linux-amd64"
           mkdir -p "$OUTPUT_DIR"
           REVIEW_ARGS=()
@@ -211,52 +263,39 @@ jobs:
               > "$OUTPUT_DIR/change-diagram.puml"
             java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/change-diagram.puml"
           }
-          # Use grep -c to consume all input and avoid SIGPIPE under pipefail
-          java_change_count=$(git -c core.quotepath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$SOURCE" | grep -Eic '\.java$' || echo 0)
-          if [ "$java_change_count" -gt 0 ]; then
-            # An entirely deleted source directory must still be scannable so
-            # umlgen can render deleted types from Git history.
-              if [ ! -e "$SOURCE" ] &&
-                [ "$(git ls-tree -d "$BASE_SHA" -- "$SOURCE" | wc -l)" -gt 0 ]; then
-              mkdir -p "$SOURCE"
+          if [[ "$NO_SOURCE_CHANGES" == false ]]; then
+            # The released CLI scans the working-tree target before loading
+            # deleted types from Git. Give it an empty target if PR head removed it.
+            if [[ ! -e "$SOURCE" ]]; then
+              mkdir -p -- "$SOURCE"
             fi
-            if "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" "$SOURCE" \
+            if "$UMLGEN_BIN" diff "$BASE_SHA...$HEAD_SHA" \
               "${REVIEW_ARGS[@]}" \
-              --language java \
+              --language "$LANGUAGE" \
               --format svg \
               --renderer=jar \
               --output "$OUTPUT_DIR/change-diagram.puml" \
-              --quiet 2> "$OUTPUT_DIR/umlgen.stderr"; then
+              --quiet -- "$SOURCE" 2> "$OUTPUT_DIR/umlgen.stderr"; then
               cat "$OUTPUT_DIR/umlgen.stderr" >&2
-              echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
             else
               umlgen_exit=$?
               umlgen_stderr="$(cat "$OUTPUT_DIR/umlgen.stderr")"
-              # Handle recoverable errors:
-              # - exit 1 with "no Java files found": all files excluded
-              # - exit 1 with "did not contain types": no displayable types
-              if [ "$umlgen_exit" -eq 1 ]; then
-                if echo "$umlgen_stderr" | grep -q "no Java files found"; then
-                  emit_placeholder_diagram 'All Java files excluded in the selected path'
-                  echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
-                  echo "::notice::All Java files were excluded under $SOURCE."
-                elif [ "$umlgen_stderr" = 'Error: changed Java files did not contain types in the selected target' ]; then
-                  emit_placeholder_diagram 'No displayable changed Java types in the selected path'
-                  echo "no-java-changes=false" >> "$GITHUB_OUTPUT"
-                  echo "::notice::No displayable changed types were found under $SOURCE (umlgen exit 1)."
-                else
-                  cat "$OUTPUT_DIR/umlgen.stderr" >&2
-                  exit "$umlgen_exit"
-                fi
+              if [[ "$umlgen_exit" == 1 && "$umlgen_stderr" == *"no $language_name files found"* ]]; then
+                emit_placeholder_diagram "All $language_name files excluded in the selected path"
+                echo "::notice::All $language_name files were excluded in the selected path."
+              elif [[ "$umlgen_exit" == 1 && "$LANGUAGE" == java &&
+                "$umlgen_stderr" == 'Error: changed Java files did not contain types in the selected target' ]]; then
+                # Older Java-only releases did not generate their own placeholder.
+                emit_placeholder_diagram 'No displayable changed Java types in the selected path'
+                echo "::notice::No displayable changed Java types were found."
               else
                 cat "$OUTPUT_DIR/umlgen.stderr" >&2
                 exit "$umlgen_exit"
               fi
             fi
           else
-            emit_placeholder_diagram 'No Java source changes in the selected path'
-            echo "no-java-changes=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::No changed Java files were found under $SOURCE."
+            emit_placeholder_diagram "No $language_name source changes in the selected path"
+            echo "::notice::No changed $language_name files were found in the selected path."
           fi
 
       - name: Generate full diagram at PR head
@@ -264,33 +303,29 @@ jobs:
         shell: bash
         env:
           SOURCE: ${{ inputs.source }}
+          LANGUAGE: ${{ inputs.language }}
+          HEAD_HAS_SOURCE: ${{ steps.sources.outputs.head-has-source }}
         run: |
           set -euo pipefail
           OUTPUT_DIR="$RUNNER_TEMP/umlgen-pr-diff"
-          # Use grep -c to consume all input and avoid SIGPIPE under pipefail
-          java_file_count=$(git -c core.quotepath=false ls-files -- "$SOURCE" | grep -Eic '\.java$' || echo 0)
-          if [ "$java_file_count" -gt 0 ]; then
-            # umlgen may fail in two recoverable cases:
-            # 1. All files excluded by .umlgen.yaml or --exclude (exit 1, "no Java files found")
-            # 2. Only type-less files like package-info.java (exit 5, empty diagram)
-            # Other errors (parse failures, config errors) should fail the workflow.
-            if "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class "$SOURCE" \
-              --language java \
+          language_name=Java
+          if [[ "$LANGUAGE" == go ]]; then language_name=Go; fi
+          if [[ "$HEAD_HAS_SOURCE" == true ]]; then
+            if "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" class \
+              --language "$LANGUAGE" \
               --format svg \
               --renderer=jar \
               --output "$OUTPUT_DIR/full-diagram.puml" \
-              --quiet 2> "$OUTPUT_DIR/umlgen-full.stderr"; then
+              --quiet -- "$SOURCE" 2> "$OUTPUT_DIR/umlgen-full.stderr"; then
               cat "$OUTPUT_DIR/umlgen-full.stderr" >&2
             else
               umlgen_exit=$?
               umlgen_stderr="$(cat "$OUTPUT_DIR/umlgen-full.stderr")"
-              # Check if this is a recoverable error (no files or no displayable types)
-              if [ "$umlgen_exit" -eq 1 ] && echo "$umlgen_stderr" | grep -q "no Java files found"; then
-                # All files were excluded
-                placeholder_msg="All Java files excluded under $SOURCE at PR head"
-              elif [ "$umlgen_exit" -eq 5 ]; then
-                # No displayable types (e.g., only package-info.java)
-                placeholder_msg="No displayable Java types in the selected path at PR head"
+              if [[ "$umlgen_exit" == 1 && "$umlgen_stderr" == *"no $language_name files found"* ]]; then
+                placeholder_msg="All $language_name files excluded in the selected path at PR head"
+              elif [[ "$umlgen_exit" == 5 && -s "$OUTPUT_DIR/full-diagram.puml" ]] &&
+                ! grep -Eq '^ *[a-z ]+ ".*" as T_' "$OUTPUT_DIR/full-diagram.puml"; then
+                placeholder_msg="No displayable $language_name types in the selected path at PR head"
               else
                 # Unrecoverable error - propagate it
                 cat "$OUTPUT_DIR/umlgen-full.stderr" >&2
@@ -309,11 +344,11 @@ jobs:
             printf '%s\n' \
               '@startuml' \
               'title Pull request head class diagram' \
-              'note "No Java source files in the selected path at PR head" as NoSources' \
+              "note \"No $language_name source files in the selected path at PR head\" as NoSources" \
               '@enduml' \
               > "$OUTPUT_DIR/full-diagram.puml"
             java -jar "$PLANTUML_JAR" -tsvg "$OUTPUT_DIR/full-diagram.puml"
-            echo "::notice::No Java source files were found under $SOURCE at PR head."
+            echo "::notice::No $language_name source files were found in the selected path at PR head."
           fi
 
 
@@ -323,7 +358,8 @@ jobs:
         env:
           DIFF_OUTCOME: ${{ steps.diagram.outcome }}
           FULL_OUTCOME: ${{ steps.full.outcome }}
-          NO_JAVA_CHANGES: ${{ steps.diagram.outputs.no-java-changes }}
+          NO_SOURCE_CHANGES: ${{ steps.sources.outputs.no-source-changes }}
+          NO_JAVA_CHANGES: ${{ steps.sources.outputs.no-java-changes }}
         with:
           script: |
             const fs = require('node:fs');
@@ -333,6 +369,8 @@ jobs:
             const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
             receipt.status = process.env.DIFF_OUTCOME === 'success' &&
               process.env.FULL_OUTCOME === 'success' ? 'generated' : 'failed';
+            receipt.no_source_changes = process.env.NO_SOURCE_CHANGES === 'true' ? true :
+              process.env.NO_SOURCE_CHANGES === 'false' ? false : null;
             receipt.no_java_changes = process.env.NO_JAVA_CHANGES === 'true' ? true :
               process.env.NO_JAVA_CHANGES === 'false' ? false : null;
             if (receipt.status === 'generated') {
@@ -351,7 +389,8 @@ jobs:
             const rows = [
               ['Result', receipt.status],
               ['Filter source', receipt.source],
-              ['No changed Java files', receipt.no_java_changes ?? 'unknown'],
+              ['Language', receipt.language],
+              ['No changed source files', receipt.no_source_changes ?? 'unknown'],
               ['Base commit', receipt.base_sha],
               ['Comparison merge-base', receipt.comparison_base_sha],
               ['Head commit', receipt.head_sha],
