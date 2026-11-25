@@ -654,7 +654,7 @@ umlgen watch class ./src --interval 1s --debounce 300ms --verbose
 - **完全成功した世代だけ公開**します。部分的なparse／読取失敗、設定エラー、画像失敗では、前回成功した`.puml`と画像を両方保持します。入力の修正で再開し、生成中に設定が壊れて同じ内容へ戻った場合も未公開世代を取りこぼしません。単発class／packageの部分図仕様は変更しません。未解決参照等の通常診断を解析成功と混同せず、図の限界は従来の説明に残します。
 - 出力parent内の専用`.umlgen-watch-*` directoryで生成し、入力の再確認後に公開します。生成物・stage・非source拡張子のeditor一時ファイルは観測対象から外します。source／設定／moduleへの出力衝突は、未作成fileやparentのsymlink aliasも検査して拒否します。最終出力fileそのものがsymlink・directory等の場合も受理しません。
 - 各fileの置換はatomicで、複数fileの途中失敗・キャンセルでは既に置換したfileを戻します。**同時readerに対する複数file一括のOS transactionではありません。** 新規fileはstageのumaskを、既存fileは現在のpermissionを維持します。
-- Windowsで閲覧中のファイルの置換がアクセス拒否になった場合は短時間だけ再試行します。開いたままで置換できなければ前回の図を保持し、失敗をstderrに記録します。
+- Windowsの内容監視用読み取りは、読み取り中の入力の削除を妨げません。閲覧中の出力の置換がアクセス拒否になった場合は短時間だけ再試行し、置換できなければ失敗をstderrに記録します。
 - `--quiet`は通常の更新通知を抑え、失敗はstderrへ残します。`--explain`・`--verbose`・`--no-cache`も通常どおり利用できます。watchの時間設定はCLI専用で、新しいYAML namespaceは追加しません。
 
 変更がない回も、選択sourceの内容と関連metadataを読みます。大きなrepositoryでは対象／exclude／間隔を調整してください。Javaの構文解析はJDK不要ですが、画像はrenderer要件に従います。sequence／activity／state／component／deployment、Git diff、ブラウザ自動更新、任意commandの監視は対象外です。

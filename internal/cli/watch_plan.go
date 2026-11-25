@@ -553,7 +553,7 @@ func watchSnapshotFile(snapshot watch.Snapshot, path string, optional bool) erro
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("watch input is not a regular file: %s", path)
 	}
-	data, err := os.ReadFile(path)
+	data, err := readWatchInput(path, info.Size())
 	if err != nil {
 		if optional && os.IsNotExist(err) {
 			snapshot[path] = [32]byte{}
