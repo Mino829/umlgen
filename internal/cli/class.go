@@ -53,18 +53,24 @@ func runClassMode(
 	if o.watchTargets != nil {
 		targets = o.watchTargets
 	}
+	liveTargets := targets
 	var changedPaths []string
 	if diffSelection != nil {
-		for path := range diffSelection.Current {
-			changedPaths = append(changedPaths, path)
+		var deleted []string
+		liveTargets, changedPaths, deleted, err = scopeClassDiff(*diffSelection, targets, cfg.Exclude)
+		if err != nil {
+			return exitError, err
 		}
-		for _, deleted := range diffSelection.Deleted {
-			changedPaths = append(changedPaths, deleted.Path)
-		}
+		scoped := *diffSelection
+		scoped.Deleted = deleted
+		diffSelection = &scoped
 	}
-	sourceParser, err := language.Select(cfg.Language, targets, cfg.Exclude, changedPaths)
+	sourceParser, err := language.Select(cfg.Language, liveTargets, cfg.Exclude, changedPaths)
 	if err != nil {
 		return exitArgs, err
+	}
+	if diffSelection != nil {
+		diffSelection.Deleted = matchingFiles(diffSelection.Deleted, sourceParser.MatchesPath)
 	}
 	if o.verbose {
 		if loadedPath != "" {
@@ -84,7 +90,7 @@ func runClassMode(
 		}
 		explanation.Sources = make(map[string]explain.Source)
 	}
-	files, err := scanSourceFiles(targets, cfg.Exclude, sourceParser)
+	files, err := scanSourceFiles(liveTargets, cfg.Exclude, sourceParser)
 	if err != nil {
 		if o.explain {
 			explanation.Failures = append(explanation.Failures, explain.Failure{
