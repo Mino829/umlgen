@@ -33,16 +33,17 @@ $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTemp
 $work = Join-Path $tempRoot "umlgen-scoop-$([Guid]::NewGuid().ToString('N'))"
 $tapRepo = Join-Path $work 'bucket-repo'
 $previousPlantUMLJar = $env:PLANTUML_JAR
+$baseline = '0.7.0'
 try {
-    python "$root/scripts/update-package-managers.py" --version v0.6.0 --output-dir $tapRepo
+    python "$root/scripts/update-package-managers.py" --version $baseline --output-dir $tapRepo
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate the published baseline.' }
     Invoke-Git -C $tapRepo init --quiet
     Invoke-Git -C $tapRepo add bucket/umlgen.json
-    Invoke-Git -C $tapRepo -c user.name=PackageSmoke -c user.email=smoke@example.invalid -c commit.gpgsign=false commit --quiet -m 'Published v0.6.0 baseline'
+    Invoke-Git -C $tapRepo -c user.name=PackageSmoke -c user.email=smoke@example.invalid -c commit.gpgsign=false commit --quiet -m "Published v$baseline baseline"
     # Scoop validates Git URLs; a Windows drive path is not accepted as a bucket URL.
     Invoke-Scoop bucket add umlgen ([Uri]$tapRepo).AbsoluteUri
     Invoke-Scoop install umlgen/umlgen
-    Test-Package '0.6.0' 'baseline'
+    Test-Package $baseline 'baseline'
 
     Copy-Item "$root/bucket/umlgen.json" "$tapRepo/bucket/umlgen.json" -Force
     Invoke-Git -C $tapRepo add bucket/umlgen.json
@@ -55,8 +56,8 @@ try {
     Invoke-Scoop update
     Invoke-Scoop update umlgen
     $version = (Get-Content "$root/bucket/umlgen.json" -Raw | ConvertFrom-Json).version
-    if ($version -eq '0.6.0') {
-        # No newer release on initial adoption; exercise same-version replacement too.
+    if ($version -eq $baseline) {
+        # Exercise replacement even when the tested definition is the baseline.
         Invoke-Scoop update umlgen --force
     }
     Test-Package $version 'current'

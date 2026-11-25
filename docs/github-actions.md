@@ -51,7 +51,7 @@ review-scope.json
 | `language` | `java` | `java`または`go`。自動判定しない |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
-| `umlgen-version` | `v0.7.0` | ダウンロードするumlgenのリリースタグ（mainのworkflowの既定値。古いworkflow refでは明示指定） |
+| `umlgen-version` | `v0.7.1` | ダウンロードするumlgenのリリースタグ（mainのworkflowの既定値。古いworkflow refでは明示指定） |
 | `artifact-name` | `umlgen-pr-diff` | artifact名 |
 | `retention-days` | `14` | artifact保持日数 |
 | `base-sha` | Pull Requestのbase | base commitの上書き |
@@ -135,7 +135,7 @@ GitHubの設定によっては、初回Fork Pull Requestのworkflow実行にメ�
 
 ### 変更ファイルに型が含まれていない場合
 
-`package-info.java`など型を含まないファイルだけが変わった場合、v0.7.0のCLIはプレースホルダを生成します。この場合もJavaの変更はあるため、`no-java-changes`は`false`です。v0.4.0の旧エラーに対するワークフロー側のフォールバックも維持します。
+`package-info.java`など型を含まないファイルだけが変わった場合、既定のCLIはプレースホルダを生成します。この場合もJavaの変更はあるため、`no-java-changes`は`false`です。v0.4.0の旧エラーに対するワークフロー側のフォールバックも維持します。
 
 ### 再利用ワークフローを呼び出せない
 
