@@ -17,15 +17,14 @@ import (
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
-const developmentVersion = "0.7.0-dev"
-
 // Version can be stamped by the native release build with -ldflags -X.
-var Version = developmentVersion
+var Version string
 
 func init() {
-	if Version != developmentVersion {
+	if Version != "" {
 		return
 	}
+	Version = "0.7.0-dev"
 	info, ok := debug.ReadBuildInfo()
 	if ok && info.Main.Path == "github.com/Mino829/umlgen" && info.Main.Version != "" && info.Main.Version != "(devel)" {
 		Version = strings.TrimPrefix(info.Main.Version, "v")
