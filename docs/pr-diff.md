@@ -45,7 +45,7 @@ full-diagram.svg
 review-scope.json
 ```
 
-全体図は PR の head commit の Java ソースから生成されます。削除された型や差分の変更色は含まれません。Java ファイルの変更がない PR でも生成されます。
+全体図はPR headの選択言語のソースから生成します。削除型や変更色は含まず、選択言語の変更がないPRでも生成します。既定はJava、Goの場合は`with`に`language: go`を指定します。
 
 対応workflowではPR本文の`umlgen` blockから、差分図の`--include`／`--relations`／`--depth`／`--direction`を指定できます。全体図には適用しません。構文・上限・安全境界・本文編集時の再生成と結果の読み方は[PR本文フィルタ](github-actions.md#pr本文でレビュー範囲を指定する)を参照してください。
 
@@ -259,11 +259,11 @@ note "No displayable changed types in the selected range" as NoChanges
 @enduml
 ```
 
-変更されたファイルを解析できず、表示可能な変更型がない場合は終了コード`3`になります。`--exclude` の結果として対象ファイルが0件になる場合は、その手前で`no Java files found`エラー（終了コード`1`）になります。`diff`対象に`.java` / `.go`ファイルがそもそも存在しない場合も同様です。GitHub ActionsワークフローはJavaファイルの変更がないケースを事前に検知し、別のプレースホルダ図を生成します。
+変更ファイルを解析できず表示可能な変更型がない場合、終了コードは`3`です。除外等で対象ソースが0件なら`no Java files found`（Goは`no Go files found`、終了コード`1`）になります。GitHub Actionsワークフローは選択言語の変更がないことを事前に検知し、別のプレースホルダ図を生成します。
 
-### 再利用ワークフローは Java 変更を検知
+### 再利用ワークフローで対象言語を選ぶ
 
-`.github/workflows/umlgen-pr-diff.yml` は `.java` ファイルの変更を検知します。Go プロジェクトでは「Java 変更なし」として処理されるため、Go プロジェクトで利用する場合はローカル CLI を使うか、独自のワークフローで `umlgen diff` を呼び出してください。
+既定はJavaです。`language: go`の場合は`_test.go`を除くGoソースを検知します。両言語を可視化する場合は異なる`artifact-name`で別々に呼び出します。[ワークフロー入力](github-actions.md#入力)を参照してください。
 
 ### クラス図本体の限界が継承される
 
