@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/Mino829/umlgen/internal/config"
@@ -16,7 +17,19 @@ import (
 	"github.com/Mino829/umlgen/internal/relations"
 )
 
-var Version = "0.7.0-dev"
+// Version can be stamped by the native release build with -ldflags -X.
+var Version string
+
+func init() {
+	if Version != "" {
+		return
+	}
+	Version = "0.7.0-dev"
+	info, ok := debug.ReadBuildInfo()
+	if ok && info.Main.Path == "github.com/Mino829/umlgen" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		Version = strings.TrimPrefix(info.Main.Version, "v")
+	}
+}
 
 const (
 	exitOK     = 0
