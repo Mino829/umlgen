@@ -4,7 +4,7 @@
 
 umlgenは、JavaとGoのソースコードや対応する配置manifestを解析して、編集可能なPlantUMLを生成します。解析はローカルで行います。明示的にserverレンダラーを選んだ場合のみ、生成済みPlantUMLを外部送信します。配置図は環境変数・Secret／ConfigMapの値を取り込みません。
 
-`package`・package差分・`sequence`・`activity`・`state`・`component`・`deployment`・`watch`は**公開安定版[v0.6.0](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)に含まれます**。通常のインストーラーは最新の公開安定版を取得します。変更範囲と統合記録は[次にやること](docs/next-steps.md#v060公開安定版)を参照してください。
+最新安定版は[v0.7.0](https://github.com/Mino829/umlgen/releases/tag/v0.7.0)です。GoのPR差分図、特殊文字を含むGitパスの差分、Windowsのwatch更新を改善しました。[変更点](docs/next-steps.md#v070公開安定版)を参照してください。
 
 ```bash
 # Javaプロジェクトのクラス図を生成
@@ -219,7 +219,7 @@ chmod +x umlgen
 mv umlgen ~/.local/bin/
 ```
 
-### v0.6.0の動作環境
+### v0.7.0の動作環境
 
 | 用途 | 要件 |
 | --- | --- |
@@ -231,7 +231,7 @@ mv umlgen ~/.local/bin/
 | SVG／PNG | ローカルPlantUML。server方式は明示選択時だけ送信。PlantUMLのJava要件は意味解析用JDKとは別 |
 | Git差分 | GitをPATHに設定 |
 
-公開版は[v0.6.0 Release](https://github.com/Mino829/umlgen/releases/tag/v0.6.0)から取得し、チェックサムを検証してください。今後の公開前候補を試す場合だけ、PRのCI artifact `release-assets`を利用します。公開版と候補artifactは区別してください。オフライン候補インストールは[macOS](docs/macos-setup.md#公開前の候補版を試す)／[Windows](docs/windows-setup.md#公開前の候補版を試す)を参照してください。
+公開版は[v0.7.0 Release](https://github.com/Mino829/umlgen/releases/tag/v0.7.0)から取得し、チェックサムを検証してください。公開前の候補を試す場合だけ、PRのCI artifact `release-assets`を利用します。[macOS](docs/macos-setup.md#公開前の候補版を試す)／[Windows](docs/windows-setup.md#公開前の候補版を試す)を参照してください。
 
 ## 基本的な使い方
 

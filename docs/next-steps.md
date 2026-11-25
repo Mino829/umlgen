@@ -1,15 +1,17 @@
 # 次にやること
 
-更新日: 2026-11-11
+更新日: 2026-11-25
 
-## 次期v0.7.0の作業
+## v0.7.0公開安定版
 
-公開安定版は引き続きv0.6.0。GitHubの[Milestone v0.7.0](https://github.com/Mino829/umlgen/milestone/1)に#15と#82を登録し、[ロードマップ #16](https://github.com/Mino829/umlgen/issues/16)を実際の公開状況に合わせて整理した。#13は完了済み、#14もmain統合とv0.6.0への収録を確認して完了に更新した。
+[v0.7.0 Release](https://github.com/Mino829/umlgen/releases/tag/v0.7.0)、公開ソース `ae288623f6d89e448e6fd5aba282b1f6e9b60706`。Linux amd64、macOS arm64／amd64、Windows amd64の配布物は、[タグのRelease workflow](https://github.com/Mino829/umlgen/actions/runs/45621803517)でネイティブのテスト・導入検証・SHA-256照合を経て公開した。
 
-- **#15：Homebrew／Scoop** — 同一リポジトリのtap／bucket、公開済みv0.6.0のnative assetを参照する定義、SHA-256と公開Releaseの検証付きupdater、native導入CI、手順書を実装した。更新workflowは明示dispatchでpatch artifactを生成し、権限が許す場合だけ更新PRを作る。未公開版へ先取りしない。
-- **#82：既存IRの責務整理 — [PR #89](https://github.com/Mino829/umlgen/pull/89)** — mainへ統合済み・未リリース。共通宣言・関係解析と図別モデルを再利用し、classのfocus・説明・PlantUML生成が一度の関係解析を共有するように移行した。汎用Node／Edgeや公開JSON APIは追加しない。IDの限界、根拠・診断・表示投影の契約は`docs/architecture.md`に記録した。
+- **#15：Homebrew／Scoop** — 同一リポジトリのtap／bucket、公開アーカイブのSHA-256を検証するupdater、ネイティブ導入・更新検証。
+- **#82：既存IRの責務整理** — classのfocus・説明・PlantUML生成で同じ関係解析を再利用。共通宣言と図別モデルの境界は[アーキテクチャ](architecture.md)を参照。
+- **#100：GoのPR差分図** — 再利用workflowで`language: go`を選び、差分・headの全体図・レビュー範囲をActions artifactに保存。既定はJava。
+- **#99：クラス差分とWindows watch** — 特殊文字を含むGitパスを正しく復元し、watchの入出力ファイルの共有競合を修正。
 
-Homebrew／ScoopはPR #91でレビューする。本作業では#89・#90を含むmainをPR #91へ取り込むが、PR #91自体のmainへのマージ、タグ作成、GitHub Releaseの公開は行わない。開発版は`0.7.0-dev`、候補配布CIは`0.7.0-rc.1`とし、通常installer・配布済みCLI・package manager定義は実際の公開安定版を使う。
+### 公開前の実装・検証記録
 
 2026-11-11のローカル確認：updaterの不正入力・hash不一致時の旧定義保持など6回帰、公開v0.6.0のasset／checksum照合、実Homebrewの導入・版表示・class生成・同版再導入・削除、actionlintが成功した。初期定義は既に最新の0.6.0なので、新版へのupgradeを実行したとは主張しない。Windows ScoopとmacOS amd64は追加CIで確認する。
 

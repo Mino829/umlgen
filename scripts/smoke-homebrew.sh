@@ -50,7 +50,8 @@ if [ "$version" = 0.6.0 ]; then
 fi
 python3 "$root/scripts/smoke-package-manager.py" --binary "$binary" --version "$version" --work-dir "$work/current"
 brew test "$formula"
-brew uninstall "$formula"
+# Auto-cleanup is disabled above, so the upgrade leaves the baseline keg too.
+brew uninstall --force "$formula"
 test ! -e "$binary"
 brew untap mino829/umlgen
 trap - EXIT
