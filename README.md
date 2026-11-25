@@ -208,6 +208,8 @@ Go 1.25は[2025年8月公開のリリース版](https://go.dev/doc/go1.25)です
 go install github.com/Mino829/umlgen/cmd/umlgen@latest
 ```
 
+`umlgen version` は `go install` に指定したタグまたはGoの疑似バージョンを表示します。ただし、既に公開済みのv0.7.0を `go install` した場合は `0.7.0-dev` と表示されます。v0.7.0の配布アーカイブは `0.7.0` と表示します。
+
 ### GitHub Releases
 
 [Releases](https://github.com/Mino829/umlgen/releases)からOSに合ったファイルをダウンロードし、展開した`umlgen`をPATHが通った場所へ配置します。
