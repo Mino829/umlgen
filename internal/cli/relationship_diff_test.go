@@ -99,6 +99,99 @@ func TestRelationshipDiffDoesNotAssertUncertainRemovals(t *testing.T) {
 	}
 }
 
+func TestRelationshipDiffExplainsUncertainty(t *testing.T) {
+	for _, language := range []string{"java", "go"} {
+		t.Run(language, func(t *testing.T) {
+			root := packageDiffRepo(t, language)
+			write := func(path, source string) {
+				t.Helper()
+				packageCLIWrite(t, filepath.Join(root, path), source)
+			}
+			var pkg, path, beforeBroken, afterBroken, broken string
+			var beforeSource, afterSource string
+			if language == "java" {
+				pkg, path = "review", "review/Owner.java"
+				beforeBroken, afterBroken = "broken/Before.java", "broken/After.java"
+				broken = "package broken; class Broken {\n"
+				write("review/Targets.java", "package review; class Target {} class Other { UnknownOwner field; }\n")
+				write("outside/Hidden.java", "package outside; public class Hidden {}\n")
+				beforeSource = "package review;\nimport outside.Hidden;\nclass Owner {\n    Target first;\n    UnknownBefore missing;\n    Hidden external;\n    void wrongKind(UnknownKind value) {}\n}\nclass Certain { Target first; }\n"
+				afterSource = strings.NewReplacer("Target first", "Target second", "    UnknownBefore", "\n    UnknownAfter").Replace(beforeSource)
+			} else {
+				pkg, path = "example.test/diff/review", "review/owner.go"
+				beforeBroken, afterBroken = "broken/before.go", "broken/after.go"
+				broken = "package broken\ntype Broken struct {\n"
+				write("review/targets.go", "package review\ntype Target struct{}\ntype Other struct { Field UnknownOwner }\n")
+				write("outside/hidden.go", "package outside\ntype Hidden struct{}\n")
+				beforeSource = "package review\nimport \"example.test/diff/outside\"\ntype Owner struct {\n    First Target\n    Missing UnknownBefore\n    External outside.Hidden\n}\nfunc (Owner) wrongKind(value UnknownKind) {}\ntype Certain struct { First Target }\n"
+				afterSource = strings.NewReplacer("First Target", "Second Target", "    Missing UnknownBefore", "\n    Missing UnknownAfter").Replace(beforeSource)
+			}
+			write(path, beforeSource)
+			write(beforeBroken, broken)
+			base := packageDiffCommit(t, root, "before")
+			runGit(t, root, "rm", beforeBroken)
+			write(path, afterSource)
+			write(afterBroken, broken)
+			head := packageDiffCommit(t, root, "after")
+
+			args := []string{"diff", base + ".." + head, "--report", "relationships", "--language", language, "--relations", "field,parameter"}
+			run := func(wantCode int, flags ...string) string {
+				t.Helper()
+				code, err, report, stderr := runRelationshipCLI(append(args, flags...)...)
+				if code != wantCode || (err != nil) != (wantCode != exitOK) {
+					t.Fatalf("exit=%d error=%v, want exit=%d\n%s\n%s", code, err, wantCode, report, stderr)
+				}
+				return report
+			}
+			explained := run(exitOK, "--include", pkg, "--exclude", "broken", "--explain")
+			plain := run(exitOK, "--include", pkg, "--exclude", "broken")
+			ownerEdge := "uncertain " + pkg + ".Owner -> " + pkg + ".Target [field] (evidence: 1 -> 1)"
+			certainEdge := "evidence-changed " + pkg + ".Certain -> " + pkg + ".Target [field] (evidence: 1 -> 1)"
+			for _, want := range []string{ownerEdge, certainEdge} {
+				if !strings.Contains(explained, want) || !strings.Contains(plain, want) {
+					t.Errorf("missing %q:\n%s\n%s", want, explained, plain)
+				}
+			}
+			_, ownerSection, _ := strings.Cut(explained, ownerEdge)
+			for _, want := range []string{
+				`before unresolved reference "UnknownBefore" at "` + path + `":5`,
+				`after unresolved reference "UnknownAfter" at "` + path + `":6`,
+			} {
+				if strings.Count(explained, want) != 1 || !strings.Contains(ownerSection, want) {
+					t.Errorf("expected %q only under the Owner edge:\n%s", want, explained)
+				}
+			}
+			if strings.Count(explained, " unresolved reference ") != 2 || strings.Contains(explained, root) {
+				t.Errorf("unrelated diagnostics or absolute paths leaked:\n%s", explained)
+			}
+			if strings.Contains(plain, " unresolved reference ") || strings.Contains(plain, path) || strings.Contains(plain, " | ") {
+				t.Errorf("plain report exposed explanation details:\n%s", plain)
+			}
+
+			partial := run(exitParse, "--include", pkg, "--explain")
+			failures := []string{`before failed to parse "` + beforeBroken + `"`, `after failed to parse "` + afterBroken + `"`}
+			header, _, _ := strings.Cut(partial, "uncertain "+pkg+".Certain")
+			if header == partial || !strings.Contains(header, "Parse failures affecting the entire comparison:") {
+				t.Errorf("missing global uncertainty for the otherwise certain edge:\n%s", partial)
+			}
+			for _, want := range failures {
+				if strings.Count(partial, want) != 1 || !strings.Contains(header, want) {
+					t.Errorf("expected %q once, above the edges:\n%s", want, partial)
+				}
+			}
+			if got := run(exitParse, "--include", pkg); strings.Contains(got, beforeBroken) || strings.Contains(got, afterBroken) {
+				t.Errorf("plain report exposed failure paths:\n%s", got)
+			}
+			unusable := run(exitParse, "broken", "--explain")
+			for _, want := range append(failures, "No comparison:") {
+				if !strings.Contains(unusable, want) {
+					t.Errorf("missing %q for all-failed comparison:\n%s", want, unusable)
+				}
+			}
+		})
+	}
+}
+
 func runRelationshipCLI(args ...string) (int, error, string, string) {
 	var stdout, stderr bytes.Buffer
 	code, err := Run(args, &stdout, &stderr)

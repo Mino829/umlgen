@@ -114,14 +114,15 @@ type relationshipProof struct {
 
 type relationshipSide struct {
 	edges      map[relationshipEdge][]relationshipProof
-	unresolved map[relationshipOwner]bool
+	unresolved map[relationshipOwner][]relations.ReferenceDiagnostic // key presence affects confidence; values are kept only for --explain
 	sources    map[string][]byte
 	parsed     int
 	failed     int
+	failures   []string
 }
 
 func relationshipSnapshot(snapshot gitsnapshot.Snapshot, analysis *sourceAnalysis, include string, excludes []string, enabled map[relations.Kind]bool, details bool, stderr io.Writer) (relationshipSide, error) {
-	result := relationshipSide{edges: make(map[relationshipEdge][]relationshipProof), unresolved: make(map[relationshipOwner]bool)}
+	result := relationshipSide{edges: make(map[relationshipEdge][]relationshipProof), unresolved: make(map[relationshipOwner][]relations.ReferenceDiagnostic)}
 	if details {
 		result.sources = make(map[string][]byte)
 	}
@@ -135,6 +136,9 @@ func relationshipSnapshot(snapshot gitsnapshot.Snapshot, analysis *sourceAnalysi
 		parsed := analysis.parseSnapshotSource(file.Path, file.Content)
 		if parsed.Err != nil {
 			result.failed++
+			if details {
+				result.failures = append(result.failures, file.Path)
+			}
 			fmt.Fprintf(stderr, "Warning: failed to parse %q (Git %s): %v\n", file.Path, snapshot.Revision, parsed.Err)
 			continue
 		}
@@ -178,7 +182,12 @@ func relationshipSnapshot(snapshot gitsnapshot.Snapshot, analysis *sourceAnalysi
 	}
 	for _, ref := range graph.Diagnostics {
 		if enabled[ref.Kind] && ref.Status == relations.StatusUnresolved {
-			result.unresolved[relationshipOwner{ref.From, ref.Kind}] = true
+			owner := relationshipOwner{ref.From, ref.Kind}
+			if details {
+				result.unresolved[owner] = append(result.unresolved[owner], ref)
+			} else {
+				result.unresolved[owner] = nil
+			}
 		}
 	}
 	return result, nil
@@ -215,6 +224,11 @@ func writeRelationshipDiff(out io.Writer, pair gitsnapshot.Pair, language string
 	incomplete := before.failed+after.failed > 0
 	if incomplete {
 		fmt.Fprintln(&report, "Incomplete analysis: candidate changes are uncertain.")
+		if details {
+			fmt.Fprintln(&report, "  Parse failures affecting the entire comparison:")
+			writeRelationshipFailures(&report, "before", pair.Root, before.failures)
+			writeRelationshipFailures(&report, "after", pair.Root, after.failures)
+		}
 	}
 	if len(before.unresolved)+len(after.unresolved) > 0 {
 		fmt.Fprintln(&report, "Unresolved references: changes from affected types of the same relationship kind are uncertain.")
@@ -253,7 +267,9 @@ func writeRelationshipDiff(out io.Writer, pair gitsnapshot.Pair, language string
 				status = "removed"
 			}
 			owner := relationshipOwner{key.from, key.kind}
-			if incomplete || before.unresolved[owner] || after.unresolved[owner] {
+			beforeRefs, beforeUnresolved := before.unresolved[owner]
+			afterRefs, afterUnresolved := after.unresolved[owner]
+			if incomplete || beforeUnresolved || afterUnresolved {
 				status = "uncertain"
 			}
 			changed = true
@@ -261,6 +277,8 @@ func writeRelationshipDiff(out io.Writer, pair gitsnapshot.Pair, language string
 			if details {
 				writeRelationshipProofs(&report, "before", pair.Root, old, before.sources)
 				writeRelationshipProofs(&report, "after", pair.Root, current, after.sources)
+				writeRelationshipUnresolved(&report, "before", pair.Root, beforeRefs)
+				writeRelationshipUnresolved(&report, "after", pair.Root, afterRefs)
 			}
 		}
 		if !changed {
@@ -271,14 +289,32 @@ func writeRelationshipDiff(out io.Writer, pair gitsnapshot.Pair, language string
 	return err
 }
 
+func writeRelationshipFailures(out *strings.Builder, side, root string, failures []string) {
+	for _, file := range failures {
+		fmt.Fprintf(out, "    %s failed to parse %q\n", side, relationshipReportPath(root, file))
+	}
+}
+
+func writeRelationshipUnresolved(out *strings.Builder, side, root string, refs []relations.ReferenceDiagnostic) {
+	for _, ref := range refs {
+		evidence := ref.Evidence
+		fmt.Fprintf(out, "  %s unresolved reference %q at %q:%d member=%q\n", side, ref.Reference,
+			relationshipReportPath(root, evidence.Source), evidence.Line, evidence.Member)
+	}
+}
+
+func relationshipReportPath(root, source string) string {
+	path, err := filepath.Rel(root, source)
+	if err != nil {
+		path = source
+	}
+	return filepath.ToSlash(path)
+}
+
 func writeRelationshipProofs(out *strings.Builder, side, root string, proofs []relationshipProof, sources map[string][]byte) {
 	for _, proof := range proofs {
 		evidence := proof.evidence
-		path, err := filepath.Rel(root, evidence.Source)
-		if err != nil {
-			path = evidence.Source
-		}
-		fmt.Fprintf(out, "  %s %q:%d member=%q type=%q inferred=%t\n", side, filepath.ToSlash(path), evidence.Line, evidence.Member, evidence.Type, evidence.Inferred)
+		fmt.Fprintf(out, "  %s %q:%d member=%q type=%q inferred=%t\n", side, relationshipReportPath(root, evidence.Source), evidence.Line, evidence.Member, evidence.Type, evidence.Inferred)
 		if evidence.Line < 1 {
 			continue
 		}
