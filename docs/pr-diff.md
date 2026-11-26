@@ -83,7 +83,7 @@ umlgen diff HEAD~1..HEAD --report relationships --language go --relations field,
 - `added`／`removed` は関係の追加／削除です。同じ型の組み合わせ・方向・種別に複数の宣言がある場合、一部だけ変われば `evidence-changed` になります。宣言の行移動だけは変更にせず、元ファイル・メンバー・型参照・多重度・推論根拠の変化は比較します。
 - `--explain` は変更候補の旧／新それぞれの宣言位置と最大3行の抜粋を表示します。関係の数は既存の静的クラス解析に基づき、Goの実装関係もコンパイラーによる証明ではありません。
 - 未解決参照がある型・関係種別の候補は `uncertain` です。一部の構文解析失敗時はすべての変更候補を `uncertain` にして終了コード3、片側全件失敗時は比較結果を出さず終了コード3です。型IDが重複する場合も確定差分を出しません。
-- 図・画像は生成しません。`--diagram`、`--output`、`--format`、`--focus`、`--depth` などは併用できません。既定クラス差分とパッケージ差分は従来どおりです。[再利用Actionsワークフロー](./github-actions.md)では、既存の図にテキストレポートを明示的に追加できます。
+- 図・画像は生成しません。`--diagram`、`--output`、`--format`、`--focus`、`--depth` などは併用できません。既定クラス差分とパッケージ差分は従来どおりです。
 
 ## パッケージ依存の差分
 
@@ -280,6 +280,8 @@ note "No displayable changed types in the selected range" as NoChanges
 ### 再利用ワークフローで対象言語を選ぶ
 
 既定はJavaです。`language: go`の場合は`_test.go`を除くGoソースを検知します。両言語を可視化する場合は異なる`artifact-name`で別々に呼び出します。[ワークフロー入力](github-actions.md#入力)を参照してください。
+
+既存の図と一緒に関係差分のテキストを保存する場合は、[関係差分レポートを成果物に追加する](github-actions.md#クラス関係の差分レポートを追加する)を参照してください。
 
 ### クラス図本体の限界が継承される
 
