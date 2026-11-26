@@ -96,6 +96,12 @@ func (r Result) changeFor(root, path string) (model.ChangeKind, bool) {
 
 func baseRevision(root, rangeSpec string) (string, error) {
 	if before, after, ok := strings.Cut(rangeSpec, "..."); ok {
+		if before == "" {
+			before = "HEAD"
+		}
+		if after == "" {
+			after = "HEAD"
+		}
 		output, err := runGit(root, "merge-base", before, after)
 		if err != nil {
 			return "", fmt.Errorf("failed to find merge base for %q: %w", rangeSpec, err)
@@ -103,6 +109,9 @@ func baseRevision(root, rangeSpec string) (string, error) {
 		return strings.TrimSpace(string(output)), nil
 	}
 	if before, _, ok := strings.Cut(rangeSpec, ".."); ok {
+		if before == "" {
+			return "HEAD", nil
+		}
 		return before, nil
 	}
 	return rangeSpec, nil
