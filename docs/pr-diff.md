@@ -139,6 +139,8 @@ package差分ではGitの`refs/replace`を無効にしてrevision解決・merge-
 | `main..HEAD` | `main` から `HEAD` までの差分。merge-base 以降に main 側で追加されたコミットも含む |
 | `<commit>` | 指定コミットと作業ツリーの比較 |
 
+範囲の端点を省略した場合は `HEAD` として扱います。例: `...feature` は `HEAD...feature` と同じです。
+
 ### 周辺型の表示
 
 `--depth` で、変更された型から何段先の関係まで図に含めるか指定できます。デフォルトは `1` です。

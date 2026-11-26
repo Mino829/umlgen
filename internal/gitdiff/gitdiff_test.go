@@ -107,6 +107,40 @@ func checkDeleted(t *testing.T, result Result, name, want string) {
 	}
 }
 
+func TestAnalyzeUsesCommitSourcesForOmittedRangeEndpoints(t *testing.T) {
+	root := t.TempDir()
+	git(t, root, "init", "-b", "base")
+	git(t, root, "config", "user.email", "umlgen@example.test")
+	git(t, root, "config", "user.name", "umlgen test")
+	const name = "Removed.java"
+	write(t, root, name, "class MergeBase {}")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "common")
+	git(t, root, "switch", "-c", "without-source")
+	git(t, root, "rm", name)
+	git(t, root, "commit", "-m", "delete")
+	git(t, root, "switch", "base")
+	write(t, root, name, "class BaseHead {}")
+	git(t, root, "commit", "-am", "diverge")
+	write(t, root, name, "class Staged {}")
+	git(t, root, "add", name)
+	write(t, root, name, "class WorkingTree {}")
+
+	for spec, want := range map[string]string{"..without-source": "class BaseHead {}", "...without-source": "class MergeBase {}"} {
+		result, err := Analyze(root, spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		checkDeleted(t, result, name, want)
+	}
+	git(t, root, "switch", "--discard-changes", "without-source")
+	result, err := Analyze(root, "base...")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkDeleted(t, result, name, "class MergeBase {}")
+}
+
 func TestAnalyzeConcurrentRepositories(t *testing.T) {
 	for _, name := range []string{"First", "Second"} {
 		root := t.TempDir()
