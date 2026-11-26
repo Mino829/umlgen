@@ -17,9 +17,9 @@ import (
 	"github.com/Mino829/umlgen/internal/renderer"
 )
 
-// Use the registered flags to distinguish a diagram selector from a value such
-// as --title=--diagram=package. The selected command still validates its flags.
-func diffDiagramArgs(args []string) (string, []string, error) {
+// Use registered flags to distinguish selectors from values such as
+// --title=--diagram=package. The selected mode still validates its flags.
+func diffModeArgs(args []string) (string, []string, error) {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	var class classOptions
 	var packages packageOptions
@@ -31,8 +31,10 @@ func diffDiagramArgs(args []string) (string, []string, error) {
 			fs.Var(f.Value, f.Name, f.Usage)
 		}
 	})
-	var diagram string
+	var diagram, report string
+	var diagramSet, reportSet bool
 	fs.StringVar(&diagram, "diagram", "class", "")
+	fs.StringVar(&report, "report", "", "")
 	normalized, err := normalizeDiagramArgs(args, fs)
 	if err != nil {
 		return "", nil, err
@@ -55,14 +57,27 @@ func diffDiagramArgs(args []string) (string, []string, error) {
 			n++ // normalizeDiagramArgs already checked the value exists.
 			value = normalized[n]
 		}
-		if name == "diagram" {
-			diagram = value
+		switch name {
+		case "diagram":
+			diagram, diagramSet = value, true
+			continue
+		case "report":
+			report, reportSet = value, true
 			continue
 		}
 		remaining = append(remaining, arg)
 		if !inline && (!isBoolean || !boolean.IsBoolFlag()) {
 			remaining = append(remaining, value)
 		}
+	}
+	if reportSet {
+		if diagramSet {
+			return "", nil, errors.New("--report and --diagram cannot be combined")
+		}
+		if report != "relationships" {
+			return "", nil, fmt.Errorf("unsupported report %q: expected relationships", report)
+		}
+		return report, remaining, nil
 	}
 	if diagram != "class" && diagram != "package" {
 		return "", nil, fmt.Errorf("unsupported diagram %q: expected class or package", diagram)
@@ -83,7 +98,7 @@ func generatePackageDiff(rangeSpec string, targets []string, o packageOptions, c
 	if err != nil {
 		return exitError, err
 	}
-	backend, err := snapshotLanguage(cfg.Language, pair)
+	backend, err := snapshotLanguage(cfg.Language, pair, "package diff")
 	if err != nil {
 		return exitArgs, err
 	}
@@ -143,7 +158,7 @@ func generatePackageDiff(rangeSpec string, targets []string, o packageOptions, c
 
 // Auto language selection uses only the pinned source sets, never the current
 // checkout or its project markers. Empty comparisons need an explicit language.
-func snapshotLanguage(configured string, pair gitsnapshot.Pair) (language.Parser, error) {
+func snapshotLanguage(configured string, pair gitsnapshot.Pair, mode string) (language.Parser, error) {
 	if configured != "" && configured != "auto" {
 		return language.ForName(configured)
 	}
@@ -159,7 +174,7 @@ func snapshotLanguage(configured string, pair gitsnapshot.Pair) (language.Parser
 		}
 	}
 	if javaFound == goFound {
-		return nil, errors.New("package diff snapshots contain mixed or no source languages; select --language java or --language go")
+		return nil, fmt.Errorf("%s snapshots contain mixed or no source languages; select --language java or --language go", mode)
 	}
 	if javaFound {
 		return language.ForName("java")
