@@ -232,12 +232,15 @@ func runDiff(args []string, inherited commonOptions, stdout, stderr io.Writer) (
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return exitArgs, errors.New("diff requires a Git revision or range")
 	}
-	diagram, remaining, err := diffDiagramArgs(args[1:])
+	mode, remaining, err := diffModeArgs(args[1:])
 	if err != nil {
 		return exitArgs, err
 	}
-	if diagram == "package" {
+	switch mode {
+	case "package":
 		return runPackageMode(remaining, inherited, stdout, stderr, args[0])
+	case "relationships":
+		return runRelationshipDiff(args[0], remaining, inherited, stdout, stderr)
 	}
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -408,7 +411,7 @@ The clean subcommand removes all cached source parse results for umlgen.
 }
 
 func printDiffHelp(w io.Writer) {
-	fmt.Fprint(w, `Generate a class or package dependency diff from Java or Go source code.
+	fmt.Fprint(w, `Generate a class/package diff or report changes to class relationships.
 
 Usage:
   umlgen diff <revision-or-range> [target] [flags]
@@ -417,6 +420,7 @@ Examples:
   umlgen diff HEAD~1
   umlgen diff main...HEAD --depth 2 --show-relation-labels
   umlgen diff main...HEAD --diagram package --dependency-source both --explain
+  umlgen diff main...HEAD --report relationships --language go --explain
 
 --diagram class (default) preserves the existing changed-type/working-tree behavior.
 Class flags such as --depth, --direction, --output, --format, and --explain are supported.
@@ -432,6 +436,11 @@ Package flags: --dependency-source declared-types|imports|both, --external hide|
 Default package diff output: package-change-diagram.puml.
 Partial parse failure emits an uncertain diff and exits 3; total failure preserves output.
 Added/removed edges are distinct from modified evidence on an existing edge.
+
+--report relationships compares class relationships in two immutable Git snapshots.
+It writes a text report to stdout: added, removed, evidence-changed, or uncertain.
+Flags: --language, --include, --exclude, --relations, --no-cache, --config, --explain.
+It cannot be combined with --diagram, image/output options, focus or traversal flags.
 `)
 }
 

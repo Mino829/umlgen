@@ -71,6 +71,20 @@ umlgen diff main...HEAD --format svg
 
 デフォルトの出力先は `change-diagram.puml` です。
 
+## クラス関係の差分レポート
+
+```bash
+umlgen diff main...HEAD src --report relationships --language java --explain
+umlgen diff HEAD~1..HEAD --report relationships --language go --relations field,implementation
+```
+
+`--report relationships` は、Java／Goの選択範囲を両方のGitコミットから読み、標準出力にテキストを出します。単独リビジョンは `REV..HEAD`、3点指定はmerge-baseから比較します。作業ツリー・index・未追跡ファイルはソースにも `go.mod` にも使いません。対象・`--include`・`--exclude`・関係種別は両コミットで共通です。
+
+- `added`／`removed` は関係の追加／削除です。同じ型の組み合わせ・方向・種別に複数の宣言がある場合、一部だけ変われば `evidence-changed` になります。宣言の行移動だけは変更にせず、元ファイル・メンバー・型参照・多重度・推論根拠の変化は比較します。
+- `--explain` は変更候補の旧／新それぞれの宣言位置と最大3行の抜粋を表示します。関係の数は既存の静的クラス解析に基づき、Goの実装関係もコンパイラーによる証明ではありません。
+- 未解決参照がある型・関係種別の候補は `uncertain` です。一部の構文解析失敗時はすべての変更候補を `uncertain` にして終了コード3、片側全件失敗時は比較結果を出さず終了コード3です。型IDが重複する場合も確定差分を出しません。
+- 図・画像は生成しません。`--diagram`、`--output`、`--format`、`--focus`、`--depth` などは併用できません。既定クラス差分、パッケージ差分、再利用Actionsワークフローは従来どおりです。
+
 ## パッケージ依存の差分
 
 ```bash
