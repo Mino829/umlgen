@@ -282,6 +282,8 @@ note "No displayable changed types in the selected range" as NoChanges
 
 既定はJavaです。`language: go`の場合は`_test.go`を除くGoソースを検知します。両言語を可視化する場合は異なる`artifact-name`で別々に呼び出します。[ワークフロー入力](github-actions.md#入力)を参照してください。
 
+既存の図と一緒に関係差分のテキストを保存する場合は、[関係差分レポートを成果物に追加する](github-actions.md#クラス関係の差分レポートを追加する)を参照してください。
+
 ### クラス図本体の限界が継承される
 
 `umlgen diff` の精度は、あくまで `umlgen class` の解析精度の範囲内です。したがって、以下は diff 図でも同様に扱われません。
