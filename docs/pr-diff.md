@@ -227,7 +227,7 @@ umlgen diff main...HEAD \
 
 ### 変更検出はファイル単位
 
-`git diff --name-status --find-renames` でファイルごとの変更ステータスを取得し、以下のように扱います。
+`git diff --name-status --find-renames` でファイルごとの変更ステータスを取得します。クラス図と同じく `.java`／`.go` は拡張子の大小文字を区別せず、Go の `_test.go` は大小文字にかかわらず対象外です。
 
 | Git ステータス | 扱い | 色 |
 | --- | --- | --- |

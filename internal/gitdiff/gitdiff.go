@@ -24,7 +24,9 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 		return Result{}, fmt.Errorf("not inside a Git repository: %w", err)
 	}
 	root := string(bytes.TrimSuffix(rootOutput, []byte{'\n'}))
-	statusOutput, err := runGit(root, "diff", "--name-status", "-z", "--find-renames", rangeSpec, "--", "*.java", "*.go")
+	// Match the class parsers, including their case-insensitive Go test exclusion.
+	sourcePatterns := []string{":(icase)*.java", ":(icase)*.go", ":(exclude,icase)*_test.go"}
+	statusOutput, err := runGit(root, append([]string{"diff", "--name-status", "-z", "--find-renames", rangeSpec, "--"}, sourcePatterns...)...)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to inspect Git diff %q: %w", rangeSpec, err)
 	}
@@ -57,7 +59,7 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 			result.Deleted = append(result.Deleted, string(path))
 		}
 	}
-	untracked, err := runGit(root, "ls-files", "-z", "--others", "--exclude-standard", "--", "*.java", "*.go")
+	untracked, err := runGit(root, append([]string{"ls-files", "-z", "--others", "--exclude-standard", "--"}, sourcePatterns...)...)
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to inspect untracked source files: %w", err)
 	}

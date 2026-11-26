@@ -107,6 +107,34 @@ func checkDeleted(t *testing.T, result Result, name, want string) {
 	}
 }
 
+func TestAnalyzeMatchesClassSourceExtensions(t *testing.T) {
+	root := t.TempDir()
+	git(t, root, "init")
+	git(t, root, "config", "user.email", "umlgen@example.test")
+	git(t, root, "config", "user.name", "umlgen test")
+	const removed = "Removed.gO"
+	const historical = "package source; type Historical struct{}"
+	write(t, root, "Tracked.JAVA", "class Tracked {}")
+	write(t, root, removed, historical)
+	write(t, root, "Removed_Test.GO", "package source")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "base")
+
+	write(t, root, "Tracked.JAVA", "class Tracked { int changed; }")
+	write(t, root, "Untracked.Go", "package source; type Untracked struct{}")
+	write(t, root, "Untracked_TEST.Go", "package source")
+	git(t, root, "rm", removed, "Removed_Test.GO")
+
+	result, err := Analyze(root, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Current) != 2 || result.Current["Tracked.JAVA"] != model.Modified || result.Current["Untracked.Go"] != model.Added {
+		t.Fatalf("unexpected class source changes: %v", result.Current)
+	}
+	checkDeleted(t, result, removed, historical)
+}
+
 func TestAnalyzeUsesCommitSourcesForOmittedRangeEndpoints(t *testing.T) {
 	root := t.TempDir()
 	git(t, root, "init", "-b", "base")
