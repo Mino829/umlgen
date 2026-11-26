@@ -28,6 +28,11 @@ on:
         required: false
         default: v0.7.1
         type: string
+      relationship-report:
+        description: Include a text report of class relationship changes (requires a compatible released CLI)
+        required: false
+        default: false
+        type: boolean
       artifact-name:
         description: Uploaded artifact name
         required: false
@@ -351,6 +356,55 @@ jobs:
             echo "::notice::No $language_name source files were found in the selected path at PR head."
           fi
 
+      - name: Generate relationship changes report
+        id: relationships
+        if: inputs.relationship-report
+        shell: bash
+        env:
+          COMPARISON_BASE_SHA: ${{ steps.revisions.outputs.comparison-base-sha }}
+          HEAD_SHA: ${{ steps.revisions.outputs.head-sha }}
+          SOURCE: ${{ inputs.source }}
+          LANGUAGE: ${{ inputs.language }}
+          REVIEW_ARGS_FILE: ${{ runner.temp }}/umlgen-review-args
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/umlgen-relationship-report"
+          args=(--report relationships --language "$LANGUAGE" --quiet)
+          # The validated review arguments are flag/value pairs. Only these two
+          # filters apply to the snapshot report, not class-diagram traversal.
+          while IFS= read -r -d '' flag && IFS= read -r -d '' value; do
+            case "$flag" in
+              --include|--relations) args+=("$flag" "$value") ;;
+            esac
+          done < "$REVIEW_ARGS_FILE"
+          umlgen_exit=0
+          "$RUNNER_TEMP/umlgen/umlgen-linux-amd64" diff "$COMPARISON_BASE_SHA..$HEAD_SHA" \
+            "${args[@]}" -- "$SOURCE" > "$report" || umlgen_exit=$?
+          case "$umlgen_exit" in
+            0|3) ;;
+            2)
+              echo '::error::umlgen rejected the relationship report arguments. Select a released umlgen-version that supports diff --report relationships.'
+              exit "$umlgen_exit"
+              ;;
+            *)
+              echo "::error::umlgen relationship report failed (exit $umlgen_exit)."
+              exit "$umlgen_exit"
+              ;;
+          esac
+
+          # Exit 3 can also mean that no comparison was possible. Publish only
+          # reports that reached the comparison, even if it found no changes.
+          if ! grep -Eq '^(No relationship changes detected in the analyzed scope\.$|(added|removed|evidence-changed|uncertain) .+ -> .+)' "$report"; then
+            echo "::error::umlgen did not produce a usable relationship comparison (exit $umlgen_exit)."
+            exit 1
+          fi
+          status=complete
+          if [[ "$umlgen_exit" == 3 ]]; then
+            status=incomplete
+            echo '::warning::The relationship report is incomplete; selected sources failed to parse.'
+          fi
+          mv -- "$report" "$RUNNER_TEMP/umlgen-pr-diff/relationship-changes.txt"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Summarize review scope
         if: always() && !cancelled() && steps.receipt.outcome == 'success'
@@ -360,6 +414,9 @@ jobs:
           FULL_OUTCOME: ${{ steps.full.outcome }}
           NO_SOURCE_CHANGES: ${{ steps.sources.outputs.no-source-changes }}
           NO_JAVA_CHANGES: ${{ steps.sources.outputs.no-java-changes }}
+          RELATIONSHIP_REPORT: ${{ inputs.relationship-report }}
+          RELATIONSHIP_OUTCOME: ${{ steps.relationships.outcome }}
+          RELATIONSHIP_STATUS: ${{ steps.relationships.outputs.status }}
         with:
           script: |
             const fs = require('node:fs');
@@ -369,6 +426,14 @@ jobs:
             const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
             receipt.status = process.env.DIFF_OUTCOME === 'success' &&
               process.env.FULL_OUTCOME === 'success' ? 'generated' : 'failed';
+            if (process.env.RELATIONSHIP_REPORT === 'true') {
+              const outcome = process.env.RELATIONSHIP_OUTCOME;
+              receipt.relationship_report_status = outcome === 'success' ? process.env.RELATIONSHIP_STATUS :
+                outcome === 'failure' ? 'failed' : 'not-run';
+              if (outcome !== 'success') {
+                receipt.status = 'failed';
+              }
+            }
             receipt.no_source_changes = process.env.NO_SOURCE_CHANGES === 'true' ? true :
               process.env.NO_SOURCE_CHANGES === 'false' ? false : null;
             receipt.no_java_changes = process.env.NO_JAVA_CHANGES === 'true' ? true :
@@ -399,12 +464,17 @@ jobs:
               ['PR body SHA-256', receipt.body_sha256],
               ['Run / attempt', receipt.run_id + ' / ' + receipt.run_attempt]
             ];
+            if (receipt.relationship_report_status) {
+              rows.push(['Relationship report', receipt.relationship_report_status]);
+            }
             const summary = [
               '## umlgen review scope', '',
               '| Setting | Value |', '| --- | --- |',
               ...rows.map(([key, value]) => '| ' + key + ' | <code>' +
                 escape(value) + '</code> |'), '',
-              'Arguments apply only to the change diagram. Unset include/relations preserve the released CLI and repository-config defaults.',
+              receipt.relationship_report_status ?
+                'The change diagram uses all listed arguments; the relationship report uses only include/relations. Unset include/relations preserve the released CLI and repository-config defaults.' :
+                'Arguments apply only to the change diagram. Unset include/relations preserve the released CLI and repository-config defaults.',
               '<pre>' + escape(JSON.stringify(receipt.arguments, null, 2)) + '</pre>', '',
               'The full diagram is unfiltered PR-head context, not the filtered review result.',
               'Artifacts belong to this run and body digest; older runs are historical results, not a mutable latest diagram.', ''
@@ -422,5 +492,6 @@ jobs:
             ${{ runner.temp }}/umlgen-pr-diff/full-diagram.puml
             ${{ runner.temp }}/umlgen-pr-diff/full-diagram.svg
             ${{ runner.temp }}/umlgen-pr-diff/review-scope.json
+            ${{ inputs.relationship-report && format('{0}/umlgen-pr-diff/relationship-changes.txt', runner.temp) || '' }}
           if-no-files-found: error
           retention-days: ${{ inputs.retention-days }}

@@ -31,7 +31,7 @@ jobs:
 
 Goプロジェクトでは、Goに対応したworkflowを参照し、呼び出し側の`with`に`language: go`を指定します。`source`はGoソースの場所に合わせます（リポジトリ全体なら`.`）。
 
-実行後、Actionsのrun summaryに適用条件・比較commit・本文hashを表示し、Artifactsから`umlgen-pr-diff`をダウンロードする。内容は次の5ファイル。
+実行後、Actionsのrun summaryに適用条件・比較commit・本文hashを表示し、Artifactsから`umlgen-pr-diff`をダウンロードする。既定の内容は次の5ファイル。
 
 ```text
 change-diagram.puml
@@ -52,6 +52,7 @@ review-scope.json
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
 | `umlgen-version` | `v0.7.1` | ダウンロードするumlgenのリリースタグ（mainのworkflowの既定値。古いworkflow refでは明示指定） |
+| `relationship-report` | `false` | クラス関係の差分テキストをartifactに追加する。対応する公開CLIが必要 |
 | `artifact-name` | `umlgen-pr-diff` | artifact名 |
 | `retention-days` | `14` | artifact保持日数 |
 | `base-sha` | Pull Requestのbase | base commitの上書き |
@@ -61,7 +62,7 @@ review-scope.json
 
 ## PR本文でレビュー範囲を指定する
 
-対応するworkflowのcommit／リリースを使うと、PR本文の専用blockで**差分図だけ**の範囲を指定できる。呼び出し側の`pull_request.types`には上の例のように`edited`を含める。旧workflowの参照先を更新しない場合、この設定は適用されない。
+対応するworkflowのcommit／リリースを使うと、PR本文の専用blockで差分図と、明示的に有効にした関係差分レポートの範囲を指定できる。呼び出し側の`pull_request.types`には上の例のように`edited`を含める。旧workflowの参照先を更新しない場合、この設定は適用されない。
 
 ````markdown
 ### 今回レビューしたい範囲
@@ -97,6 +98,18 @@ review-scope.json
 同じrepository・caller workflow・PR・artifact名の新しいrunが古いrunを取り消す。異なる図を同時生成する場合は`artifact-name`を分ける。caller側で同名のconcurrency groupを重ねて設定しない。artifactとSummaryはrun・commit・本文hashに結び付き、以前のrunのartifactは履歴であって「常に最新」のURLではない。
 
 失敗時にはSummaryとログへ診断を残し、成功した図のartifactとしてuploadしない。本文検証に失敗した場合は生成job自体を開始しない。本文への自動書き戻し・PRコメント投稿は行わない。
+
+## クラス関係の差分レポートを追加する
+
+呼び出し側の`with`に`relationship-report: true`を指定すると、既存の図に加え`relationship-changes.txt`を同じartifactに保存します。`umlgen-version`には`umlgen diff --report relationships`に対応する公開済みタグを指定してください。workflowの既定CLI版は変わらず、非対応のCLIを選ぶと失敗します。使用するバイナリは図と同じ検証済みダウンロードです。
+
+比較は差分図と同じ比較merge-base／headの完全SHA、および同じ`source`と`language`を使います。PR本文からは`--include`と`--relations`だけを渡し、`--depth`／`--direction`は差分図にのみ適用します。include／relationsが未指定ならレポート側でもCLIとrepository設定の既定を維持します。
+
+レポートは両側のGit snapshotを比較するため、`no-source-changes`が`true`でも生成します。たとえばGoの`go.mod`だけの変更でも関係が変わることがあります。片側にだけ存在する対象は比較できますが、`source`が両側に存在しない場合はCLIエラーになり、「関係の変更なし」として扱いません。
+
+有効時だけ`review-scope.json`の`relationship_report_status`とSummaryに状態を記録します。CLI終了コード0は`complete`（未解決参照による`uncertain`を含む場合あり）、終了コード3でも比較可能な結果があれば`incomplete`として保存します。比較不能・空または不正な出力・ほかの終了コードは`failed`としてworkflowを失敗させ、artifactをuploadしません。先行stepで失敗してレポートを実行できなかった場合は`not-run`です。無効時は従来の5ファイルと出力のままです。
+
+`--explain`は使わず、レポートにソースの抜粋は含めません。レポート本文はartifactにだけ保存し、SummaryやPRコメントには掲載しません。各結果の読み方は[ローカルCLIの説明](./pr-diff.md#クラス関係の差分レポート)を参照してください。
 
 ## 出力
 
