@@ -1,6 +1,14 @@
 # 次にやること
 
-更新日: 2026-11-26
+更新日: 2026-11-28
+
+## v0.7.2公開安定版
+
+[v0.7.2 Release](https://github.com/Mino829/umlgen/releases/tag/v0.7.2)、公開ソース `b6019c19642aeb6477d297d09bc1706511243d5a`。[タグのRelease workflow](https://github.com/Mino829/umlgen/actions/runs/46027656640)でLinux amd64、macOS arm64／amd64、Windows amd64のネイティブ配布物を検証しました。
+
+- **#109・#114：クラス関係の差分レポート** — Java／Goの2つのGitスナップショットから関係の追加・削除・根拠の変化をテキストで出力し、`--explain`で判定が不確かな理由も表示します。
+- **#110・#113：クラス差分の修正** — 省略したリビジョン端点を`HEAD`として解決し、大小混在のJava／Go拡張子も検出します。Goの`_test.go`は大小文字を問わず除外します。
+- **#115：PR成果物に関係差分を追加** — 再利用ワークフローの`relationship-report: true`で既存の図と同じartifactに保存します。既定は無効で、ソース抜粋は含めません。
 
 ## v0.7.1公開安定版
 

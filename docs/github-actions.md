@@ -51,7 +51,7 @@ review-scope.json
 | `language` | `java` | `java`または`go`。自動判定しない |
 | `depth` | `1` | 変更型から含める関係の深さ |
 | `direction` | `both` | 関係の探索方向：`in`、`out`、`both` |
-| `umlgen-version` | `v0.7.1` | ダウンロードするumlgenのリリースタグ（mainのworkflowの既定値。古いworkflow refでは明示指定） |
+| `umlgen-version` | `v0.7.2` | ダウンロードするumlgenのリリースタグ（mainのworkflowの既定値。古いworkflow refでは明示指定） |
 | `relationship-report` | `false` | クラス関係の差分テキストをartifactに追加する。対応する公開CLIが必要 |
 | `artifact-name` | `umlgen-pr-diff` | artifact名 |
 | `retention-days` | `14` | artifact保持日数 |
@@ -101,7 +101,7 @@ review-scope.json
 
 ## クラス関係の差分レポートを追加する
 
-呼び出し側の`with`に`relationship-report: true`を指定すると、既存の図に加え`relationship-changes.txt`を同じartifactに保存します。`umlgen-version`には`umlgen diff --report relationships`に対応する公開済みタグを指定してください。workflowの既定CLI版は変わらず、非対応のCLIを選ぶと失敗します。使用するバイナリは図と同じ検証済みダウンロードです。
+呼び出し側の`with`に`relationship-report: true`を指定すると、既存の図に加え`relationship-changes.txt`を同じartifactに保存します。workflowとCLIの両方が対応している必要があり、どちらもv0.7.2以降を使用してください。v0.7.2タグのworkflowを固定して使う場合は、`umlgen-version: v0.7.2`も明示してください。このタグに含まれるworkflowの既定CLIはv0.7.1です。使用するバイナリは図と同じ検証済みダウンロードです。
 
 比較は差分図と同じ比較merge-base／headの完全SHA、および同じ`source`と`language`を使います。PR本文からは`--include`と`--relations`だけを渡し、`--depth`／`--direction`は差分図にのみ適用します。include／relationsが未指定ならレポート側でもCLIとrepository設定の既定を維持します。
 
