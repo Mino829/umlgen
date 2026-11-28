@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -81,6 +83,72 @@ func TestClassDiffScopesDeletedSourcesAndAutoLanguage(t *testing.T) {
 			before := packageCLIRead(t, output)
 			if code, err, _ := run("missing"); code != exitError || err == nil || !strings.Contains(err.Error(), "target does not exist") || packageCLIRead(t, output) != before {
 				t.Errorf("unknown target did not fail and preserve prior output: %d %v", code, err)
+			}
+		})
+	}
+}
+
+func TestClassDiffJudgesMovesAgainstSelectedScope(t *testing.T) {
+	for _, language := range []string{"java", "go"} {
+		t.Run(language, func(t *testing.T) {
+			root := packageDiffRepo(t, language)
+			extension, header := ".java", "package review; "
+			declaration := func(name string) string { return header + "class " + name + " {}\n" }
+			if language == "go" {
+				extension, header = ".go", "package review\n"
+				declaration = func(name string) string { return header + "type " + name + " struct{}\n" }
+			}
+			file := func(dir, name string) string { return dir + "/" + name + extension }
+			moves := [][2]string{
+				{file("selected", "Removed"), file("other", "Removed")},
+				{file("other", "Incoming"), file("selected", "Incoming")},
+				{file("selected", "Stay"), file("selected/nested", "Stay")},
+				{file("other", "Away"), file("elsewhere", "Away")},
+				{file("selected/ignored", "Hidden"), file("other", "Hidden")},
+				{file("other", "Shadowed"), file("selected/ignored", "Shadowed")},
+			}
+			packageCLIWrite(t, filepath.Join(root, file("selected", "Context")), declaration("Context"))
+			for _, move := range moves {
+				name := strings.TrimSuffix(filepath.Base(move[0]), extension)
+				packageCLIWrite(t, filepath.Join(root, move[0]), declaration(name))
+			}
+			base := packageDiffCommit(t, root, "before moves")
+			for _, move := range moves {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(root, move[1])), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				runGit(t, root, "mv", "--", move[0], move[1])
+			}
+			head := packageDiffCommit(t, root, "after moves")
+			output := filepath.Join(t.TempDir(), "moves.puml")
+			run := func(target string) string {
+				t.Helper()
+				var stdout, stderr bytes.Buffer
+				code, err := Run([]string{"diff", base + ".." + head, target, "--exclude", "ignored", "--quiet", "-o", output}, &stdout, &stderr)
+				if code != exitOK || err != nil {
+					t.Fatalf("diff %s: %d %v\n%s%s", target, code, err, stdout.String(), stderr.String())
+				}
+				return packageCLIRead(t, output)
+			}
+			diagram := run("selected")
+			for name, color := range map[string]string{"Removed": "#lightcoral", "Incoming": "#palegreen", "Stay": "#lightyellow"} {
+				if !regexp.MustCompile(`"` + name + `".*` + color).MatchString(diagram) {
+					t.Errorf("%s should be drawn with %s:\n%s", name, color, diagram)
+				}
+			}
+			for _, unwanted := range []string{"Away", "Hidden", "Shadowed"} {
+				if strings.Contains(diagram, unwanted) {
+					t.Errorf("out-of-scope move %q leaked:\n%s", unwanted, diagram)
+				}
+			}
+			for target, want := range map[string]string{
+				moves[0][0]: `"Removed".*#lightcoral`,
+				moves[0][1]: `"Removed".*#palegreen`,
+				moves[2][1]: `"Stay".*#palegreen`,
+			} {
+				if got := run(target); !regexp.MustCompile(want).MatchString(got) {
+					t.Errorf("target %s should match %q:\n%s", target, want, got)
+				}
 			}
 		})
 	}
