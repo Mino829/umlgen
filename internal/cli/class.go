@@ -57,13 +57,11 @@ func runClassMode(
 	var changedPaths []string
 	if diffSelection != nil {
 		var deleted []string
-		liveTargets, changedPaths, deleted, err = scopeClassDiff(*diffSelection, targets, cfg.Exclude)
+		liveTargets, changedPaths, deleted, err = scopeClassDiff(diffSelection, targets, cfg.Exclude)
 		if err != nil {
 			return exitError, err
 		}
-		scoped := *diffSelection
-		scoped.Deleted = deleted
-		diffSelection = &scoped
+		diffSelection.Deleted = deleted
 	}
 	sourceParser, err := language.Select(cfg.Language, liveTargets, cfg.Exclude, changedPaths)
 	if err != nil {

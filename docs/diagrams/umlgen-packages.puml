@@ -70,7 +70,7 @@ PKG_2 --> PKG_10 : types=0; imports=2
 PKG_2 --> PKG_11 : types=0; imports=1
 PKG_2 --> PKG_13 : types=0; imports=2
 PKG_2 --> PKG_14 : types=0; imports=10
-PKG_2 --> PKG_15 : types=0; imports=6
+PKG_2 --> PKG_15 : types=0; imports=7
 PKG_2 --> PKG_16 : types=0; imports=1
 PKG_2 --> PKG_17 : types=0; imports=4
 PKG_2 --> PKG_18 : types=0; imports=12

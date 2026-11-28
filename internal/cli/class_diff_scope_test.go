@@ -85,3 +85,75 @@ func TestClassDiffScopesDeletedSourcesAndAutoLanguage(t *testing.T) {
 		})
 	}
 }
+
+func TestClassDiffScopesRenames(t *testing.T) {
+	for _, language := range []string{"java", "go"} {
+		t.Run(language, func(t *testing.T) {
+			root := packageDiffRepo(t, language)
+			ext := "." + strings.ToUpper(language)
+			source := func(name string) string {
+				if language == "java" {
+					return "package review; class " + name + " { int historical; }\n"
+				}
+				return "package review\ntype " + name + " struct { Historical int }\n"
+			}
+			type move struct{ name, from, to string }
+			moves := []move{
+				{"MovedOut", "watched/MovedOut", "outside/MovedOut"},
+				{"MovedIn", "outside/MovedIn", "watched/MovedIn"},
+				{"MovedInside", "watched/OldPath", "watched/NewPath"},
+				{"IgnoredDestination", "watched/IgnoredDestination", "watched/ignored/IgnoredDestination"},
+				{"IgnoredSource", "watched/ignored/IgnoredSource", "watched/IgnoredSource"},
+				{"MovedOutside", "outside/OtherOld", "outside/OtherNew"},
+			}
+			for _, m := range moves {
+				packageCLIWrite(t, filepath.Join(root, m.from+ext), source(m.name))
+			}
+			base := packageDiffCommit(t, root, "before rename")
+			for _, m := range moves {
+				runGit(t, root, "mv", "--", m.from+ext, m.to+ext)
+			}
+			head := packageDiffCommit(t, root, "after rename")
+			packageCLIWrite(t, filepath.Join(root, moves[0].to+ext), source("DirtyOutside"))
+			output := filepath.Join(t.TempDir(), "change.puml")
+			render := func(target string) string {
+				t.Helper()
+				var stdout, stderr bytes.Buffer
+				code, err := Run([]string{"diff", base + ".." + head, target, "--exclude", "ignored", "--no-cache", "--quiet", "-o", output}, &stdout, &stderr)
+				if code != exitOK || err != nil {
+					t.Fatalf("diff %q: %d %v\n%s\n%s", target, code, err, &stdout, &stderr)
+				}
+				return packageCLIRead(t, output)
+			}
+			checkColor := func(diagram, name, color string) {
+				t.Helper()
+				found := 0
+				for line := range strings.SplitSeq(diagram, "\n") {
+					if strings.Contains(line, `"`+name+`" as `) {
+						found++
+						if !strings.Contains(line, color) {
+							t.Errorf("%s: expected %s in %q", name, color, line)
+						}
+					}
+				}
+				if found != 1 {
+					t.Errorf("expected one declaration of %s, got %d:\n%s", name, found, diagram)
+				}
+			}
+			diagram := render("watched")
+			checkColor(diagram, "MovedOut", "#lightcoral")
+			checkColor(diagram, "MovedIn", "#palegreen")
+			checkColor(diagram, "MovedInside", "#lightyellow")
+			checkColor(diagram, "IgnoredDestination", "#lightcoral")
+			checkColor(diagram, "IgnoredSource", "#palegreen")
+			if strings.Contains(diagram, "MovedOutside") || strings.Contains(diagram, "DirtyOutside") {
+				t.Fatalf("out-of-scope sources in diagram:\n%s", diagram)
+			}
+			diagram = render(moves[0].from + ext)
+			checkColor(diagram, "MovedOut", "#lightcoral")
+			if !strings.Contains(strings.ToLower(diagram), "historical") {
+				t.Errorf("base declaration missing for moved file:\n%s", diagram)
+			}
+		})
+	}
+}
