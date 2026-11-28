@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Mino829/umlgen/internal/fsidentity"
 	"github.com/Mino829/umlgen/internal/gitdiff"
+	"github.com/Mino829/umlgen/internal/model"
 	"github.com/Mino829/umlgen/internal/scanner"
 )
 
@@ -39,7 +41,7 @@ func (t classDiffTarget) includes(relative string, excludes []string) bool {
 	return true
 }
 
-func scopeClassDiff(selection gitdiff.Result, targets, excludes []string) (live, changed, deleted []string, err error) {
+func scopeClassDiff(selection *gitdiff.Result, targets, excludes []string) (live, changed, deleted []string, err error) {
 	root, err := fsidentity.Resolve(selection.Root)
 	if err != nil {
 		return nil, nil, nil, err
@@ -60,8 +62,8 @@ func scopeClassDiff(selection gitdiff.Result, targets, excludes []string) (live,
 			live = append(live, path)
 		}
 	}
-	for _, name := range selection.Deleted {
-		path := filepath.Join(root, filepath.FromSlash(name))
+	// A base path also establishes that a now-missing explicit target existed.
+	includesBase := func(path string) bool {
 		included := false
 		for i := range scopes {
 			target := &scopes[i]
@@ -70,23 +72,44 @@ func scopeClassDiff(selection gitdiff.Result, targets, excludes []string) (live,
 				included = included || target.includes(rel, excludes)
 			}
 		}
-		if included {
+		return included
+	}
+	for _, name := range selection.Deleted {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if includesBase(path) {
 			deleted = append(deleted, name)
 			changed = append(changed, path)
 		}
 	}
-	for _, target := range scopes {
-		if target.missing && !target.deleted {
-			return nil, nil, nil, fmt.Errorf("target does not exist: %s", target.path)
-		}
-	}
+	deletionCount := len(deleted)
 	for name := range selection.Current {
 		path := filepath.Join(root, filepath.FromSlash(name))
+		included := false
 		for _, target := range scopes {
 			if rel, ok := target.relative(path); !target.missing && ok && target.includes(rel, excludes) {
+				included = true
 				changed = append(changed, path)
 				break
 			}
+		}
+		if from, ok := selection.RenamedFrom[name]; ok {
+			basePath := filepath.Join(root, filepath.FromSlash(from))
+			wasIncluded := includesBase(basePath)
+			switch {
+			case wasIncluded && !included:
+				deleted = append(deleted, from)
+				changed = append(changed, basePath)
+			case !wasIncluded && included:
+				selection.Current[name] = model.Added
+			}
+		}
+	}
+	if len(deleted) != deletionCount {
+		slices.Sort(deleted)
+	}
+	for _, target := range scopes {
+		if target.missing && !target.deleted {
+			return nil, nil, nil, fmt.Errorf("target does not exist: %s", target.path)
 		}
 	}
 	return live, changed, deleted, nil

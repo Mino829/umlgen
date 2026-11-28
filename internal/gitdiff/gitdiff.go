@@ -13,6 +13,8 @@ import (
 type Result struct {
 	Root    string
 	Current map[string]model.ChangeKind
+	// RenamedFrom maps current paths to their original, unmodified Git paths.
+	RenamedFrom map[string]string
 	// Deleted holds repository-relative Git paths; their blobs are loaded on demand.
 	Deleted []string
 	base    string
@@ -54,7 +56,14 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 				return Result{}, fmt.Errorf("missing Git diff destination for %q", rangeSpec)
 			}
 			statusOutput = rest
-			result.Current[relative(string(destination))] = model.Modified
+			to := relative(string(destination))
+			result.Current[to] = model.Modified
+			if status[0] == 'R' {
+				if result.RenamedFrom == nil {
+					result.RenamedFrom = make(map[string]string)
+				}
+				result.RenamedFrom[to] = string(path)
+			}
 		case 'D':
 			result.Deleted = append(result.Deleted, string(path))
 		}
@@ -123,7 +132,7 @@ func relative(path string) string {
 	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
 }
 
-// ReadDeleted loads the base blob for a path from Deleted.
+// ReadDeleted loads a deleted or renamed-away source from the base revision.
 func (r Result) ReadDeleted(path string) ([]byte, error) {
 	content, err := runGit(r.Root, "show", r.base+":"+path)
 	if err != nil {
