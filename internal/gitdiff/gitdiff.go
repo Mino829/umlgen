@@ -15,7 +15,17 @@ type Result struct {
 	Current map[string]model.ChangeKind
 	// Deleted holds repository-relative Git paths; their blobs are loaded on demand.
 	Deleted []string
+	// Renamed pairs a rename's base Git path with its Current destination so
+	// callers can judge both ends against their own selection.
+	Renamed []Rename
 	base    string
+}
+
+type Rename struct {
+	// From is the repository-relative Git path at the base; ReadDeleted loads it.
+	From string
+	// To is the destination key in Current.
+	To string
 }
 
 func Analyze(workingDir, rangeSpec string) (Result, error) {
@@ -55,6 +65,9 @@ func Analyze(workingDir, rangeSpec string) (Result, error) {
 			}
 			statusOutput = rest
 			result.Current[relative(string(destination))] = model.Modified
+			if status[0] == 'R' {
+				result.Renamed = append(result.Renamed, Rename{From: string(path), To: relative(string(destination))})
+			}
 		case 'D':
 			result.Deleted = append(result.Deleted, string(path))
 		}
@@ -123,7 +136,7 @@ func relative(path string) string {
 	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
 }
 
-// ReadDeleted loads the base blob for a path from Deleted.
+// ReadDeleted loads the base blob for a path from Deleted or a Renamed source.
 func (r Result) ReadDeleted(path string) ([]byte, error) {
 	content, err := runGit(r.Root, "show", r.base+":"+path)
 	if err != nil {
