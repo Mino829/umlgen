@@ -33,7 +33,7 @@ $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTemp
 $work = Join-Path $tempRoot "umlgen-scoop-$([Guid]::NewGuid().ToString('N'))"
 $tapRepo = Join-Path $work 'bucket-repo'
 $previousPlantUMLJar = $env:PLANTUML_JAR
-$baseline = '0.7.0'
+$baseline = '0.7.1'
 try {
     python "$root/scripts/update-package-managers.py" --version $baseline --output-dir $tapRepo
     if ($LASTEXITCODE -ne 0) { throw 'Could not generate the published baseline.' }

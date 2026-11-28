@@ -6,7 +6,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
 formula=mino829/umlgen/umlgen
-baseline=0.7.0
+baseline=0.7.1
 case "$(brew tap)" in
   *mino829/umlgen*) echo 'Refusing to replace an existing mino829/umlgen tap.' >&2; exit 1 ;;
 esac
