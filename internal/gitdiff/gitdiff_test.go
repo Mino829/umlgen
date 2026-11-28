@@ -93,6 +93,11 @@ func TestAnalyzePreservesGitPathBytes(t *testing.T) {
 	if _, ok := result.ChangeFor(filepath.Join(root, renameSource)); ok {
 		t.Errorf("rename source %q should not be a changed current path", renameSource)
 	}
+	if len(result.Renamed) != 1 || result.Renamed[0] != (Rename{From: renameSource, To: renamedTo}) {
+		t.Errorf("renamed files = %q; want %q -> %q", result.Renamed, renameSource, renamedTo)
+	} else if content, err := result.ReadDeleted(result.Renamed[0].From); err != nil || string(content) != "package project\n\ntype Moved struct{}\n" {
+		t.Errorf("rename source content = %q, %v", content, err)
+	}
 	checkDeleted(t, result, deleted, deletedSource)
 }
 
